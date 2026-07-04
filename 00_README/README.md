@@ -35,7 +35,7 @@ Ce dossier a pour objectif de :
 │   ├── Extractions
 │   ├── OCR
 │   └── Redactions
-├── 03_Chronoligie
+├── 03_Chronologie
 │   ├── Chronologie.csv
 │   ├── Chronologie.md
 │   └── Enquete.sqlite
