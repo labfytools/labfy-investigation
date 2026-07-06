@@ -1,0 +1,15 @@
+# Build
+*.o
+*.a
+*.so
+labfy-investigation
+
+# SQLite
+*.sqlite-wal
+*.sqlite-shm
+
+# QtCreator
+*.pro.user
+
+# DB Browser
+*.sqbpro

@@ -162,3 +162,9 @@ Elle permet de :
 - documenter les recherches ;
 - générer les rapports ;
 - faciliter la navigation dans la base de données.
+
+## Licence
+
+Ce projet est distribué sous licence MIT.
+
+Voir le fichier `LICENSE` pour plus d'informations.
