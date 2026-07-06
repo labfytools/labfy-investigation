@@ -2,7 +2,7 @@ CC = gcc
 
 PKG_CONFIG = pkg-config
 
-CFLAGS = -Wall -Wextra -Wpedantic -std=c23 -g \
+CFLAGS = -Wall -Wextra -Wpedantic -Werror -std=c17 -g \
 	-Iinclude \
 	$(shell $(PKG_CONFIG) --cflags gtk4 sqlite3)
 

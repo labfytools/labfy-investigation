@@ -16,7 +16,7 @@ int main(int argc, char **argv)
 {
     sqlite3 *db = NULL;
 
-    if (db_open(&db, "Enquete.sqlite") != 0) {
+    if (db_open(&db, "../../03_Chronologie/Enquete.sqlite") != 0) {
         return 1;
     }
 
