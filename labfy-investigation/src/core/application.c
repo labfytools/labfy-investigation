@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "core/application.h"
+#include "views/folder_dialog.h"
 
 #include <gtk/gtk.h>
 
@@ -39,6 +40,27 @@ struct Application
  * @param gtk_application Application GTK ayant reçu le signal.
  * @param user_data Données utilisateur associées au signal.
  */
+
+static void application_on_folder_selected(
+    const char *folder_path,
+    gpointer user_data
+)
+{
+    GtkWindow *window = GTK_WINDOW(user_data);
+
+    if (folder_path == NULL)
+    {
+        gtk_window_set_title(
+            window,
+            "Labfy Investigation — aucune enquête sélectionnée"
+        );
+
+        return;
+    }
+
+    gtk_window_set_title(window, folder_path);
+}
+
 static void application_on_activate(GtkApplication *gtk_application,
                                     gpointer user_data)
 {
@@ -56,6 +78,12 @@ static void application_on_activate(GtkApplication *gtk_application,
     );
 
     gtk_window_present(GTK_WINDOW(window));
+
+    folder_dialog_select_folder(
+        GTK_WINDOW(window),
+        application_on_folder_selected,
+        window
+    );
 }
 
 Application *application_new(void)
@@ -113,3 +141,5 @@ void application_free(Application *application)
 
     g_free(application);
 }
+
+
