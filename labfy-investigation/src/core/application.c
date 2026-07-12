@@ -6,6 +6,7 @@
 #include "core/application.h"
 #include "views/folder_dialog.h"
 #include "core/investigation.h"
+#include "views/main_window.h"
 
 #include <gtk/gtk.h>
 
@@ -30,6 +31,8 @@
 struct Application
 {
     GtkApplication *gtk_application;
+    MainWindow *main_window;
+    Investigation *investigation;
 };
 
 /**
@@ -47,10 +50,23 @@ static void application_on_folder_selected(
     gpointer user_data
 )
 {
-    GtkWindow *window = GTK_WINDOW(user_data);
-    Investigation *investigation = NULL;
+    Application *application = user_data;
     const char *root_path = NULL;
     const char *database_path = NULL;
+
+    /*
+     * Une éventuelle enquête précédemment ouverte doit être libérée avant
+     * d'en créer une nouvelle.
+     */
+    investigation_free(application->investigation);
+    application->investigation = NULL;
+
+    application->investigation = investigation_new(folder_path);
+
+    if (application == NULL)
+    {
+        return;
+    }
 
     if (folder_path == NULL)
     {
@@ -58,46 +74,59 @@ static void application_on_folder_selected(
         return;
     }
 
-    investigation = investigation_new(folder_path);
-
-    if (investigation == NULL)
+    if (application->investigation == NULL)
     {
-        g_warning("Impossible de créer l'enquête à partir du dossier sélectionné.");
+        g_warning(
+            "Impossible de créer l'enquête à partir du dossier sélectionné."
+        );
         return;
     }
-
-    root_path = investigation_get_root_path(investigation);
-    database_path = investigation_get_database_path(investigation);
+    root_path = investigation_get_root_path(
+        application->investigation
+    );
+        database_path = investigation_get_database_path(
+                application->investigation
+    );
 
     g_print("Dossier racine : %s\n", root_path);
     g_print("Base de données : %s\n", database_path);
-
-    investigation_free(investigation);
-
-    gtk_window_set_title(window, "Labfy Investigation");
 }
-static void application_on_activate(GtkApplication *gtk_application,
-                                    gpointer user_data)
+static void application_on_activate(
+    GtkApplication *gtk_application,
+    gpointer user_data
+)
 {
-    GtkWidget *window = NULL;
+    Application *application = user_data;
 
-    (void)user_data;
+    if (application == NULL)
+    {
+        return;
+    }
 
-    window = gtk_application_window_new(gtk_application);
+    /*
+     * Le signal "activate" peut être reçu plusieurs fois. Si la fenêtre
+     * existe déjà, il suffit de la présenter au lieu d'en créer une seconde.
+     */
+    if (application->main_window != NULL)
+    {
+        main_window_present(application->main_window);
+        return;
+    }
 
-    gtk_window_set_title(GTK_WINDOW(window), "Labfy Investigation");
-    gtk_window_set_default_size(
-        GTK_WINDOW(window),
-        DEFAULT_WINDOW_WIDTH,
-        DEFAULT_WINDOW_HEIGHT
-    );
+    application->main_window = main_window_new(gtk_application);
 
-    gtk_window_present(GTK_WINDOW(window));
+    if (application->main_window == NULL)
+    {
+        g_warning("Impossible de créer la fenêtre principale.");
+        return;
+    }
+
+    main_window_present(application->main_window);
 
     folder_dialog_select_folder(
-        GTK_WINDOW(window),
+        main_window_get_window(application->main_window),
         application_on_folder_selected,
-        window
+        application
     );
 }
 
@@ -128,7 +157,11 @@ Application *application_new(void)
     return application;
 }
 
-int application_run(Application *application, int argc, char **argv)
+int application_run(
+        Application *application,
+        int argc,
+        char **argv
+)
 {
     if (application == NULL || application->gtk_application == NULL)
     {
@@ -148,6 +181,10 @@ void application_free(Application *application)
     {
         return;
     }
+
+    investigation_free(application->investigation);
+    
+    main_window_free(application->main_window);
 
     if (application->gtk_application != NULL)
     {
