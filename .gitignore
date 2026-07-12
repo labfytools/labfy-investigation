@@ -12,3 +12,5 @@
 
 # DB Browser
 *.sqbpro
+
+./labfy-investigation/tests/test_investigation_node
