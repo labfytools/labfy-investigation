@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "views/main_window.h"
+#include "widgets/sidebar.h"
 
 #include <glib.h>
 
@@ -18,23 +19,31 @@
 #define MAIN_WINDOW_DEFAULT_HEIGHT 650
 
 /**
+ * @brief Position initiale de la séparation horizontale.
+ */
+#define MAIN_WINDOW_SIDEBAR_POSITION 250
+
+/**
  * @struct MainWindow
  * @brief Représentation interne de la fenêtre principale.
  *
- * Cette structure reste privée au module. Les autres fichiers utilisent
- * uniquement le type opaque déclaré dans main_window.h.
+ * Cette structure reste privée au module. Elle conserve les composants
+ * nécessaires à l'organisation générale de l'interface.
  */
 struct MainWindow
 {
     GtkWindow *window;
+    GtkWidget *main_box;
+    GtkWidget *main_paned;
+    GtkWidget *workspace;
     GtkWidget *status_label;
+    Sidebar *sidebar;
 };
 
 MainWindow *main_window_new(GtkApplication *application)
 {
     MainWindow *main_window = NULL;
-    GtkWidget *main_box = NULL;
-    GtkWidget *workspace = NULL;
+    GtkWidget *sidebar_widget = NULL;
 
     if (application == NULL)
     {
@@ -64,18 +73,124 @@ MainWindow *main_window_new(GtkApplication *application)
         MAIN_WINDOW_DEFAULT_HEIGHT
     );
 
-    main_box = gtk_box_new(
+    /*
+     * La boîte principale organise verticalement :
+     *
+     * 1. la zone centrale ;
+     * 2. la barre d'état.
+     */
+    main_window->main_box = gtk_box_new(
         GTK_ORIENTATION_VERTICAL,
         0
     );
 
-    workspace = gtk_box_new(
+    /*
+     * GtkPaned sépare horizontalement le panneau latéral
+     * et la zone de travail.
+     */
+    main_window->main_paned = gtk_paned_new(
+        GTK_ORIENTATION_HORIZONTAL
+    );
+
+    gtk_widget_set_hexpand(
+        main_window->main_paned,
+        TRUE
+    );
+
+    gtk_widget_set_vexpand(
+        main_window->main_paned,
+        TRUE
+    );
+
+    /*
+     * Création du panneau latéral via son propre module.
+     *
+     * MainWindow ne connaît pas son contenu interne.
+     */
+    main_window->sidebar = sidebar_new();
+
+    if (main_window->sidebar == NULL)
+    {
+        main_window_free(main_window);
+        return NULL;
+    }
+
+    sidebar_widget = sidebar_get_widget(
+        main_window->sidebar
+    );
+
+    if (sidebar_widget == NULL)
+    {
+        main_window_free(main_window);
+        return NULL;
+    }
+
+    /*
+     * La zone de travail est encore vide.
+     * Elle accueillera plus tard les pages de l'application.
+     */
+    main_window->workspace = gtk_box_new(
         GTK_ORIENTATION_VERTICAL,
         0
     );
 
-    gtk_widget_set_hexpand(workspace, TRUE);
-    gtk_widget_set_vexpand(workspace, TRUE);
+    gtk_widget_set_hexpand(
+        main_window->workspace,
+        TRUE
+    );
+
+    gtk_widget_set_vexpand(
+        main_window->workspace,
+        TRUE
+    );
+
+    /*
+     * Placement des deux composants dans GtkPaned.
+     */
+    gtk_paned_set_start_child(
+        GTK_PANED(main_window->main_paned),
+        sidebar_widget
+    );
+
+    gtk_paned_set_end_child(
+        GTK_PANED(main_window->main_paned),
+        main_window->workspace
+    );
+
+    /*
+     * Position initiale de la poignée de séparation.
+     */
+    gtk_paned_set_position(
+        GTK_PANED(main_window->main_paned),
+        MAIN_WINDOW_SIDEBAR_POSITION
+    );
+
+    /*
+     * La sidebar conserve sa largeur lorsque la fenêtre est agrandie.
+     * La zone de travail récupère l'espace supplémentaire.
+     */
+    gtk_paned_set_resize_start_child(
+        GTK_PANED(main_window->main_paned),
+        FALSE
+    );
+
+    gtk_paned_set_resize_end_child(
+        GTK_PANED(main_window->main_paned),
+        TRUE
+    );
+
+    /*
+     * Les deux panneaux peuvent être réduits manuellement.
+     */
+    gtk_paned_set_shrink_start_child(
+        GTK_PANED(main_window->main_paned),
+        TRUE
+    );
+
+    gtk_paned_set_shrink_end_child(
+        GTK_PANED(main_window->main_paned),
+        TRUE
+    );
 
     main_window->status_label = gtk_label_new(
         "Aucune enquête ouverte"
@@ -106,19 +221,25 @@ MainWindow *main_window_new(GtkApplication *application)
         6
     );
 
+    /*
+     * Assemblage vertical :
+     *
+     * GtkPaned
+     * Barre d'état
+     */
     gtk_box_append(
-        GTK_BOX(main_box),
-        workspace
+        GTK_BOX(main_window->main_box),
+        main_window->main_paned
     );
 
     gtk_box_append(
-        GTK_BOX(main_box),
+        GTK_BOX(main_window->main_box),
         main_window->status_label
     );
 
     gtk_window_set_child(
         main_window->window,
-        main_box
+        main_window->main_box
     );
 
     return main_window;
@@ -154,9 +275,12 @@ void main_window_free(MainWindow *main_window)
     }
 
     /*
-     * La fenêtre principale est possédée et détruite par GTK.
-     * MainWindow ne possède que sa structure d'encapsulation.
+     * La structure Sidebar a été allouée par sidebar_new().
+     * MainWindow en est donc propriétaire et doit la libérer.
+     *
+     * Les widgets GTK, eux, restent gérés par GTK.
      */
+    sidebar_free(main_window->sidebar);
 
     g_free(main_window);
 }
