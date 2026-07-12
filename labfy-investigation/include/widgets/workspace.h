@@ -1,0 +1,49 @@
+/******************************************************************************
+ * @file workspace.h
+ * @brief Interface publique de la zone principale de travail.
+ ******************************************************************************/
+
+#ifndef LABFY_INVESTIGATION_WORKSPACE_H
+#define LABFY_INVESTIGATION_WORKSPACE_H
+
+#include <gtk/gtk.h>
+
+/**
+ * @brief Représentation opaque de la zone de travail.
+ *
+ * La structure réelle est définie dans workspace.c.
+ * Les autres modules manipulent uniquement un pointeur vers Workspace.
+ */
+typedef struct Workspace Workspace;
+
+/**
+ * @brief Crée une nouvelle zone de travail.
+ *
+ * @return Une nouvelle zone de travail, ou NULL en cas d'échec.
+ */
+Workspace *workspace_new(void);
+
+/**
+ * @brief Retourne le widget GTK racine de la zone de travail.
+ *
+ * Le widget retourné appartient au module Workspace et ne doit pas être
+ * détruit directement par le code appelant.
+ *
+ * @param workspace Zone de travail à consulter.
+ *
+ * @return Le widget racine, ou NULL si workspace est NULL.
+ */
+GtkWidget *workspace_get_widget(
+    const Workspace *workspace
+);
+
+/**
+ * @brief Libère la structure d'encapsulation de la zone de travail.
+ *
+ * Cette fonction accepte NULL.
+ *
+ * @param workspace Zone de travail à libérer.
+ */
+void workspace_free(Workspace *workspace);
+
+#endif

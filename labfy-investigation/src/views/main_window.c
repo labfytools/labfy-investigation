@@ -5,6 +5,7 @@
 
 #include "views/main_window.h"
 #include "widgets/sidebar.h"
+#include "widgets/workspace.h"
 
 #include <glib.h>
 
@@ -35,7 +36,7 @@ struct MainWindow
     GtkWindow *window;
     GtkWidget *main_box;
     GtkWidget *main_paned;
-    GtkWidget *workspace;
+    Workspace *workspace;
     GtkWidget *status_label;
     Sidebar *sidebar;
 };
@@ -44,6 +45,7 @@ MainWindow *main_window_new(GtkApplication *application)
 {
     MainWindow *main_window = NULL;
     GtkWidget *sidebar_widget = NULL;
+    GtkWidget *workspace_widget = NULL;
 
     if (application == NULL)
     {
@@ -125,25 +127,24 @@ MainWindow *main_window_new(GtkApplication *application)
         return NULL;
     }
 
-    /*
-     * La zone de travail est encore vide.
-     * Elle accueillera plus tard les pages de l'application.
-     */
-    main_window->workspace = gtk_box_new(
-        GTK_ORIENTATION_VERTICAL,
-        0
+    main_window->workspace = workspace_new();
+
+    if (main_window->workspace == NULL)
+    {
+        main_window_free(main_window);
+        return NULL;
+    }
+
+    workspace_widget = workspace_get_widget(
+        main_window->workspace
     );
 
-    gtk_widget_set_hexpand(
-        main_window->workspace,
-        TRUE
-    );
-
-    gtk_widget_set_vexpand(
-        main_window->workspace,
-        TRUE
-    );
-
+    if (workspace_widget == NULL)
+    {
+        main_window_free(main_window);
+        return NULL;
+    }
+    
     /*
      * Placement des deux composants dans GtkPaned.
      */
@@ -154,7 +155,7 @@ MainWindow *main_window_new(GtkApplication *application)
 
     gtk_paned_set_end_child(
         GTK_PANED(main_window->main_paned),
-        main_window->workspace
+        workspace_widget
     );
 
     /*
@@ -280,6 +281,7 @@ void main_window_free(MainWindow *main_window)
      *
      * Les widgets GTK, eux, restent gérés par GTK.
      */
+    workspace_free(main_window->workspace);
     sidebar_free(main_window->sidebar);
 
     g_free(main_window);
