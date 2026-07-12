@@ -5,6 +5,7 @@
 
 #include "core/application.h"
 #include "views/folder_dialog.h"
+#include "core/investigation.h"
 
 #include <gtk/gtk.h>
 
@@ -47,20 +48,34 @@ static void application_on_folder_selected(
 )
 {
     GtkWindow *window = GTK_WINDOW(user_data);
+    Investigation *investigation = NULL;
+    const char *root_path = NULL;
+    const char *database_path = NULL;
 
     if (folder_path == NULL)
     {
-        gtk_window_set_title(
-            window,
-            "Labfy Investigation — aucune enquête sélectionnée"
-        );
-
+        g_print("Sélection annulée.\n");
         return;
     }
 
-    gtk_window_set_title(window, folder_path);
-}
+    investigation = investigation_new(folder_path);
 
+    if (investigation == NULL)
+    {
+        g_warning("Impossible de créer l'enquête à partir du dossier sélectionné.");
+        return;
+    }
+
+    root_path = investigation_get_root_path(investigation);
+    database_path = investigation_get_database_path(investigation);
+
+    g_print("Dossier racine : %s\n", root_path);
+    g_print("Base de données : %s\n", database_path);
+
+    investigation_free(investigation);
+
+    gtk_window_set_title(window, "Labfy Investigation");
+}
 static void application_on_activate(GtkApplication *gtk_application,
                                     gpointer user_data)
 {
@@ -141,5 +156,4 @@ void application_free(Application *application)
 
     g_free(application);
 }
-
 
