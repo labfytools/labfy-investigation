@@ -1,16 +1,11 @@
 # Build
+enquete-gui
 *.o
-*.a
-*.so
 
-# SQLite
-*.sqlite-wal
+# SQLite temporaires
 *.sqlite-shm
+*.sqlite-wal
 
-# QtCreator
-*.pro.user
-
-# DB Browser
-*.sqbpro
-
-./labfy-investigation/tests/test_investigation_node
+# Neovim / LSP
+.cache/
+compile_commands.json
