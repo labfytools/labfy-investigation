@@ -19,9 +19,9 @@ TEST_CFLAGS = -std=c17 \
               -Wextra \
               -Werror \
               -Iinclude \
-              $(shell $(PKG_CONFIG) --cflags glib-2.0)
+              $(shell $(PKG_CONFIG) --cflags glib-2.0 gio-2.0)
 
-TEST_LDFLAGS = $(shell $(PKG_CONFIG) --libs glib-2.0)
+TEST_LDFLAGS = $(shell $(PKG_CONFIG) --libs glib-2.0 gio-2.0)
 
 SRC := $(shell find src -name "*.c")
 
@@ -31,6 +31,7 @@ TARGET = labfy-investigation
 
 TEST_NODE = tests/test_investigation_node
 TEST_TREE_MODEL = tests/test_investigation_tree_model
+TEST_TREE_BUILDER = tests/test_investigation_tree_builder
 
 all: $(TARGET)
 
@@ -48,10 +49,19 @@ $(TEST_TREE_MODEL): \
 	src/core/investigation_tree_model.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
-test: $(TEST_NODE) $(TEST_TREE_MODEL)
+$(TEST_TREE_BUILDER): \
+	tests/test_investigation_tree_builder.c \
+	src/core/investigation_node.c \
+	src/core/investigation_tree_model.c \
+	src/core/investigation_tree_builder.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) \
+		$(shell $(PKG_CONFIG) --libs gio-2.0)
+
+test: $(TEST_NODE) $(TEST_TREE_MODEL) $(TEST_TREE_BUILDER)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
+	@./$(TEST_TREE_BUILDER)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -63,6 +73,7 @@ run: $(TARGET)
 clean:
 	rm -f $(OBJ) $(TARGET) \
 		$(TEST_NODE) \
-		$(TEST_TREE_MODEL)
+		$(TEST_TREE_MODEL) \
+		$(TEST_TREE_BUILDER)
 
 .PHONY: clean run test
