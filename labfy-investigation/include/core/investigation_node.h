@@ -6,6 +6,10 @@
 #ifndef LABFY_INVESTIGATION_INVESTIGATION_NODE_H
 #define LABFY_INVESTIGATION_INVESTIGATION_NODE_H
 
+
+#include <stdbool.h>
+#include <stddef.h>
+
 /**
  * @brief Représentation opaque d'un nœud d'enquête.
  *
@@ -74,6 +78,42 @@ const char *investigation_node_get_name(
  * @return Le type du nœud.
  */
 InvestigationNodeType investigation_node_get_type(
+    const InvestigationNode *node
+);
+
+/**
+ * @brief Ajoute un enfant à un dossier.
+ *
+ * En cas de succès, le parent devient propriétaire de l'enfant.
+ *
+ * @return true si l'ajout a réussi.
+ */
+bool investigation_node_add_child(
+    InvestigationNode *parent,
+    InvestigationNode *child
+);
+
+/**
+ * @brief Retourne un enfant.
+ *
+ * @return L'enfant ou NULL.
+ */
+const InvestigationNode *investigation_node_get_child(
+    const InvestigationNode *node,
+    size_t index
+);
+
+/**
+ * @brief Retourne le nombre d'enfants.
+ */
+size_t investigation_node_get_children_count(
+    const InvestigationNode *node
+);
+
+/**
+ * @brief Retourne le parent d'un nœud.
+ */
+const InvestigationNode *investigation_node_get_parent(
     const InvestigationNode *node
 );
 
