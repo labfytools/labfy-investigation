@@ -639,6 +639,41 @@ Lorsque plusieurs solutions existent, la préférence est donnée à celle qui f
 
 ---
 
+## Gestion de la mémoire
+
+Le projet applique une règle unique concernant la propriété des ressources.
+
+> Le propriétaire crée.
+> Le propriétaire détruit.
+
+Lorsqu'une ressource est transmise à un objet qui en devient propriétaire, le code appelant ne doit plus la libérer.
+
+Chaque module est responsable uniquement des ressources qu'il possède.
+
+Cette règle s'applique à toutes les structures du projet.
+
+---
+
+## Bibliothèques autorisées
+
+Le projet privilégie les bibliothèques éprouvées plutôt que des réimplémentations.
+
+### Couche Core
+
+Autorisé :
+
+- Langage C17
+- GLib
+- SQLite
+
+Interdit :
+
+- GTK
+
+Les structures de données fournies par GLib (GPtrArray, GHashTable, GList, etc.) doivent être privilégiées lorsqu'elles répondent au besoin du projet.
+
+---
+
 # Branche principale
 
 La branche `main` est toujours stable.
