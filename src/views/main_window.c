@@ -268,6 +268,22 @@ GtkWindow *main_window_get_window(
     return main_window->window;
 }
 
+void main_window_set_tree_model(
+    MainWindow *main_window,
+    const InvestigationTreeModel *tree_model
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    sidebar_set_tree_model(
+        main_window->sidebar,
+        tree_model
+    );
+}
+
 void main_window_free(MainWindow *main_window)
 {
     if (main_window == NULL)

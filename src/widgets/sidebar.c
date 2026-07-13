@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "widgets/sidebar.h"
+#include "core/investigation_node.h"
 
 #include <glib.h>
 
@@ -95,6 +96,59 @@ GtkWidget *sidebar_get_widget(
     }
 
     return sidebar->root_widget;
+}
+
+void sidebar_set_tree_model(
+    Sidebar *sidebar,
+    const InvestigationTreeModel *tree_model
+)
+{
+    const InvestigationNode *root_node = NULL;
+    const char *root_name = NULL;
+
+    if (sidebar == NULL)
+    {
+        return;
+    }
+
+    if (tree_model == NULL)
+    {
+        gtk_label_set_text(
+            GTK_LABEL(sidebar->title_label),
+            "Dossier d'enquête"
+        );
+
+        return;
+    }
+
+    root_node = investigation_tree_model_get_root(tree_model);
+
+    if (root_node == NULL)
+    {
+        gtk_label_set_text(
+            GTK_LABEL(sidebar->title_label),
+            "Dossier d'enquête"
+        );
+
+        return;
+    }
+
+    root_name = investigation_node_get_name(root_node);
+
+    if (root_name == NULL || root_name[0] == '\0')
+    {
+        gtk_label_set_text(
+            GTK_LABEL(sidebar->title_label),
+            "Dossier d'enquête"
+        );
+
+        return;
+    }
+
+    gtk_label_set_text(
+        GTK_LABEL(sidebar->title_label),
+        root_name
+    );
 }
 
 void sidebar_free(Sidebar *sidebar)

@@ -6,6 +6,8 @@
 #ifndef LABFY_INVESTIGATION_SIDEBAR_H
 #define LABFY_INVESTIGATION_SIDEBAR_H
 
+#include "core/investigation_tree_model.h"
+
 #include <gtk/gtk.h>
 
 /**
@@ -35,6 +37,22 @@ Sidebar *sidebar_new(void);
  */
 GtkWidget *sidebar_get_widget(
     const Sidebar *sidebar
+);
+
+/**
+ * @brief Associe un modèle d'arborescence à la barre latérale.
+ *
+ * La barre latérale ne devient pas propriétaire du modèle.
+ * Le modèle doit rester valide pendant toute la durée de son utilisation.
+ *
+ * Pour ce ticket, seul le nom du nœud racine est affiché dans le titre.
+ *
+ * @param sidebar    Barre latérale à mettre à jour.
+ * @param tree_model Modèle d'arborescence en lecture seule.
+ */
+void sidebar_set_tree_model(
+    Sidebar *sidebar,
+    const InvestigationTreeModel *tree_model
 );
 
 /**

@@ -7,6 +7,8 @@
 #include "views/folder_dialog.h"
 #include "core/investigation.h"
 #include "views/main_window.h"
+#include "core/investigation_tree_builder.h"
+#include "core/investigation_tree_model.h"
 
 #include <gtk/gtk.h>
 
@@ -33,6 +35,7 @@ struct Application
     GtkApplication *gtk_application;
     MainWindow *main_window;
     Investigation *investigation;
+    InvestigationTreeModel *tree_model;
 };
 
 /**
@@ -51,17 +54,8 @@ static void application_on_folder_selected(
 )
 {
     Application *application = user_data;
-    const char *root_path = NULL;
-    const char *database_path = NULL;
-
-    /*
-     * Une éventuelle enquête précédemment ouverte doit être libérée avant
-     * d'en créer une nouvelle.
-     */
-    investigation_free(application->investigation);
-    application->investigation = NULL;
-
-    application->investigation = investigation_new(folder_path);
+    Investigation *new_investigation = NULL;
+    InvestigationTreeModel *new_tree_model = NULL;
 
     if (application == NULL)
     {
@@ -74,23 +68,47 @@ static void application_on_folder_selected(
         return;
     }
 
-    if (application->investigation == NULL)
+    new_investigation = investigation_new(folder_path);
+
+    if (new_investigation == NULL)
     {
         g_warning(
             "Impossible de créer l'enquête à partir du dossier sélectionné."
         );
         return;
     }
-    root_path = investigation_get_root_path(
-        application->investigation
-    );
-        database_path = investigation_get_database_path(
-                application->investigation
+
+    new_tree_model = investigation_tree_builder_build(
+        investigation_get_root_path(new_investigation)
     );
 
-    g_print("Dossier racine : %s\n", root_path);
-    g_print("Base de données : %s\n", database_path);
+    if (new_tree_model == NULL)
+    {
+        g_warning(
+            "Impossible de construire l'arborescence de l'enquête."
+        );
+
+        investigation_free(new_investigation);
+        return;
+    }
+
+    /*
+     * Les nouveaux objets sont valides.
+     * On peut maintenant remplacer les anciens sans perdre l'enquête
+     * déjà ouverte en cas d'échec.
+     */
+    investigation_tree_model_free(application->tree_model);
+    investigation_free(application->investigation);
+
+    application->tree_model = new_tree_model;
+    application->investigation = new_investigation;
+
+    main_window_set_tree_model(
+        application->main_window,
+        application->tree_model
+    );
 }
+
 static void application_on_activate(
     GtkApplication *gtk_application,
     gpointer user_data
@@ -182,8 +200,8 @@ void application_free(Application *application)
         return;
     }
 
+    investigation_tree_model_free(application->tree_model);
     investigation_free(application->investigation);
-    
     main_window_free(application->main_window);
 
     if (application->gtk_application != NULL)

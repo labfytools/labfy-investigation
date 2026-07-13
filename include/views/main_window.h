@@ -6,6 +6,8 @@
 #ifndef LABFY_INVESTIGATION_MAIN_WINDOW_H
 #define LABFY_INVESTIGATION_MAIN_WINDOW_H
 
+#include "core/investigation_tree_model.h"
+
 #include <gtk/gtk.h>
 
 /**
@@ -38,6 +40,20 @@ void main_window_present(MainWindow *main_window);
  */
 GtkWindow *main_window_get_window(
     const MainWindow *main_window
+);
+
+/**
+ * @brief Transmet un modèle d'arborescence à la fenêtre principale.
+ *
+ * La fenêtre principale ne devient pas propriétaire du modèle.
+ * Elle le transmet uniquement à la Sidebar.
+ *
+ * @param main_window Fenêtre principale à mettre à jour.
+ * @param tree_model  Modèle d'arborescence en lecture seule.
+ */
+void main_window_set_tree_model(
+    MainWindow *main_window,
+    const InvestigationTreeModel *tree_model
 );
 
 /**
