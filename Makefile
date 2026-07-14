@@ -32,6 +32,7 @@ TARGET = labfy-investigation
 TEST_NODE = tests/test_investigation_node
 TEST_TREE_MODEL = tests/test_investigation_tree_model
 TEST_TREE_BUILDER = tests/test_investigation_tree_builder
+TEST_PROJECT = tests/test_investigation_project
 
 all: $(TARGET)
 
@@ -57,11 +58,21 @@ $(TEST_TREE_BUILDER): \
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) \
 		$(shell $(PKG_CONFIG) --libs gio-2.0)
 
-test: $(TEST_NODE) $(TEST_TREE_MODEL) $(TEST_TREE_BUILDER)
+$(TEST_PROJECT): \
+	tests/test_investigation_project.c \
+	src/core/investigation_project.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
+test: \
+	$(TEST_NODE) \
+	$(TEST_TREE_MODEL) \
+	$(TEST_TREE_BUILDER) \
+	$(TEST_PROJECT)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
 	@./$(TEST_TREE_BUILDER)
+	@./$(TEST_PROJECT)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -74,6 +85,7 @@ clean:
 	rm -f $(OBJ) $(TARGET) \
 		$(TEST_NODE) \
 		$(TEST_TREE_MODEL) \
-		$(TEST_TREE_BUILDER)
+		$(TEST_TREE_BUILDER) \
+		@./$(TEST_PROJECT)
 
 .PHONY: clean run test
