@@ -303,6 +303,22 @@ void main_window_set_tree_selection_callback(
     );
 }
 
+void main_window_set_selected_node(
+    MainWindow *main_window,
+    const InvestigationNode *node
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    workspace_set_selected_node(
+        main_window->workspace,
+        node
+    );
+}
+
 void main_window_free(MainWindow *main_window)
 {
     if (main_window == NULL)

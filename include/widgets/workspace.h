@@ -6,6 +6,9 @@
 #ifndef LABFY_INVESTIGATION_WORKSPACE_H
 #define LABFY_INVESTIGATION_WORKSPACE_H
 
+
+#include "core/investigation_node.h"
+
 #include <gtk/gtk.h>
 
 /**
@@ -35,6 +38,22 @@ Workspace *workspace_new(void);
  */
 GtkWidget *workspace_get_widget(
     const Workspace *workspace
+);
+
+/**
+ * @brief Affiche les informations du nœud sélectionné.
+ *
+ * Le Workspace ne devient pas propriétaire du nœud.
+ * Le nœud doit rester valide pendant toute la durée de son affichage.
+ *
+ * Passer NULL restaure la page d'accueil.
+ *
+ * @param workspace Zone de travail à mettre à jour.
+ * @param node      Nœud sélectionné en lecture seule, ou NULL.
+ */
+void workspace_set_selected_node(
+    Workspace *workspace,
+    const InvestigationNode *node
 );
 
 /**

@@ -8,6 +8,7 @@
 
 #include "core/investigation_tree_model.h"
 #include "widgets/investigation_tree_view.h"
+#include "core/investigation_node.h"
 
 #include <gtk/gtk.h>
 
@@ -61,6 +62,19 @@ void main_window_set_tree_selection_callback(
     MainWindow *main_window,
     InvestigationTreeViewSelectionCallback callback,
     gpointer user_data
+);
+
+/**
+ * @brief Affiche dans le Workspace les informations du nœud sélectionné.
+ *
+ * La fenêtre principale ne devient pas propriétaire du nœud.
+ *
+ * @param main_window Fenêtre principale à mettre à jour.
+ * @param node        Nœud sélectionné en lecture seule, ou NULL.
+ */
+void main_window_set_selected_node(
+    MainWindow *main_window,
+    const InvestigationNode *node
 );
 
 /**

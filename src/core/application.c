@@ -129,6 +129,11 @@ static void application_on_tree_node_selected(
         return;
     }
 
+    main_window_set_selected_node(
+        application->main_window,
+        node
+    );
+
     if (node == NULL)
     {
         g_print("Aucun nœud sélectionné.\n");
