@@ -12,55 +12,83 @@
 #include <glib/gstdio.h>
 
 /**
+ * @brief Type d'un élément de la structure d'une enquête.
+ */
+typedef enum
+{
+    INVESTIGATION_PROJECT_DIRECTORY,
+    INVESTIGATION_PROJECT_FILE
+} InvestigationProjectEntryType;
+
+/**
+ * @brief Décrit un élément attendu dans une enquête.
+ */
+typedef struct
+{
+    /**
+     * Chemin relatif depuis la racine de l'enquête.
+     */
+    const char *relative_path;
+
+    /**
+     * Nature de l'élément.
+     */
+    InvestigationProjectEntryType type;
+
+} InvestigationProjectEntry;
+
+/**
  * @brief Liste des dossiers relatifs composant une enquête.
  *
  * L'ordre est important : les dossiers parents doivent apparaître avant
  * leurs sous-dossiers.
  */
-static const char *const investigation_project_directories[] =
+static const InvestigationProjectEntry
+investigation_project_entries[] =
 {
-    "00_BaseDeDonnees",
+    { "00_BaseDeDonnees", INVESTIGATION_PROJECT_DIRECTORY },
+    { "00_BaseDeDonnees/Enquete.sqlite", INVESTIGATION_PROJECT_FILE },
 
-    "01_Preuves_Originales",
-    "01_Preuves_Originales/Captures_Ecran",
-    "01_Preuves_Originales/Conversations",
-    "01_Preuves_Originales/Documents",
-    "01_Preuves_Originales/Emails",
-    "01_Preuves_Originales/Photos",
-    "01_Preuves_Originales/Videos",
+    { "01_Preuves_Originales", INVESTIGATION_PROJECT_DIRECTORY },
+    { "01_Preuves_Originales/Captures_Ecran", INVESTIGATION_PROJECT_DIRECTORY },
+    { "01_Preuves_Originales/Conversations", INVESTIGATION_PROJECT_DIRECTORY },
+    { "01_Preuves_Originales/Documents", INVESTIGATION_PROJECT_DIRECTORY },
+    { "01_Preuves_Originales/Emails", INVESTIGATION_PROJECT_DIRECTORY },
+    { "01_Preuves_Originales/Photos", INVESTIGATION_PROJECT_DIRECTORY },
+    { "01_Preuves_Originales/Videos", INVESTIGATION_PROJECT_DIRECTORY },
 
-    "02_Preuves_Traitees",
-    "02_Preuves_Traitees/Annotations",
-    "02_Preuves_Traitees/Extractions",
-    "02_Preuves_Traitees/OCR",
-    "02_Preuves_Traitees/Redactions",
+    { "02_Preuves_Traitees", INVESTIGATION_PROJECT_DIRECTORY },
+    { "02_Preuves_Traitees/Annotations", INVESTIGATION_PROJECT_DIRECTORY },
+    { "02_Preuves_Traitees/Extractions", INVESTIGATION_PROJECT_DIRECTORY },
+    { "02_Preuves_Traitees/OCR", INVESTIGATION_PROJECT_DIRECTORY },
+    { "02_Preuves_Traitees/Redactions", INVESTIGATION_PROJECT_DIRECTORY },
 
-    "03_Chronologie",
+    { "03_Chronologie", INVESTIGATION_PROJECT_DIRECTORY },
 
-    "04_Entites",
-    "04_Entites/Adresses_Email",
-    "04_Entites/Comptes_Bancaires",
-    "04_Entites/Comptes_Facebook",
-    "04_Entites/Comptes_Instagram",
-    "04_Entites/Documents_Identite",
-    "04_Entites/IBAN",
-    "04_Entites/Personnes",
-    "04_Entites/Pseudonymes",
-    "04_Entites/Telephones",
-    "04_Entites/Autres",
+    { "04_Entites", INVESTIGATION_PROJECT_DIRECTORY },
+    { "04_Entites/Adresses_Email", INVESTIGATION_PROJECT_DIRECTORY },
+    { "04_Entites/Comptes_Bancaires", INVESTIGATION_PROJECT_DIRECTORY },
+    { "04_Entites/Comptes_Facebook", INVESTIGATION_PROJECT_DIRECTORY },
+    { "04_Entites/Comptes_Instagram", INVESTIGATION_PROJECT_DIRECTORY },
+    { "04_Entites/Documents_Identite", INVESTIGATION_PROJECT_DIRECTORY },
+    { "04_Entites/IBAN", INVESTIGATION_PROJECT_DIRECTORY },
+    { "04_Entites/Personnes", INVESTIGATION_PROJECT_DIRECTORY },
+    { "04_Entites/Pseudonymes", INVESTIGATION_PROJECT_DIRECTORY },
+    { "04_Entites/Telephones", INVESTIGATION_PROJECT_DIRECTORY },
+    { "04_Entites/Autres", INVESTIGATION_PROJECT_DIRECTORY },
 
-    "05_Rapports",
-    "06_Exports",
-    "07_Notes",
-    "08_Sources",
-    "09_Hash"
+    { "05_Rapports", INVESTIGATION_PROJECT_DIRECTORY },
+    { "06_Exports", INVESTIGATION_PROJECT_DIRECTORY },
+    { "07_Notes", INVESTIGATION_PROJECT_DIRECTORY },
+    { "08_Sources", INVESTIGATION_PROJECT_DIRECTORY },
+    { "09_Hash", INVESTIGATION_PROJECT_DIRECTORY }
 };
 
 /**
  * @brief Nombre de dossiers présents dans la table de création.
  */
-#define INVESTIGATION_PROJECT_DIRECTORY_COUNT \
-    G_N_ELEMENTS(investigation_project_directories)
+#define INVESTIGATION_PROJECT_ENTRY_COUNT \
+    G_N_ELEMENTS(investigation_project_entries)
 
 /**
  * @brief Vérifie que les paramètres nécessaires à la création sont valides.
@@ -226,6 +254,70 @@ static gboolean investigation_project_create_directory(
     return TRUE;
 }
 
+/**
+ * @brief Vérifie qu'un élément existe avec le type attendu.
+ *
+ * @param investigation_root Racine de l'enquête.
+ * @param entry Élément à vérifier.
+ *
+ * @return TRUE si l'élément est valide.
+ */
+static gboolean investigation_project_validate_entry(
+    const char *investigation_root,
+    const InvestigationProjectEntry *entry
+)
+{
+    char *path = NULL;
+    gboolean valid = FALSE;
+
+    if (investigation_root == NULL ||
+        entry == NULL)
+    {
+        return FALSE;
+    }
+
+    path = g_build_filename(
+        investigation_root,
+        entry->relative_path,
+        NULL
+    );
+
+    if (path == NULL)
+    {
+        return FALSE;
+    }
+
+    switch (entry->type)
+    {
+        case INVESTIGATION_PROJECT_DIRECTORY:
+
+            valid = g_file_test(
+                path,
+                G_FILE_TEST_IS_DIR
+            );
+
+            break;
+
+        case INVESTIGATION_PROJECT_FILE:
+
+            valid = g_file_test(
+                path,
+                G_FILE_TEST_IS_REGULAR
+            );
+
+            break;
+
+        default:
+
+            valid = FALSE;
+            break;
+    }
+
+    g_free(path);
+
+    return valid;
+}
+
 char *investigation_project_create(
     const char *parent_directory,
     const char *investigation_name
@@ -307,12 +399,21 @@ char *investigation_project_create(
      * Création de toute l'arborescence déclarée dans la table.
      */
     for (gsize index = 0;
-         index < INVESTIGATION_PROJECT_DIRECTORY_COUNT;
-         ++index)
+        index < INVESTIGATION_PROJECT_ENTRY_COUNT;
+        ++index)
     {
+        const InvestigationProjectEntry *entry = NULL;
+
+        entry = &investigation_project_entries[index];
+
+        if (entry->type != INVESTIGATION_PROJECT_DIRECTORY)
+        {
+            continue;
+        }
+
         directory_path = g_build_filename(
             investigation_path,
-            investigation_project_directories[index],
+            entry->relative_path,
             NULL
         );
 
@@ -421,4 +522,51 @@ char *investigation_project_create(
     );
 
     return investigation_path;
+}
+
+bool investigation_project_validate(
+    const char *investigation_path
+)
+{
+    if (investigation_path == NULL)
+    {
+        return false;
+    }
+
+    if (investigation_path[0] == '\0')
+    {
+        return false;
+    }
+
+    if (!g_file_test(
+            investigation_path,
+            G_FILE_TEST_EXISTS))
+    {
+        return false;
+    }
+
+    if (!g_file_test(
+            investigation_path,
+            G_FILE_TEST_IS_DIR))
+    {
+        return false;
+    }
+
+    for (gsize index = 0;
+         index < INVESTIGATION_PROJECT_ENTRY_COUNT;
+         ++index)
+    {
+        const InvestigationProjectEntry *entry = NULL;
+
+        entry = &investigation_project_entries[index];
+
+        if (!investigation_project_validate_entry(
+                investigation_path,
+                entry))
+        {
+            return false;
+        }
+    }
+
+    return true;
 }

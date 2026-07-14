@@ -6,6 +6,8 @@
 #ifndef LABFY_INVESTIGATION_INVESTIGATION_PROJECT_H
 #define LABFY_INVESTIGATION_INVESTIGATION_PROJECT_H
 
+#include <stdbool.h>
+
 /**
  * @brief Crée une nouvelle enquête dans un dossier parent.
  *
@@ -34,6 +36,22 @@
 char *investigation_project_create(
     const char *parent_directory,
     const char *investigation_name
+);
+
+/******************************************************************************
+ * @brief Vérifie qu'un dossier est une enquête valide.
+ *
+ * La fonction contrôle que tous les éléments obligatoires de la structure
+ * d'une enquête existent et sont du type attendu.
+ *
+ * Aucune modification n'est effectuée sur le système de fichiers.
+ *
+ * @param investigation_path Chemin de l'enquête à vérifier.
+ *
+ * @return true si l'enquête est valide, sinon false.
+ ******************************************************************************/
+bool investigation_project_validate(
+    const char *investigation_path
 );
 
 #endif
