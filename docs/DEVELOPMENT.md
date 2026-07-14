@@ -696,6 +696,10 @@ Avant d'ajouter une bibliothèque externe, il convient de vérifier :
 - si GTK ou GLib proposent déjà la fonctionnalité ;
 - si la nouvelle dépendance apporte un réel bénéfice.
 
+Labfy Investigation est un projet GTK4 natif.
+Aucun nouveau code ne doit utiliser une API dépréciée ou héritée de GTK3.
+Les nouveaux développements utilisent exclusivement les composants modernes de GTK4.
+
 ---
 
 # Licence
