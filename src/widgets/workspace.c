@@ -7,28 +7,33 @@
 
 #include <glib.h>
 
+#define WORKSPACE_PAGE_WELCOME "welcome"
+#define WORKSPACE_PAGE_NODE_INFORMATION "node-information"
+
 /**
  * @struct Workspace
  * @brief Représentation interne de la zone de travail.
- *
- * Cette structure reste privée au module. Les autres fichiers utilisent
- * uniquement le type opaque déclaré dans workspace.h.
  */
 struct Workspace
 {
     GtkWidget *root_widget;
-    GtkWidget *welcome_box;
-    GtkWidget *title_label;
-    GtkWidget *status_label;
-    GtkWidget *instruction_label;
+    GtkWidget *stack;
 
-    GtkWidget *node_box;
+    GtkWidget *welcome_page;
+    GtkWidget *welcome_title_label;
+    GtkWidget *welcome_status_label;
+    GtkWidget *welcome_instruction_label;
+
+    GtkWidget *node_page;
     GtkWidget *node_name_label;
     GtkWidget *node_type_label;
     GtkWidget *node_parent_label;
     GtkWidget *node_children_label;
 };
 
+/**
+ * @brief Affiche la page d'accueil.
+ */
 static void workspace_show_welcome(
     Workspace *workspace
 )
@@ -38,14 +43,9 @@ static void workspace_show_welcome(
         return;
     }
 
-    gtk_widget_set_visible(
-        workspace->welcome_box,
-        TRUE
-    );
-
-    gtk_widget_set_visible(
-        workspace->node_box,
-        FALSE
+    gtk_stack_set_visible_child_name(
+        GTK_STACK(workspace->stack),
+        WORKSPACE_PAGE_WELCOME
     );
 }
 
@@ -76,76 +76,107 @@ Workspace *workspace_new(void)
         TRUE
     );
 
-    workspace->welcome_box = gtk_box_new(
+    workspace->stack = gtk_stack_new();
+
+    if (workspace->stack == NULL)
+    {
+        workspace_free(workspace);
+        return NULL;
+    }
+
+    gtk_widget_set_hexpand(
+        workspace->stack,
+        TRUE
+    );
+
+    gtk_widget_set_vexpand(
+        workspace->stack,
+        TRUE
+    );
+
+    gtk_box_append(
+        GTK_BOX(workspace->root_widget),
+        workspace->stack
+    );
+
+    /*
+     * Page d'accueil.
+     */
+    workspace->welcome_page = gtk_box_new(
         GTK_ORIENTATION_VERTICAL,
         12
     );
 
-    if (workspace->welcome_box == NULL)
+    if (workspace->welcome_page == NULL)
     {
         workspace_free(workspace);
         return NULL;
     }
 
-    /*
-     * Le conteneur d'accueil est centré horizontalement et verticalement
-     * dans l'espace disponible.
-     */
     gtk_widget_set_halign(
-        workspace->welcome_box,
+        workspace->welcome_page,
         GTK_ALIGN_CENTER
     );
 
     gtk_widget_set_valign(
-        workspace->welcome_box,
+        workspace->welcome_page,
         GTK_ALIGN_CENTER
     );
 
-    workspace->title_label = gtk_label_new(
+    workspace->welcome_title_label = gtk_label_new(
         "Labfy Investigation"
     );
 
-    workspace->status_label = gtk_label_new(
+    workspace->welcome_status_label = gtk_label_new(
         "Aucune enquête ouverte"
     );
 
-    workspace->instruction_label = gtk_label_new(
+    workspace->welcome_instruction_label = gtk_label_new(
         "Sélectionnez ou créez une enquête"
     );
 
     gtk_box_append(
-        GTK_BOX(workspace->welcome_box),
-        workspace->title_label
+        GTK_BOX(workspace->welcome_page),
+        workspace->welcome_title_label
     );
 
     gtk_box_append(
-        GTK_BOX(workspace->welcome_box),
-        workspace->status_label
+        GTK_BOX(workspace->welcome_page),
+        workspace->welcome_status_label
     );
 
     gtk_box_append(
-        GTK_BOX(workspace->welcome_box),
-        workspace->instruction_label
+        GTK_BOX(workspace->welcome_page),
+        workspace->welcome_instruction_label
     );
 
-    workspace->node_box = gtk_box_new(
-    GTK_ORIENTATION_VERTICAL,
-    12
+    gtk_stack_add_named(
+        GTK_STACK(workspace->stack),
+        workspace->welcome_page,
+        WORKSPACE_PAGE_WELCOME
     );
 
-    if (workspace->node_box == NULL)
+    /*
+     * Page d'informations sur le nœud.
+     */
+    workspace->node_page = gtk_box_new(
+        GTK_ORIENTATION_VERTICAL,
+        12
+    );
+
+    if (workspace->node_page == NULL)
     {
         workspace_free(workspace);
         return NULL;
     }
 
     gtk_widget_set_halign(
-        workspace->node_box,
+        workspace->node_page,
         GTK_ALIGN_CENTER
     );
 
     gtk_widget_set_valign(
-        workspace->node_box,
+        workspace->node_page,
         GTK_ALIGN_CENTER
     );
 
@@ -155,33 +186,29 @@ Workspace *workspace_new(void)
     workspace->node_children_label = gtk_label_new(NULL);
 
     gtk_box_append(
-        GTK_BOX(workspace->node_box),
+        GTK_BOX(workspace->node_page),
         workspace->node_name_label
     );
 
     gtk_box_append(
-        GTK_BOX(workspace->node_box),
+        GTK_BOX(workspace->node_page),
         workspace->node_type_label
     );
 
     gtk_box_append(
-        GTK_BOX(workspace->node_box),
+        GTK_BOX(workspace->node_page),
         workspace->node_parent_label
     );
 
     gtk_box_append(
-        GTK_BOX(workspace->node_box),
+        GTK_BOX(workspace->node_page),
         workspace->node_children_label
     );
 
-    gtk_box_append(
-        GTK_BOX(workspace->root_widget),
-        workspace->welcome_box
-    );
-
-    gtk_box_append(
-        GTK_BOX(workspace->root_widget),
-        workspace->node_box
+    gtk_stack_add_named(
+        GTK_STACK(workspace->stack),
+        workspace->node_page,
+        WORKSPACE_PAGE_NODE_INFORMATION
     );
 
     workspace_show_welcome(workspace);
@@ -212,7 +239,7 @@ void workspace_set_selected_node(
     InvestigationNodeType node_type;
     size_t children_count = 0;
 
-    char *type_text = NULL;
+    const char *type_text = NULL;
     char *parent_text = NULL;
     char *children_text = NULL;
 
@@ -238,11 +265,11 @@ void workspace_set_selected_node(
 
     if (node_type == INVESTIGATION_NODE_DIRECTORY)
     {
-        type_text = g_strdup("Type : dossier");
+        type_text = "Type : dossier";
     }
     else
     {
-        type_text = g_strdup("Type : fichier");
+        type_text = "Type : fichier";
     }
 
     gtk_label_set_text(
@@ -302,19 +329,13 @@ void workspace_set_selected_node(
         );
     }
 
-    gtk_widget_set_visible(
-        workspace->welcome_box,
-        FALSE
-    );
-
-    gtk_widget_set_visible(
-        workspace->node_box,
-        TRUE
+    gtk_stack_set_visible_child_name(
+        GTK_STACK(workspace->stack),
+        WORKSPACE_PAGE_NODE_INFORMATION
     );
 
     g_free(children_text);
     g_free(parent_text);
-    g_free(type_text);
 }
 
 void workspace_free(Workspace *workspace)
@@ -324,9 +345,5 @@ void workspace_free(Workspace *workspace)
         return;
     }
 
-    /*
-     * Les widgets GTK sont intégrés dans l'arbre de widgets de MainWindow.
-     * GTK gère donc leur destruction.
-     */
     g_free(workspace);
 }
