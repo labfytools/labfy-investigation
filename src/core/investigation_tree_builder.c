@@ -64,6 +64,7 @@ static bool investigation_tree_builder_build_children(
         GFileType child_file_type;
         GFile *child_file = NULL;
         InvestigationNode *child_node = NULL;
+        char *child_path = NULL;
         InvestigationNodeType child_node_type;
 
         file_info = g_file_enumerator_next_file(
@@ -118,12 +119,12 @@ static bool investigation_tree_builder_build_children(
             child_node_type = INVESTIGATION_NODE_FILE;
         }
 
-        child_node = investigation_node_new(
-            child_name,
-            child_node_type
+        child_file = g_file_get_child(
+            directory,
+            child_name
         );
 
-        if (child_node == NULL)
+        if (child_file == NULL)
         {
             success = false;
             g_object_unref(file_info);
@@ -131,6 +132,26 @@ static bool investigation_tree_builder_build_children(
             break;
         }
 
+        child_path = g_file_get_path(child_file);
+
+        if (child_path == NULL)
+        {
+            success = false;
+            g_object_unref(child_file);
+            g_object_unref(file_info);
+            file_info = NULL;
+            break;
+        }
+
+        child_node = investigation_node_new(
+            child_name,
+            child_path,
+            child_node_type
+        );
+
+        g_free(child_path);
+        child_path = NULL;
+        
         /*
          * En cas de succès, parent_node devient propriétaire de child_node.
          */
@@ -138,6 +159,7 @@ static bool investigation_tree_builder_build_children(
         {
             investigation_node_free(child_node);
             success = false;
+            g_object_unref(child_file);
             g_object_unref(file_info);
             file_info = NULL;
             break;
@@ -148,29 +170,17 @@ static bool investigation_tree_builder_build_children(
          */
         if (child_node_type == INVESTIGATION_NODE_DIRECTORY)
         {
-            child_file = g_file_get_child(
-                directory,
-                child_name
-            );
-
-            if (child_file == NULL)
-            {
-                success = false;
-                g_object_unref(file_info);
-                file_info = NULL;
-                break;
-            }
-
             success = investigation_tree_builder_build_children(
                 child_file,
                 child_node,
                 error
             );
-
-            g_object_unref(child_file);
         }
 
+        g_object_unref(child_file);
         g_object_unref(file_info);
+
+        child_file = NULL;
         file_info = NULL;
     }
 
@@ -234,6 +244,7 @@ InvestigationTreeModel *investigation_tree_builder_build(
 
     root_node = investigation_node_new(
         root_name,
+        root_path,
         INVESTIGATION_NODE_DIRECTORY
     );
 

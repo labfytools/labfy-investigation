@@ -6,21 +6,16 @@
 #ifndef LABFY_INVESTIGATION_INVESTIGATION_NODE_H
 #define LABFY_INVESTIGATION_INVESTIGATION_NODE_H
 
-
 #include <stdbool.h>
 #include <stddef.h>
 
 /**
- * @brief Représentation opaque d'un nœud d'enquête.
- *
- * La structure réelle est définie dans investigation_node.c.
- * Les autres modules manipulent uniquement un pointeur vers
- * InvestigationNode.
+ * @brief Représentation opaque d'un nœud.
  */
 typedef struct InvestigationNode InvestigationNode;
 
 /**
- * @brief Type d'un nœud de l'arborescence.
+ * @brief Type d'un nœud.
  */
 typedef enum
 {
@@ -29,24 +24,26 @@ typedef enum
 } InvestigationNodeType;
 
 /**
- * @brief Crée un nouveau nœud d'enquête.
+ * @brief Crée un nouveau nœud.
  *
- * Le nom fourni est copié. Le code appelant peut donc modifier ou libérer
- * sa chaîne après l'appel sans affecter le nœud.
+ * Le nom et le chemin sont copiés.
+ * Le code appelant peut donc modifier ou libérer ses chaînes après l'appel.
  *
  * @param name Nom du fichier ou du dossier.
+ * @param path Chemin complet du fichier ou du dossier.
  * @param type Type du nœud.
  *
- * @return Un nouveau nœud, ou NULL si le nom est invalide ou si la création
- *         échoue.
+ * @return Un nouveau nœud, ou NULL si le nom ou le chemin est invalide,
+ *         ou si une allocation échoue.
  */
 InvestigationNode *investigation_node_new(
     const char *name,
+    const char *path,
     InvestigationNodeType type
 );
 
 /**
- * @brief Libère les ressources associées à un nœud.
+ * @brief Libère un nœud et tous ses enfants.
  *
  * Cette fonction accepte NULL.
  *
@@ -57,21 +54,35 @@ void investigation_node_free(
 );
 
 /**
- * @brief Retourne le nom du nœud.
+ * @brief Retourne le nom d'un nœud.
  *
- * La chaîne retournée appartient au nœud et ne doit pas être modifiée
- * ni libérée par le code appelant.
+ * La chaîne retournée appartient au nœud.
+ * Elle ne doit être ni modifiée ni libérée.
  *
  * @param node Nœud à consulter.
  *
- * @return Le nom en lecture seule, ou NULL si node vaut NULL.
+ * @return Le nom du nœud, ou NULL si node vaut NULL.
  */
 const char *investigation_node_get_name(
     const InvestigationNode *node
 );
 
 /**
- * @brief Retourne le type du nœud.
+ * @brief Retourne le chemin complet d'un nœud.
+ *
+ * La chaîne retournée appartient au nœud.
+ * Elle ne doit être ni modifiée ni libérée.
+ *
+ * @param node Nœud à consulter.
+ *
+ * @return Le chemin complet, ou NULL si node vaut NULL.
+ */
+const char *investigation_node_get_path(
+    const InvestigationNode *node
+);
+
+/**
+ * @brief Retourne le type d'un nœud.
  *
  * @param node Nœud à consulter.
  *
@@ -86,7 +97,10 @@ InvestigationNodeType investigation_node_get_type(
  *
  * En cas de succès, le parent devient propriétaire de l'enfant.
  *
- * @return true si l'ajout a réussi.
+ * @param parent Nœud parent.
+ * @param child  Nœud enfant.
+ *
+ * @return true si l'ajout a réussi, sinon false.
  */
 bool investigation_node_add_child(
     InvestigationNode *parent,
@@ -94,9 +108,12 @@ bool investigation_node_add_child(
 );
 
 /**
- * @brief Retourne un enfant.
+ * @brief Retourne un enfant par son index.
  *
- * @return L'enfant ou NULL.
+ * @param node  Nœud parent.
+ * @param index Index de l'enfant.
+ *
+ * @return L'enfant demandé, ou NULL si l'index est invalide.
  */
 const InvestigationNode *investigation_node_get_child(
     const InvestigationNode *node,
@@ -105,6 +122,10 @@ const InvestigationNode *investigation_node_get_child(
 
 /**
  * @brief Retourne le nombre d'enfants.
+ *
+ * @param node Nœud à consulter.
+ *
+ * @return Le nombre d'enfants, ou 0 si node vaut NULL.
  */
 size_t investigation_node_get_children_count(
     const InvestigationNode *node
@@ -112,6 +133,11 @@ size_t investigation_node_get_children_count(
 
 /**
  * @brief Retourne le parent d'un nœud.
+ *
+ * @param node Nœud à consulter.
+ *
+ * @return Le parent, ou NULL si le nœud n'a pas de parent
+ *         ou si node vaut NULL.
  */
 const InvestigationNode *investigation_node_get_parent(
     const InvestigationNode *node

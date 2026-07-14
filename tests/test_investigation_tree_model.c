@@ -21,6 +21,7 @@ static void test_tree_model_creation(void)
 
     root_node = investigation_node_new(
         "Template",
+        "/test/Template",
         INVESTIGATION_NODE_DIRECTORY
     );
 
@@ -38,6 +39,13 @@ static void test_tree_model_creation(void)
         strcmp(
             investigation_node_get_name(returned_node),
             "Template"
+        ) == 0
+    );
+
+    assert(
+        strcmp(
+            investigation_node_get_path(returned_node),
+            "/test/Template"
         ) == 0
     );
 

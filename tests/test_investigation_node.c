@@ -15,6 +15,7 @@ static void test_directory_node(void)
 
     node = investigation_node_new(
         "01_Preuves_Originales",
+        "/test/01_Preuves_Originales",
         INVESTIGATION_NODE_DIRECTORY
     );
 
@@ -39,6 +40,7 @@ static void test_file_node(void)
 
     node = investigation_node_new(
         "Chronologie.md",
+        "/test/Chronologie.md",
         INVESTIGATION_NODE_FILE
     );
 
@@ -64,16 +66,19 @@ static void test_add_children(void)
 
     root = investigation_node_new(
         "Template",
+        "/test/Template",
         INVESTIGATION_NODE_DIRECTORY
     );
 
     database_directory = investigation_node_new(
         "00_BaseDeDonnees",
+        "/test/Template/00_BaseDeDonnees",
         INVESTIGATION_NODE_DIRECTORY
     );
 
     database_file = investigation_node_new(
         "Enquete.sqlite",
+        "/test/Template/00_BaseDeDonnees/Enquete.sqlite",
         INVESTIGATION_NODE_FILE
     );
 
@@ -131,21 +136,25 @@ static void test_invalid_additions(void)
 
     directory = investigation_node_new(
         "Directory",
+        "/test/Directory",
         INVESTIGATION_NODE_DIRECTORY
     );
 
     file = investigation_node_new(
         "File.txt",
+        "/test/File.txt",
         INVESTIGATION_NODE_FILE
     );
 
     child = investigation_node_new(
         "Child",
+        "/test/Directory/Child",
         INVESTIGATION_NODE_DIRECTORY
     );
 
     second_parent = investigation_node_new(
         "SecondParent",
+        "/test/SecondParent",
         INVESTIGATION_NODE_DIRECTORY
     );
 
@@ -177,6 +186,7 @@ static void test_invalid_index(void)
 
     node = investigation_node_new(
         "Template",
+        "/test/Template",
         INVESTIGATION_NODE_DIRECTORY
     );
 
@@ -194,12 +204,33 @@ static void test_invalid_names(void)
     assert(
         investigation_node_new(
             NULL,
+            "/test/file",
             INVESTIGATION_NODE_FILE
         ) == NULL
     );
 
     assert(
         investigation_node_new(
+            "",
+            "/test/file",
+            INVESTIGATION_NODE_FILE
+        ) == NULL
+    );
+}
+
+static void test_invalid_paths(void)
+{
+    assert(
+        investigation_node_new(
+            "File.txt",
+            NULL,
+            INVESTIGATION_NODE_FILE
+        ) == NULL
+    );
+
+    assert(
+        investigation_node_new(
+            "File.txt",
             "",
             INVESTIGATION_NODE_FILE
         ) == NULL
@@ -211,6 +242,7 @@ static void test_null_behaviour(void)
     assert(investigation_node_get_name(NULL) == NULL);
     assert(investigation_node_get_children_count(NULL) == 0);
     assert(investigation_node_get_parent(NULL) == NULL);
+    assert(investigation_node_get_path(NULL) == NULL);
 
     investigation_node_free(NULL);
 }
@@ -224,6 +256,7 @@ int main(void)
     test_invalid_index();
     test_invalid_names();
     test_null_behaviour();
+    test_invalid_paths();
 
     printf(
         "InvestigationNode : tous les tests de hiérarchie sont valides.\n"

@@ -17,6 +17,7 @@
 struct InvestigationNode
 {
     char *name;
+    char *path;
     InvestigationNodeType type;
     InvestigationNode *parent;
     GPtrArray *children;
@@ -24,12 +25,18 @@ struct InvestigationNode
 
 InvestigationNode *investigation_node_new(
     const char *name,
+    const char *path,
     InvestigationNodeType type
 )
 {
     InvestigationNode *node = NULL;
 
     if (name == NULL || name[0] == '\0')
+    {
+        return NULL;
+    }
+
+    if (path == NULL || path[0] == '\0')
     {
         return NULL;
     }
@@ -44,6 +51,14 @@ InvestigationNode *investigation_node_new(
     node->name = g_strdup(name);
 
     if (node->name == NULL)
+    {
+        investigation_node_free(node);
+        return NULL;
+    }
+
+    node->path = g_strdup(path);
+
+    if (node->path == NULL)
     {
         investigation_node_free(node);
         return NULL;
@@ -81,9 +96,22 @@ void investigation_node_free(
     {
         g_ptr_array_free(node->children, TRUE);
     }
-
+    
+    g_free(node->path);
     g_free(node->name);
     g_free(node);
+}
+
+const char *investigation_node_get_path(
+    const InvestigationNode *node
+)
+{
+    if (node == NULL)
+    {
+        return NULL;
+    }
+
+    return node->path;
 }
 
 const char *investigation_node_get_name(
