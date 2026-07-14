@@ -5,6 +5,7 @@
 
 #include "widgets/sidebar.h"
 #include "core/investigation_node.h"
+#include "widgets/investigation_tree_view.h"
 
 #include <glib.h>
 
@@ -24,13 +25,14 @@ struct Sidebar
 {
     GtkWidget *root_widget;
     GtkWidget *title_label;
+    InvestigationTreeView *tree_view;
 };
 
 Sidebar *sidebar_new(void)
 {
     Sidebar *sidebar = NULL;
-
     sidebar = g_new0(Sidebar, 1);
+    GtkWidget *tree_view_widget = NULL;
 
     sidebar->root_widget = gtk_box_new(
         GTK_ORIENTATION_VERTICAL,
@@ -83,6 +85,39 @@ Sidebar *sidebar_new(void)
         sidebar->title_label
     );
 
+    sidebar->tree_view = investigation_tree_view_new();
+
+    if (sidebar->tree_view == NULL)
+    {
+        sidebar_free(sidebar);
+        return NULL;
+    }
+
+    tree_view_widget = investigation_tree_view_get_widget(
+        sidebar->tree_view
+    );
+
+    if (tree_view_widget == NULL)
+    {
+        sidebar_free(sidebar);
+        return NULL;
+    }
+
+    gtk_widget_set_hexpand(
+        tree_view_widget,
+        TRUE
+    );
+
+    gtk_widget_set_vexpand(
+        tree_view_widget,
+        TRUE
+    );
+
+    gtk_box_append(
+        GTK_BOX(sidebar->root_widget),
+        tree_view_widget
+    );
+
     return sidebar;
 }
 
@@ -110,6 +145,16 @@ void sidebar_set_tree_model(
     {
         return;
     }
+
+    if (sidebar == NULL)
+    {
+        return;
+    }
+
+    investigation_tree_view_set_model(
+        sidebar->tree_view,
+        tree_model
+    );
 
     if (tree_model == NULL)
     {
@@ -158,6 +203,8 @@ void sidebar_free(Sidebar *sidebar)
         return;
     }
 
+    investigation_tree_view_free(sidebar->tree_view);
+    
     /*
      * Les widgets GTK sont intégrés dans l'arbre de widgets de la fenêtre.
      * GTK gère leur destruction lorsque la fenêtre est détruite.
