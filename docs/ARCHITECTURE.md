@@ -1,8 +1,8 @@
 # Architecture
 
-Version : 1.0
+Version : 2.0
 
-Dernière mise à jour : 2026-07-06
+Dernière mise à jour : 2026-07-14
 
 Auteur : fy59
 
@@ -12,103 +12,193 @@ Auteur : fy59
 
 Ce document décrit l'architecture logicielle de **Labfy Investigation**.
 
+Il constitue le document de référence du projet.
+
 Son objectif est de :
 
-- définir les responsabilités de chaque composant ;
-- faciliter la maintenance ;
+- définir les responsabilités de chaque module ;
 - garantir une architecture cohérente ;
-- limiter les dépendances entre les modules.
+- limiter le couplage entre les composants ;
+- faciliter les évolutions futures ;
+- permettre la réalisation de tests unitaires indépendants de l'interface graphique.
 
 ---
 
-# Philosophie
+# Vision
 
-Labfy Investigation repose sur une architecture modulaire.
+Labfy Investigation est un logiciel libre d'investigation numérique,
+développé en **C17** avec **GTK4**.
 
-Chaque composant possède une responsabilité clairement définie.
+Le projet a pour objectif de fournir un environnement professionnel
+permettant de gérer une enquête numérique de bout en bout :
 
-Aucun module ne doit effectuer plusieurs tâches sans justification.
+- création d'une enquête ;
+- collecte des preuves ;
+- organisation des informations ;
+- analyse ;
+- génération de rapports.
+
+L'application est conçue pour être utilisée aussi bien par :
+
+- des particuliers ;
+- des journalistes ;
+- des analystes OSINT ;
+- des experts judiciaires ;
+- des forces de l'ordre.
+
+---
+
+# Principes fondamentaux
+
+## Une enquête = un dossier autonome
+
+Chaque enquête contient tout ce qui est nécessaire à son fonctionnement.
+
+```
+MonEnquete/
+
+├── 00_BaseDeDonnees/
+│   └── Enquete.sqlite
+│
+├── 01_Preuves_Originales/
+├── 02_Preuves_Traitees/
+├── 03_Chronologie/
+├── 04_Entites/
+├── 05_Rapports/
+│
+└── ...
+```
+
+Une enquête peut être :
+
+- copiée ;
+- déplacée ;
+- synchronisée ;
+- sauvegardée ;
+- archivée ;
+- transmise.
+
+Aucune dépendance externe ne doit être nécessaire.
+
+---
+
+## Les preuves originales sont immuables
+
+Les preuves originales ne doivent jamais être modifiées.
+
+Toute opération produisant :
+
+- une annotation ;
+- une conversion ;
+- une extraction ;
+- une analyse ;
+
+doit produire un nouveau fichier dans un espace dédié.
+
+---
+
+## Le Core est indépendant de GTK
+
+La logique métier ne dépend jamais de l'interface graphique.
+
+Le Core doit pouvoir être testé sans lancer GTK.
+
+---
+
+## Les Widgets ne connaissent pas le métier
+
+Les widgets affichent uniquement les informations fournies.
+
+Ils ne manipulent jamais :
+
+- SQLite ;
+- le système de fichiers ;
+- les preuves.
+
+---
+
+## Développement incrémental
+
+Chaque ticket doit :
+
+- compiler sans warning ;
+- être documenté ;
+- être testé ;
+- ne pas casser les fonctionnalités existantes.
 
 ---
 
 # Architecture générale
 
-Le projet suit une architecture inspirée du modèle MVC (Model - View - Controller).
-
 ```
-                 Utilisateur
-                      │
-                      ▼
-            +------------------+
-            |    Vue (GTK4)    |
-            +------------------+
-                      │
-                      ▼
-            +------------------+
-            |   Contrôleur     |
-            +------------------+
-                      │
-                      ▼
-            +------------------+
-            |       DAO        |
-            +------------------+
-                      │
-                      ▼
-            +------------------+
-            |     SQLite       |
-            +------------------+
+                    Utilisateur
+                          │
+                          ▼
+                 +-----------------+
+                 |      GTK4       |
+                 | Views / Widgets |
+                 +-----------------+
+                          │
+                          ▼
+                 +-----------------+
+                 |   Application   |
+                 +-----------------+
+                          │
+                          ▼
+              +---------------------------+
+              | InvestigationProject      |
+              +---------------------------+
+                   │                 │
+                   ▼                 ▼
+             FileSystem         Database
+                   │                 │
+                   └────────┬────────┘
+                            ▼
+                     Investigation
+                            │
+                            ▼
+                         Models
 ```
 
-Chaque couche communique uniquement avec la couche immédiatement inférieure.
+Cette architecture permet une séparation claire entre :
+
+- l'interface graphique ;
+- la logique métier ;
+- le stockage.
 
 ---
 
-# Arborescence
+# Organisation du projet
 
 ```
 labfy-investigation/
 
-├── include/
-├── src/
-│
-├── docs/
-├── database/
-├── tests/
-├── tools/
-├── resources/
-│
-├── Makefile
-├── README.md
-├── LICENSE
-├── CHANGELOG.md
-└── CONTRIBUTING.md
+include/
+src/
+
+database/
+docs/
+resources/
+tests/
+tools/
+
+README.md
+LICENSE
+CHANGELOG.md
+CONTRIBUTING.md
+Makefile
 ```
 
 ---
 
-# Description des dossiers
-
-## include/
-
-Contient l'ensemble des interfaces publiques.
-
-Aucun code métier ne doit être présent dans les fichiers d'en-tête.
-
----
-
-## src/
-
-Contient l'implémentation du logiciel.
-
-Il est organisé en plusieurs modules :
+# Organisation du code
 
 ```
 src/
 
 core/
-dao/
+database/
 models/
-controllers/
 views/
 widgets/
 utils/
@@ -116,105 +206,76 @@ utils/
 
 ---
 
-## database/
-
-Contient :
-
-- le schéma SQLite ;
-- les scripts d'initialisation ;
-- les éventuelles migrations.
-
----
-
-## docs/
-
-Documentation technique.
-
----
-
-## tests/
-
-Tests unitaires et fonctionnels.
-
----
-
-## resources/
-
-Toutes les ressources utilisées par l'application :
-
-- icônes ;
-- feuilles CSS ;
-- fichiers GtkBuilder (.ui).
-
----
-
 # Description des modules
 
 ## Core
 
-Le module Core initialise l'application.
+Le Core pilote l'application.
+
+Il ne dépend jamais de GTK.
 
 Il gère :
 
-- le cycle de vie du programme ;
-- la configuration ;
-- l'ouverture de l'enquête ;
-- la fermeture propre.
+- le cycle de vie de l'application ;
+- l'ouverture d'une enquête ;
+- la fermeture d'une enquête ;
+- les interactions entre les modules.
 
 ---
 
-## Models
+## InvestigationProject
 
-Les modèles représentent les objets métiers.
+InvestigationProject est le point d'entrée métier.
 
-Exemples :
+Il est responsable de :
 
-- Preuve
-- Entite
-- Personne
-- Recherche
-- Source
+- créer une enquête ;
+- ouvrir une enquête ;
+- fermer une enquête ;
+- valider une enquête ;
+- initialiser SQLite ;
+- gérer le système de fichiers.
 
-Ils ne connaissent ni GTK ni SQLite.
+Toute manipulation d'une enquête passe obligatoirement par ce module.
 
 ---
 
-## DAO
+## Database
 
-Les DAO sont responsables de l'accès aux données.
+Le module Database est responsable du stockage.
 
-Ils sont les seuls autorisés à communiquer avec SQLite.
+Il gère :
 
-Ils réalisent :
-
-- INSERT
-- UPDATE
-- DELETE
-- SELECT
+- la connexion SQLite ;
+- le schéma ;
+- les migrations ;
+- les transactions.
 
 Aucune requête SQL ne doit apparaître ailleurs.
 
 ---
 
-## Controllers
+## Models
 
-Les contrôleurs assurent la logique applicative.
+Les modèles représentent les objets métier.
 
-Ils reçoivent les événements provenant de l'interface graphique.
+Par exemple :
 
-Ils utilisent les DAO.
+- InvestigationNode
+- Preuve
+- Entité
+- Relation
+- Chronologie
 
-Ils mettent à jour les vues.
+Ils ne connaissent ni GTK ni SQLite.
 
 ---
 
 ## Views
 
-Les vues représentent l'interface utilisateur.
+Les vues représentent les fenêtres de l'application.
 
-Elles ne contiennent aucun code métier.
-
-Une vue affiche uniquement des informations.
+Elles ne contiennent aucune logique métier.
 
 ---
 
@@ -225,127 +286,155 @@ Les widgets sont des composants GTK réutilisables.
 Par exemple :
 
 - Sidebar
+- Workspace
+- InvestigationTreeView
 - Toolbar
 - Statusbar
-- PropertyPanel
 
 ---
 
 ## Utils
 
-Fonctions utilitaires :
+Fonctions génériques.
+
+Exemples :
 
 - SHA-256
-- Date
-- Fichiers
+- Dates
+- Gestion des fichiers
 - Journalisation
 
-Les utilitaires ne doivent jamais dépendre du reste du projet.
+Les utilitaires ne doivent dépendre d'aucun module métier.
 
 ---
 
 # Flux de données
 
-Lorsqu'un utilisateur ajoute une preuve :
+Lorsqu'un utilisateur ouvre une enquête :
 
 ```
 Utilisateur
 
 ↓
 
-Vue GTK
+GTK
 
 ↓
 
-Controller
+Application
 
 ↓
 
-DAO
+InvestigationProject
 
 ↓
 
-SQLite
+FileSystem
 
 ↓
 
-DAO
+Database
 
 ↓
 
-Controller
+Investigation
 
 ↓
 
-Vue GTK
+GUI
 ```
 
-Le flux est toujours identique.
+Le flux est toujours unidirectionnel.
 
 ---
 
 # Dépendances
 
-Les dépendances suivent la règle suivante :
+Les dépendances suivent toujours cette règle :
 
 ```
+Widgets
+    │
+    ▼
 Views
- ↓
-Controllers
- ↓
-DAO
- ↓
-SQLite
+    │
+    ▼
+Application
+    │
+    ▼
+InvestigationProject
+    │
+ ┌──┴───────┐
+ ▼          ▼
+Database  FileSystem
+    │
+    ▼
+Models
 ```
 
 Les dépendances inverses sont interdites.
-
-Par exemple :
-
-Le DAO ne doit jamais appeler une vue.
 
 ---
 
 # Gestion de la mémoire
 
-Chaque module est responsable des ressources qu'il alloue.
+Chaque allocation possède une fonction de libération correspondante.
 
-Toute allocation possède une fonction de libération correspondante.
+Les responsabilités de libération sont clairement définies.
+
+Aucun module ne libère une ressource qu'il n'a pas créée.
 
 ---
 
 # Gestion des erreurs
 
-Les erreurs remontent toujours vers le contrôleur.
+Les erreurs remontent toujours jusqu'à Application.
 
-L'interface graphique est responsable de leur affichage.
+L'interface graphique est uniquement responsable de leur affichage.
+
+---
+
+# Tests
+
+Chaque nouveau module doit pouvoir être testé indépendamment.
+
+Les tests unitaires ne doivent jamais dépendre de GTK.
 
 ---
 
 # Évolutivité
 
-L'ajout d'un nouveau type d'entité ou d'une nouvelle fonctionnalité doit nécessiter le moins de modifications possibles.
+L'architecture doit permettre l'ajout de nouveaux modules sans modifier les composants existants.
 
-L'architecture doit favoriser l'extension plutôt que la modification du code existant.
+Les nouvelles fonctionnalités doivent privilégier l'extension plutôt que la modification.
 
 ---
 
-# Principes
+# Objectifs à long terme
 
-L'architecture repose sur les principes suivants :
+Le projet doit permettre :
 
-- responsabilité unique ;
-- faible couplage ;
-- forte cohésion ;
-- séparation des responsabilités ;
-- simplicité ;
-- lisibilité ;
-- maintenabilité.
+- la gestion complète d'une enquête numérique ;
+- la conservation de la chaîne de preuve ;
+- l'intégration de modules OSINT ;
+- l'analyse de fichiers ;
+- la génération de rapports professionnels ;
+- le packaging multiplateforme.
+
+Le logiciel doit rester :
+
+- libre ;
+- documenté ;
+- modulaire ;
+- testable ;
+- maintenable.
 
 ---
 
 # Conclusion
 
-Toute nouvelle fonctionnalité doit s'intégrer dans cette architecture.
+Toute nouvelle fonctionnalité doit respecter cette architecture.
 
-Si une évolution nécessite de contourner ces règles, la décision doit être documentée et justifiée.
+En cas de dérogation, celle-ci devra être documentée et justifiée.
+
+L'objectif est de garantir la stabilité du projet tout en facilitant son évolution sur le long terme.
