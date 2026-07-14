@@ -105,9 +105,11 @@ struct InvestigationTreeView
     GtkWidget *list_view;
 
     GtkListItemFactory *factory;
-    GtkSelectionModel *selection_model;
+    GtkSingleSelection *selection_model;
 
     const InvestigationTreeModel *tree_model;
+    InvestigationTreeViewSelectionCallback selection_callback;
+    gpointer selection_user_data;
 };
 
 /**
@@ -365,6 +367,98 @@ static void investigation_tree_view_factory_unbind(
 }
 
 /**
+ * @brief Transmet le nœud sélectionné au code appelant.
+ *
+ * @param tree_view Vue contenant le callback.
+ * @param node      Nœud sélectionné, ou NULL.
+ */
+static void investigation_tree_view_emit_selection(
+    InvestigationTreeView *tree_view,
+    const InvestigationNode *node
+)
+{
+    if (tree_view == NULL)
+    {
+        return;
+    }
+
+    if (tree_view->selection_callback == NULL)
+    {
+        return;
+    }
+
+    tree_view->selection_callback(
+        node,
+        tree_view->selection_user_data
+    );
+}
+
+/**
+ * @brief Réagit au changement de l'élément sélectionné.
+ *
+ * GtkSingleSelection expose une GtkTreeListRow. Cette fonction récupère
+ * l'adaptateur privé contenu dans cette ligne, puis le nœud métier associé.
+ *
+ * @param selection_model Modèle GTK ayant changé de sélection.
+ * @param property_spec   Propriété ayant déclenché la notification.
+ * @param user_data       Pointeur vers InvestigationTreeView.
+ */
+static void investigation_tree_view_on_selection_changed(
+    GObject *selection_model,
+    GParamSpec *property_spec,
+    gpointer user_data
+)
+{
+    InvestigationTreeView *tree_view = user_data;
+    GObject *selected_item = NULL;
+    GtkTreeListRow *tree_row = NULL;
+    InvestigationTreeItem *tree_item = NULL;
+    const InvestigationNode *node = NULL;
+
+    (void)property_spec;
+
+    if (tree_view == NULL)
+    {
+        return;
+    }
+
+    selected_item = gtk_single_selection_get_selected_item(
+        GTK_SINGLE_SELECTION(selection_model)
+    );
+
+    if (selected_item == NULL)
+    {
+        investigation_tree_view_emit_selection(
+            tree_view,
+            NULL
+        );
+
+        return;
+    }
+
+    tree_row = GTK_TREE_LIST_ROW(selected_item);
+
+    tree_item = gtk_tree_list_row_get_item(tree_row);
+
+    if (tree_item == NULL)
+    {
+        investigation_tree_view_emit_selection(
+            tree_view,
+            NULL
+        );
+
+        return;
+    }
+
+    node = investigation_tree_item_get_node(tree_item);
+
+    investigation_tree_view_emit_selection(
+        tree_view,
+        node
+    );
+}
+
+/**
  * @brief Retire le modèle GTK actuellement affiché.
  */
 static void investigation_tree_view_clear_model(
@@ -386,6 +480,10 @@ static void investigation_tree_view_clear_model(
     );
 
     tree_view->tree_model = NULL;
+    investigation_tree_view_emit_selection(
+        tree_view,
+        NULL
+    );
 }
 
 InvestigationTreeView *investigation_tree_view_new(void)
@@ -493,7 +591,7 @@ void investigation_tree_view_set_model(
     InvestigationTreeItem *root_item = NULL;
     GListStore *root_store = NULL;
     GtkTreeListModel *gtk_tree_model = NULL;
-    GtkNoSelection *selection_model = NULL;
+    GtkSingleSelection *selection_model = NULL;
 
     if (tree_view == NULL)
     {
@@ -562,7 +660,7 @@ void investigation_tree_view_set_model(
      *
      * Le constructeur prend possession de gtk_tree_model.
      */
-    selection_model = gtk_no_selection_new(
+    selection_model = gtk_single_selection_new(
         G_LIST_MODEL(gtk_tree_model)
     );
 
@@ -572,15 +670,45 @@ void investigation_tree_view_set_model(
         return;
     }
 
-    tree_view->selection_model =
-        GTK_SELECTION_MODEL(selection_model);
+    gtk_single_selection_set_autoselect(
+        selection_model,
+        FALSE
+    );
 
+    gtk_single_selection_set_can_unselect(
+        selection_model,
+        TRUE
+    );
+
+    g_signal_connect(
+        selection_model,
+        "notify::selected-item",
+        G_CALLBACK(investigation_tree_view_on_selection_changed),
+        tree_view
+    );
+
+    tree_view->selection_model = selection_model;
     tree_view->tree_model = tree_model;
 
     gtk_list_view_set_model(
         GTK_LIST_VIEW(tree_view->list_view),
-        tree_view->selection_model
+        GTK_SELECTION_MODEL(tree_view->selection_model)
     );
+}
+
+void investigation_tree_view_set_selection_callback(
+    InvestigationTreeView *tree_view,
+    InvestigationTreeViewSelectionCallback callback,
+    gpointer user_data
+)
+{
+    if (tree_view == NULL)
+    {
+        return;
+    }
+
+    tree_view->selection_callback = callback;
+    tree_view->selection_user_data = user_data;
 }
 
 void investigation_tree_view_free(

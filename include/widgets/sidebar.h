@@ -7,6 +7,7 @@
 #define LABFY_INVESTIGATION_SIDEBAR_H
 
 #include "core/investigation_tree_model.h"
+#include "widgets/investigation_tree_view.h"
 
 #include <gtk/gtk.h>
 
@@ -53,6 +54,21 @@ GtkWidget *sidebar_get_widget(
 void sidebar_set_tree_model(
     Sidebar *sidebar,
     const InvestigationTreeModel *tree_model
+);
+
+/**
+ * @brief Définit le callback appelé lors de la sélection d'un nœud.
+ *
+ * La Sidebar transmet simplement ce callback à InvestigationTreeView.
+ *
+ * @param sidebar   Barre latérale à configurer.
+ * @param callback  Fonction appelée lors d'un changement de sélection.
+ * @param user_data Données privées transmises au callback.
+ */
+void sidebar_set_selection_callback(
+    Sidebar *sidebar,
+    InvestigationTreeViewSelectionCallback callback,
+    gpointer user_data
 );
 
 /**

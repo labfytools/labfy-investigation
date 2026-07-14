@@ -109,6 +109,50 @@ static void application_on_folder_selected(
     );
 }
 
+/**
+ * @brief Traite la sélection d'un nœud dans l'arborescence.
+ *
+ * @param node      Nœud sélectionné, ou NULL si aucune sélection.
+ * @param user_data Pointeur vers Application.
+ */
+static void application_on_tree_node_selected(
+    const InvestigationNode *node,
+    gpointer user_data
+)
+{
+    Application *application = user_data;
+    const char *node_name = NULL;
+    InvestigationNodeType node_type;
+
+    if (application == NULL)
+    {
+        return;
+    }
+
+    if (node == NULL)
+    {
+        g_print("Aucun nœud sélectionné.\n");
+        return;
+    }
+
+    node_name = investigation_node_get_name(node);
+    node_type = investigation_node_get_type(node);
+
+    g_print(
+        "Nœud sélectionné : %s\n",
+        node_name != NULL ? node_name : "(sans nom)"
+    );
+
+    if (node_type == INVESTIGATION_NODE_DIRECTORY)
+    {
+        g_print("Type : dossier\n");
+    }
+    else
+    {
+        g_print("Type : fichier\n");
+    }
+}
+
 static void application_on_activate(
     GtkApplication *gtk_application,
     gpointer user_data
@@ -139,6 +183,12 @@ static void application_on_activate(
         return;
     }
 
+    main_window_set_tree_selection_callback(
+        application->main_window,
+        application_on_tree_node_selected,
+        application
+    );
+    
     main_window_present(application->main_window);
 
     folder_dialog_select_folder(

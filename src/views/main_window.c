@@ -6,6 +6,7 @@
 #include "views/main_window.h"
 #include "widgets/sidebar.h"
 #include "widgets/workspace.h"
+#include "widgets/investigation_tree_view.h"
 
 #include <glib.h>
 
@@ -281,6 +282,24 @@ void main_window_set_tree_model(
     sidebar_set_tree_model(
         main_window->sidebar,
         tree_model
+    );
+}
+
+void main_window_set_tree_selection_callback(
+    MainWindow *main_window,
+    InvestigationTreeViewSelectionCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    sidebar_set_selection_callback(
+        main_window->sidebar,
+        callback,
+        user_data
     );
 }
 

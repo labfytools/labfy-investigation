@@ -196,6 +196,24 @@ void sidebar_set_tree_model(
     );
 }
 
+void sidebar_set_selection_callback(
+    Sidebar *sidebar,
+    InvestigationTreeViewSelectionCallback callback,
+    gpointer user_data
+)
+{
+    if (sidebar == NULL)
+    {
+        return;
+    }
+
+    investigation_tree_view_set_selection_callback(
+        sidebar->tree_view,
+        callback,
+        user_data
+    );
+}
+
 void sidebar_free(Sidebar *sidebar)
 {
     if (sidebar == NULL)

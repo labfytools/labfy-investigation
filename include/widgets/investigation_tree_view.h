@@ -20,6 +20,35 @@
 typedef struct InvestigationTreeView InvestigationTreeView;
 
 /**
+ * @brief Callback appelé lorsqu'un nœud est sélectionné.
+ *
+ * @param node      Nœud sélectionné, ou NULL si aucune sélection n'est active.
+ * @param user_data Données privées fournies lors de l'enregistrement
+ *                  du callback.
+ */
+typedef void (*InvestigationTreeViewSelectionCallback)(
+    const InvestigationNode *node,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de sélection.
+ *
+ * Le callback est appelé à chaque changement de sélection.
+ *
+ * Le composant ne devient pas propriétaire du callback ni de user_data.
+ *
+ * @param tree_view Vue arborescente.
+ * @param callback  Fonction appelée lors d'une sélection.
+ * @param user_data Données privées transmises au callback.
+ */
+void investigation_tree_view_set_selection_callback(
+    InvestigationTreeView *tree_view,
+    InvestigationTreeViewSelectionCallback callback,
+    gpointer user_data
+);
+
+/**
  * @brief Crée une nouvelle vue arborescente vide.
  *
  * Aucun modèle métier n'est associé au composant lors de sa création.

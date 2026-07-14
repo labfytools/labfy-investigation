@@ -7,6 +7,7 @@
 #define LABFY_INVESTIGATION_MAIN_WINDOW_H
 
 #include "core/investigation_tree_model.h"
+#include "widgets/investigation_tree_view.h"
 
 #include <gtk/gtk.h>
 
@@ -54,6 +55,12 @@ GtkWindow *main_window_get_window(
 void main_window_set_tree_model(
     MainWindow *main_window,
     const InvestigationTreeModel *tree_model
+);
+
+void main_window_set_tree_selection_callback(
+    MainWindow *main_window,
+    InvestigationTreeViewSelectionCallback callback,
+    gpointer user_data
 );
 
 /**
