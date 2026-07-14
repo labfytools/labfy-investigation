@@ -26,6 +26,7 @@ struct Workspace
 
     GtkWidget *node_page;
     GtkWidget *node_name_label;
+    GtkWidget *node_path_label;
     GtkWidget *node_type_label;
     GtkWidget *node_parent_label;
     GtkWidget *node_children_label;
@@ -181,6 +182,7 @@ Workspace *workspace_new(void)
     );
 
     workspace->node_name_label = gtk_label_new(NULL);
+    workspace->node_path_label = gtk_label_new(NULL);
     workspace->node_type_label = gtk_label_new(NULL);
     workspace->node_parent_label = gtk_label_new(NULL);
     workspace->node_children_label = gtk_label_new(NULL);
@@ -188,6 +190,26 @@ Workspace *workspace_new(void)
     gtk_box_append(
         GTK_BOX(workspace->node_page),
         workspace->node_name_label
+    );
+
+    gtk_box_append(
+        GTK_BOX(workspace->node_page),
+        workspace->node_path_label
+    );
+
+    gtk_label_set_wrap(
+        GTK_LABEL(workspace->node_path_label),
+        TRUE
+    );
+
+    gtk_label_set_selectable(
+        GTK_LABEL(workspace->node_path_label),
+        TRUE
+    );
+
+    gtk_widget_set_halign(
+        workspace->node_path_label,
+        GTK_ALIGN_CENTER
     );
 
     gtk_box_append(
@@ -236,6 +258,7 @@ void workspace_set_selected_node(
     const char *node_name = NULL;
     const InvestigationNode *parent_node = NULL;
     const char *parent_name = NULL;
+    const char *node_path = NULL;
     InvestigationNodeType node_type;
     size_t children_count = 0;
 
@@ -255,12 +278,18 @@ void workspace_set_selected_node(
     }
 
     node_name = investigation_node_get_name(node);
+    node_path = investigation_node_get_path(node);
     node_type = investigation_node_get_type(node);
     parent_node = investigation_node_get_parent(node);
 
     gtk_label_set_text(
         GTK_LABEL(workspace->node_name_label),
         node_name != NULL ? node_name : "(sans nom)"
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(workspace->node_path_label),
+        node_path != NULL ? node_path : "(chemin indisponible)"
     );
 
     if (node_type == INVESTIGATION_NODE_DIRECTORY)
