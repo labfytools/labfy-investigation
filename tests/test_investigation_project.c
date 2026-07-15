@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <sqlite3.h>
 
 #include <glib.h>
 #include <glib/gstdio.h>
@@ -274,6 +275,43 @@ static void test_create_valid_investigation(void)
         ) == NULL
     );
 
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    int result = SQLITE_ERROR;
+
+    result = sqlite3_open_v2(
+        database_path,
+        &database,
+        SQLITE_OPEN_READONLY,
+        NULL
+    );
+
+    assert(result == SQLITE_OK);
+
+    result = sqlite3_prepare_v2(
+        database,
+        "SELECT COUNT(*) "
+        "FROM sqlite_master "
+        "WHERE type='table' "
+        "AND name='metadata';",
+        -1,
+        &statement,
+        NULL
+    );
+
+    assert(result == SQLITE_OK);
+
+    result = sqlite3_step(statement);
+
+    assert(result == SQLITE_ROW);
+    assert(sqlite3_column_int(statement, 0) == 1);
+
+    result = sqlite3_finalize(statement);
+    assert(result == SQLITE_OK);
+
+    result = sqlite3_close(database);
+    assert(result == SQLITE_OK);
+    
     /*
      * Nettoyage complet.
      */

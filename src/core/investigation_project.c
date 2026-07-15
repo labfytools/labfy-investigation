@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "core/investigation_project.h"
+#include "database/database.h"
 
 #include <errno.h>
 #include <string.h>
@@ -328,7 +329,6 @@ char *investigation_project_create(
     char *database_path = NULL;
 
     GPtrArray *created_paths = NULL;
-    GError *error = NULL;
 
     if (!investigation_project_validate_create_parameters(
             parent_directory,
@@ -460,29 +460,12 @@ char *investigation_project_create(
         return NULL;
     }
 
-    /*
-     * Pour ce ticket, on crée seulement un fichier vide.
-     *
-     * Le schéma SQLite sera ajouté dans un prochain ticket.
-     */
-    if (!g_file_set_contents(
+    if (!database_initialize(
             database_path,
-            "",
-            0,
-            &error
+            investigation_name,
+            investigation_path
         ))
     {
-        if (error != NULL)
-        {
-            g_warning(
-                "Impossible de créer '%s' : %s",
-                database_path,
-                error->message
-            );
-
-            g_clear_error(&error);
-        }
-
         g_free(database_path);
 
         investigation_project_cleanup_created_paths(

@@ -33,6 +33,7 @@ TEST_NODE = tests/test_investigation_node
 TEST_TREE_MODEL = tests/test_investigation_tree_model
 TEST_TREE_BUILDER = tests/test_investigation_tree_builder
 TEST_PROJECT = tests/test_investigation_project
+TEST_DATABASE = tests/test_database
 
 all: $(TARGET)
 
@@ -60,19 +61,27 @@ $(TEST_TREE_BUILDER): \
 
 $(TEST_PROJECT): \
 	tests/test_investigation_project.c \
-	src/core/investigation_project.c
-	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+	src/core/investigation_project.c \
+	src/database/database.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
+$(TEST_DATABASE): \
+	tests/test_database.c \
+	src/database/database.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
 	$(TEST_TREE_BUILDER) \
-	$(TEST_PROJECT)
+	$(TEST_PROJECT) \
+	$(TEST_DATABASE)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
 	@./$(TEST_TREE_BUILDER)
 	@./$(TEST_PROJECT)
+	@./$(TEST_DATABASE)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -86,6 +95,7 @@ clean:
 		$(TEST_NODE) \
 		$(TEST_TREE_MODEL) \
 		$(TEST_TREE_BUILDER) \
-		@./$(TEST_PROJECT)
+		$(TEST_PROJECT) \
+		$(TEST_DATABASE)
 
 .PHONY: clean run test
