@@ -131,6 +131,8 @@ static void test_database_initialize_valid_database(void)
     char *investigation_name = NULL;
     char *investigation_root_path = NULL;
     char *investigation_created_at = NULL;
+    char *investigation_id = NULL;
+    char *investigation_count = NULL;
 
     sqlite3 *database = NULL;
     GError *error = NULL;
@@ -214,19 +216,31 @@ static void test_database_initialize_valid_database(void)
     investigation_name = test_database_read_single_text(
         database,
         "SELECT name FROM investigation "
-        "WHERE id = 1;"
+        "LIMIT 1;"
     );
 
     investigation_root_path = test_database_read_single_text(
         database,
         "SELECT root_path FROM investigation "
-        "WHERE id = 1;"
+        "LIMIT 1;"
     );
 
     investigation_created_at = test_database_read_single_text(
         database,
         "SELECT created_at FROM investigation "
-        "WHERE id = 1;"
+        "LIMIT 1;"
+    );
+
+    investigation_id = test_database_read_single_text(
+        database,
+        "SELECT id FROM investigation "
+        "LIMIT 1;"
+    );
+
+    investigation_count = test_database_read_single_text(
+        database,
+        "SELECT CAST(COUNT(*) AS TEXT) "
+        "FROM investigation;"
     );
 
     assert(strcmp(schema_version, "1") == 0);
@@ -246,6 +260,11 @@ static void test_database_initialize_valid_database(void)
     assert(g_remove(database_path) == 0);
     assert(g_rmdir(temporary_directory) == 0);
 
+    assert(investigation_id[0] != '\0');
+    assert(g_uuid_string_is_valid(investigation_id));
+
+    assert(strcmp(investigation_count, "1") == 0);
+
     g_free(investigation_created_at);
     g_free(investigation_root_path);
     g_free(investigation_name);
@@ -255,6 +274,8 @@ static void test_database_initialize_valid_database(void)
     g_free(schema_version);
     g_free(database_path);
     g_free(temporary_directory);
+    g_free(investigation_id);
+    g_free(investigation_count);
 }
 
 /**

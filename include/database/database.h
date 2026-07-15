@@ -11,19 +11,10 @@
 /**
  * @brief Initialise la base SQLite d'une enquête.
  *
- * La fonction crée ou ouvre le fichier SQLite indiqué, puis initialise
- * transactionnellement le schéma minimal de l'enquête.
+ * La fonction crée ou ouvre le fichier SQLite indiqué, installe le schéma
+ * courant, puis enregistre les métadonnées de l'enquête.
  *
- * Les informations suivantes sont enregistrées :
- *
- * - version du schéma ;
- * - nom de l'application ;
- * - date de création UTC ;
- * - UUID de l'enquête ;
- * - nom de l'enquête ;
- * - chemin racine de l'enquête.
- *
- * Aucun handle sqlite3 n'est exposé au code appelant.
+ * Aucun handle SQLite n'est exposé au code appelant.
  *
  * @param database_path
  *        Chemin complet du fichier Enquete.sqlite.

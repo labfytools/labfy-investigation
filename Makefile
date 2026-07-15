@@ -62,12 +62,14 @@ $(TEST_TREE_BUILDER): \
 $(TEST_PROJECT): \
 	tests/test_investigation_project.c \
 	src/core/investigation_project.c \
-	src/database/database.c
+	src/database/database.c \
+	src/database/schema.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
 $(TEST_DATABASE): \
 	tests/test_database.c \
-	src/database/database.c
+	src/database/database.c \
+	src/database/schema.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
 test: \

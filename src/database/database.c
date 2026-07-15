@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "database/database.h"
+#include "database/schema.h"
 
 #include <glib.h>
 #include <sqlite3.h>
@@ -17,28 +18,6 @@
  * @brief Nom de l'application enregistré dans les métadonnées.
  */
 #define DATABASE_APPLICATION_NAME "Labfy Investigation"
-
-/**
- * @brief Crée la table contenant les métadonnées de l'enquête.
- */
-static const char *const database_create_metadata_table_sql =
-    "CREATE TABLE metadata"
-    "("
-    "    key   TEXT PRIMARY KEY,"
-    "    value TEXT NOT NULL"
-    ");";
-
-/**
- * @brief Crée la table représentant l'enquête courante.
- */
-static const char *const database_create_investigation_table_sql =
-    "CREATE TABLE investigation"
-    "("
-    "    id         INTEGER PRIMARY KEY CHECK (id = 1),"
-    "    name       TEXT NOT NULL,"
-    "    root_path  TEXT NOT NULL,"
-    "    created_at TEXT NOT NULL"
-    ");";
 
 /**
  * @brief Requête d'insertion d'une métadonnée.
@@ -55,11 +34,13 @@ static const char *const database_insert_investigation_sql =
     "    id,"
     "    name,"
     "    root_path,"
-    "    created_at"
+    "    created_at,"
+    "    updated_at"
     ")"
     "VALUES"
     "("
-    "    1,"
+    "    ?,"
+    "    ?,"
     "    ?,"
     "    ?,"
     "    ?"
@@ -319,6 +300,7 @@ static bool database_insert_all_metadata(
  */
 static bool database_insert_investigation(
     sqlite3 *database,
+    const char *investigation_uuid,
     const char *investigation_name,
     const char *investigation_root_path,
     const char *created_at
@@ -329,6 +311,7 @@ static bool database_insert_investigation(
     bool success = false;
 
     if (database == NULL ||
+        investigation_uuid == NULL ||
         investigation_name == NULL ||
         investigation_root_path == NULL ||
         created_at == NULL)
@@ -357,7 +340,7 @@ static bool database_insert_investigation(
     result = sqlite3_bind_text(
         statement,
         1,
-        investigation_name,
+        investigation_uuid,
         -1,
         SQLITE_TRANSIENT
     );
@@ -370,7 +353,7 @@ static bool database_insert_investigation(
     result = sqlite3_bind_text(
         statement,
         2,
-        investigation_root_path,
+        investigation_name,
         -1,
         SQLITE_TRANSIENT
     );
@@ -383,6 +366,32 @@ static bool database_insert_investigation(
     result = sqlite3_bind_text(
         statement,
         3,
+        investigation_root_path,
+        -1,
+        SQLITE_TRANSIENT
+    );
+
+    if (result != SQLITE_OK)
+    {
+        goto cleanup;
+    }
+
+    result = sqlite3_bind_text(
+        statement,
+        4,
+        created_at,
+        -1,
+        SQLITE_TRANSIENT
+    );
+
+    if (result != SQLITE_OK)
+    {
+        goto cleanup;
+    }
+
+    result = sqlite3_bind_text(
+        statement,
+        5,
         created_at,
         -1,
         SQLITE_TRANSIENT
@@ -530,22 +539,11 @@ bool database_initialize(
 
     transaction_started = true;
 
-    if (!database_execute_sql(
-            database,
-            database_create_metadata_table_sql
-        ))
+    if (!schema_install_v1(database))
     {
         goto rollback;
     }
-
-    if (!database_execute_sql(
-            database,
-            database_create_investigation_table_sql
-        ))
-    {
-        goto rollback;
-    }
-
+    
     if (!database_insert_all_metadata(
             database,
             created_at,
@@ -557,6 +555,7 @@ bool database_initialize(
 
     if (!database_insert_investigation(
             database,
+            investigation_uuid,
             investigation_name,
             investigation_root_path,
             created_at
