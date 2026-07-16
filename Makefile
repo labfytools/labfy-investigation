@@ -66,12 +66,16 @@ $(TEST_PROJECT): \
 	tests/test_investigation_project.c \
 	src/core/investigation_project.c \
 	src/database/database.c \
-	src/database/schema.c
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
 $(TEST_DATABASE): \
 	tests/test_database.c \
 	src/database/database.c \
+	src/database/transaction.c \
+	src/database/statement.c \
 	src/database/schema.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
@@ -79,6 +83,7 @@ $(TEST_STATEMENT): \
 	tests/test_statement.c \
 	src/database/database.c \
 	src/database/schema.c \
+	src/database/transaction.c \
 	src/database/statement.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
@@ -87,7 +92,8 @@ $(TEST_TRANSACTION): \
 	src/database/database.c \
 	src/database/schema.c \
 	src/database/statement.c \
-	src/database/transaction.c
+	src/database/transaction.c \
+	src/database/error.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
 $(TEST_ERROR): \
@@ -95,6 +101,7 @@ $(TEST_ERROR): \
 	src/database/database.c \
 	src/database/schema.c \
 	src/database/statement.c \
+	src/database/transaction.c \
 	src/database/error.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 

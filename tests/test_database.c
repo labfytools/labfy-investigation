@@ -346,9 +346,169 @@ static void test_database_initialize_missing_parent(void)
     );
 }
 
+/**
+ * @brief Vérifie qu'une seconde initialisation échouée est annulée.
+ *
+ * La première initialisation crée une base valide.
+ * La seconde tentative doit échouer sans modifier les données existantes.
+ */
+static void test_database_initialize_rollback(void)
+{
+    char *temporary_directory = NULL;
+    char *database_path = NULL;
+
+    char *investigation_count = NULL;
+    char *metadata_count = NULL;
+    char *investigation_name = NULL;
+    char *investigation_root_path = NULL;
+    char *integrity_result = NULL;
+
+    sqlite3 *database = NULL;
+    GError *error = NULL;
+    int result = SQLITE_ERROR;
+
+    temporary_directory = g_dir_make_tmp(
+        "labfy-database-rollback-test-XXXXXX",
+        &error
+    );
+
+    assert(temporary_directory != NULL);
+    assert(error == NULL);
+
+    database_path = g_build_filename(
+        temporary_directory,
+        "Enquete.sqlite",
+        NULL
+    );
+
+    assert(database_path != NULL);
+
+    /*
+     * Première initialisation valide.
+     */
+    assert(
+        database_initialize(
+            database_path,
+            "Enquete_Initiale",
+            temporary_directory
+        )
+    );
+
+    /*
+     * La seconde initialisation doit échouer.
+     *
+     * Elle provoquera une erreur pendant l'installation du schéma
+     * ou lors de l'insertion des métadonnées déjà existantes.
+     */
+    assert(
+        !database_initialize(
+            database_path,
+            "Enquete_Seconde",
+            "/tmp/racine-seconde"
+        )
+    );
+
+    result = sqlite3_open_v2(
+        database_path,
+        &database,
+        SQLITE_OPEN_READONLY,
+        NULL
+    );
+
+    assert(result == SQLITE_OK);
+    assert(database != NULL);
+
+    investigation_count = test_database_read_single_text(
+        database,
+        "SELECT CAST(COUNT(*) AS TEXT) "
+        "FROM investigation;"
+    );
+
+    metadata_count = test_database_read_single_text(
+        database,
+        "SELECT CAST(COUNT(*) AS TEXT) "
+        "FROM metadata "
+        "WHERE key IN "
+        "("
+        "    'schema_version',"
+        "    'application',"
+        "    'created_at',"
+        "    'investigation_uuid'"
+        ");"
+    );
+
+    investigation_name = test_database_read_single_text(
+        database,
+        "SELECT name "
+        "FROM investigation "
+        "LIMIT 1;"
+    );
+
+    investigation_root_path = test_database_read_single_text(
+        database,
+        "SELECT root_path "
+        "FROM investigation "
+        "LIMIT 1;"
+    );
+
+    integrity_result = test_database_read_single_text(
+        database,
+        "PRAGMA integrity_check;"
+    );
+
+    /*
+     * Aucune seconde enquête ne doit avoir été ajoutée.
+     */
+    assert(strcmp(investigation_count, "1") == 0);
+
+    /*
+     * Les quatre métadonnées initiales doivent toujours être présentes
+     * sans duplication.
+     */
+    assert(strcmp(metadata_count, "4") == 0);
+
+    /*
+     * Les données de la première initialisation doivent être intactes.
+     */
+    assert(
+        strcmp(
+            investigation_name,
+            "Enquete_Initiale"
+        ) == 0
+    );
+
+    assert(
+        strcmp(
+            investigation_root_path,
+            temporary_directory
+        ) == 0
+    );
+
+    /*
+     * La base doit rester cohérente après le rollback.
+     */
+    assert(strcmp(integrity_result, "ok") == 0);
+
+    result = sqlite3_close(database);
+
+    assert(result == SQLITE_OK);
+
+    assert(g_remove(database_path) == 0);
+    assert(g_rmdir(temporary_directory) == 0);
+
+    g_free(integrity_result);
+    g_free(investigation_root_path);
+    g_free(investigation_name);
+    g_free(metadata_count);
+    g_free(investigation_count);
+    g_free(database_path);
+    g_free(temporary_directory);
+}
+
 int main(void)
 {
     test_database_initialize_valid_database();
+    test_database_initialize_rollback();
     test_database_initialize_invalid_parameters();
     test_database_initialize_missing_parent();
 

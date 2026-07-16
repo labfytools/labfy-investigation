@@ -5,15 +5,22 @@
 
 #include "database/schema.h"
 
+#include "database_internal.h"
+
 #include <glib.h>
+#include <sqlite3.h>
 
 /**
- * @brief Charge le schéma SQL V1 depuis les ressources intégrées.
+ * @brief Charge le schéma SQL V1 depuis le fichier du projet.
+ *
+ * @param database Connexion utilisée pour enregistrer une éventuelle erreur.
  *
  * @return Une nouvelle chaîne terminée par zéro, à libérer avec g_free(),
  *         ou NULL en cas d'échec.
  */
-static char *schema_load_v1_sql(void)
+static char *schema_load_v1_sql(
+    Database *database
+)
 {
     char *schema_sql = NULL;
     GError *error = NULL;
@@ -25,6 +32,14 @@ static char *schema_load_v1_sql(void)
             &error
         ))
     {
+        database_set_error(
+            database,
+            DATABASE_ERROR_INVALID_STATE,
+            error != NULL
+                ? error->message
+                : "Impossible de charger le schéma SQLite V1."
+        );
+
         g_warning(
             "Impossible de charger database/schema_v1.sql : %s",
             error != NULL
@@ -41,9 +56,10 @@ static char *schema_load_v1_sql(void)
 }
 
 bool schema_install_v1(
-    sqlite3 *database
+    Database *database
 )
 {
+    sqlite3 *database_handle = NULL;
     char *schema_sql = NULL;
     char *error_message = NULL;
 
@@ -54,7 +70,24 @@ bool schema_install_v1(
         return false;
     }
 
-    schema_sql = schema_load_v1_sql();
+    database_handle = database_get_handle(
+        database
+    );
+
+    if (database_handle == NULL)
+    {
+        database_set_error(
+            database,
+            DATABASE_ERROR_INVALID_STATE,
+            "La connexion SQLite est absente."
+        );
+
+        return false;
+    }
+
+    schema_sql = schema_load_v1_sql(
+        database
+    );
 
     if (schema_sql == NULL)
     {
@@ -62,7 +95,7 @@ bool schema_install_v1(
     }
 
     result = sqlite3_exec(
-        database,
+        database_handle,
         schema_sql,
         NULL,
         NULL,
@@ -73,11 +106,19 @@ bool schema_install_v1(
 
     if (result != SQLITE_OK)
     {
+        database_set_error(
+            database,
+            DATABASE_ERROR_SQLITE,
+            error_message != NULL
+                ? error_message
+                : sqlite3_errmsg(database_handle)
+        );
+
         g_warning(
             "Impossible d'installer le schéma SQLite V1 : %s",
             error_message != NULL
                 ? error_message
-                : sqlite3_errmsg(database)
+                : sqlite3_errmsg(database_handle)
         );
 
         sqlite3_free(error_message);
@@ -86,6 +127,10 @@ bool schema_install_v1(
     }
 
     sqlite3_free(error_message);
+
+    database_clear_error_internal(
+        database
+    );
 
     return true;
 }

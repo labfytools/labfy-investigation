@@ -110,13 +110,24 @@ bool database_statement_bind_text(
 )
 {
     sqlite3 *database_handle = NULL;
+    const char *error_message = NULL;
     int result = SQLITE_ERROR;
 
-    if (statement == NULL ||
-        statement->handle == NULL ||
+    if (statement == NULL)
+    {
+        return false;
+    }
+
+    if (statement->handle == NULL ||
         index <= 0 ||
         value == NULL)
     {
+        database_set_error(
+            statement->database,
+            DATABASE_ERROR_INVALID_ARGUMENT,
+            "Paramètres invalides pour la liaison d'un texte."
+        );
+
         return false;
     }
 
@@ -134,16 +145,29 @@ bool database_statement_bind_text(
             statement->database
         );
 
+        error_message =
+            database_handle != NULL
+                ? sqlite3_errmsg(database_handle)
+                : sqlite3_errstr(result);
+
+        database_set_error(
+            statement->database,
+            DATABASE_ERROR_SQLITE,
+            error_message
+        );
+
         g_warning(
             "Impossible de lier le paramètre texte %d : %s",
             index,
-            database_handle != NULL
-                ? sqlite3_errmsg(database_handle)
-                : sqlite3_errstr(result)
+            error_message
         );
 
         return false;
     }
+
+    database_clear_error_internal(
+        statement->database
+    );
 
     return true;
 }
@@ -155,12 +179,23 @@ bool database_statement_bind_int64(
 )
 {
     sqlite3 *database_handle = NULL;
+    const char *error_message = NULL;
     int result = SQLITE_ERROR;
 
-    if (statement == NULL ||
-        statement->handle == NULL ||
+    if (statement == NULL)
+    {
+        return false;
+    }
+
+    if (statement->handle == NULL ||
         index <= 0)
     {
+        database_set_error(
+            statement->database,
+            DATABASE_ERROR_INVALID_ARGUMENT,
+            "Paramètres invalides pour la liaison d'un entier."
+        );
+
         return false;
     }
 
@@ -176,16 +211,29 @@ bool database_statement_bind_int64(
             statement->database
         );
 
+        error_message =
+            database_handle != NULL
+                ? sqlite3_errmsg(database_handle)
+                : sqlite3_errstr(result);
+
+        database_set_error(
+            statement->database,
+            DATABASE_ERROR_SQLITE,
+            error_message
+        );
+
         g_warning(
             "Impossible de lier le paramètre entier %d : %s",
             index,
-            database_handle != NULL
-                ? sqlite3_errmsg(database_handle)
-                : sqlite3_errstr(result)
+            error_message
         );
 
         return false;
     }
+
+    database_clear_error_internal(
+        statement->database
+    );
 
     return true;
 }
@@ -196,12 +244,23 @@ bool database_statement_bind_null(
 )
 {
     sqlite3 *database_handle = NULL;
+    const char *error_message = NULL;
     int result = SQLITE_ERROR;
 
-    if (statement == NULL ||
-        statement->handle == NULL ||
+    if (statement == NULL)
+    {
+        return false;
+    }
+
+    if (statement->handle == NULL ||
         index <= 0)
     {
+        database_set_error(
+            statement->database,
+            DATABASE_ERROR_INVALID_ARGUMENT,
+            "Paramètres invalides pour la liaison de NULL."
+        );
+
         return false;
     }
 
@@ -216,16 +275,29 @@ bool database_statement_bind_null(
             statement->database
         );
 
+        error_message =
+            database_handle != NULL
+                ? sqlite3_errmsg(database_handle)
+                : sqlite3_errstr(result);
+
+        database_set_error(
+            statement->database,
+            DATABASE_ERROR_SQLITE,
+            error_message
+        );
+
         g_warning(
             "Impossible de lier le paramètre NULL %d : %s",
             index,
-            database_handle != NULL
-                ? sqlite3_errmsg(database_handle)
-                : sqlite3_errstr(result)
+            error_message
         );
 
         return false;
     }
+
+    database_clear_error_internal(
+        statement->database
+    );
 
     return true;
 }
@@ -235,11 +307,22 @@ DatabaseStatementStepResult database_statement_step(
 )
 {
     sqlite3 *database_handle = NULL;
+    const char *error_message = NULL;
     int result = SQLITE_ERROR;
 
-    if (statement == NULL ||
-        statement->handle == NULL)
+    if (statement == NULL)
     {
+        return DATABASE_STATEMENT_STEP_ERROR;
+    }
+
+    if (statement->handle == NULL)
+    {
+        database_set_error(
+            statement->database,
+            DATABASE_ERROR_INVALID_STATE,
+            "La requête préparée SQLite est absente."
+        );
+
         return DATABASE_STATEMENT_STEP_ERROR;
     }
 
@@ -249,11 +332,19 @@ DatabaseStatementStepResult database_statement_step(
 
     if (result == SQLITE_ROW)
     {
+        database_clear_error_internal(
+            statement->database
+        );
+
         return DATABASE_STATEMENT_STEP_ROW;
     }
 
     if (result == SQLITE_DONE)
     {
+        database_clear_error_internal(
+            statement->database
+        );
+
         return DATABASE_STATEMENT_STEP_DONE;
     }
 
@@ -261,11 +352,20 @@ DatabaseStatementStepResult database_statement_step(
         statement->database
     );
 
-    g_warning(
-        "Impossible d'exécuter la requête SQL : %s",
+    error_message =
         database_handle != NULL
             ? sqlite3_errmsg(database_handle)
-            : sqlite3_errstr(result)
+            : sqlite3_errstr(result);
+
+    database_set_error(
+        statement->database,
+        DATABASE_ERROR_SQLITE,
+        error_message
+    );
+
+    g_warning(
+        "Impossible d'exécuter la requête SQL : %s",
+        error_message
     );
 
     return DATABASE_STATEMENT_STEP_ERROR;

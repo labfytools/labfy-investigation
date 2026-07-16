@@ -5,6 +5,8 @@
 
 #include "database/database.h"
 #include "database/schema.h"
+#include "database/transaction.h"
+#include "database/statement.h"
 
 #include "database_internal.h"
 
@@ -135,97 +137,55 @@ static bool database_execute_sql(
 }
 
 /**
- * @brief Insère une paire clé-valeur dans la table metadata.
+ * @brief Insère une paire clé-valeur avec une requête préparée.
+ *
+ * La requête est réinitialisée après chaque insertion afin de pouvoir
+ * être réutilisée.
  */
 static bool database_insert_metadata(
-    sqlite3 *database,
-    sqlite3_stmt *statement,
+    DatabaseStatement *statement,
     const char *key,
     const char *value
 )
 {
-    int result = SQLITE_ERROR;
-
-    if (database == NULL ||
-        statement == NULL ||
+    if (statement == NULL ||
         key == NULL ||
         value == NULL)
     {
         return false;
     }
 
-    result = sqlite3_bind_text(
-        statement,
-        1,
-        key,
-        -1,
-        SQLITE_TRANSIENT
-    );
-
-    if (result != SQLITE_OK)
+    if (!database_statement_bind_text(
+            statement,
+            1,
+            key
+        ))
     {
-        g_warning(
-            "Impossible de lier la clé '%s' : %s",
-            key,
-            sqlite3_errmsg(database)
-        );
-
         return false;
     }
 
-    result = sqlite3_bind_text(
-        statement,
-        2,
-        value,
-        -1,
-        SQLITE_TRANSIENT
-    );
-
-    if (result != SQLITE_OK)
+    if (!database_statement_bind_text(
+            statement,
+            2,
+            value
+        ))
     {
-        g_warning(
-            "Impossible de lier la valeur de '%s' : %s",
-            key,
-            sqlite3_errmsg(database)
-        );
-
         return false;
     }
 
-    result = sqlite3_step(statement);
-
-    if (result != SQLITE_DONE)
+    if (database_statement_step(statement) !=
+        DATABASE_STATEMENT_STEP_DONE)
     {
-        g_warning(
-            "Impossible d'insérer la métadonnée '%s' : %s",
-            key,
-            sqlite3_errmsg(database)
-        );
-
         return false;
     }
 
-    result = sqlite3_reset(statement);
-
-    if (result != SQLITE_OK)
+    if (!database_statement_reset(statement))
     {
-        g_warning(
-            "Impossible de réinitialiser la requête metadata : %s",
-            sqlite3_errmsg(database)
-        );
-
         return false;
     }
 
-    result = sqlite3_clear_bindings(statement);
-
-    if (result != SQLITE_OK)
+    if (!database_statement_clear_bindings(statement))
     {
-        g_warning(
-            "Impossible d'effacer les paramètres metadata : %s",
-            sqlite3_errmsg(database)
-        );
-
         return false;
     }
 
@@ -236,13 +196,12 @@ static bool database_insert_metadata(
  * @brief Insère toutes les métadonnées obligatoires.
  */
 static bool database_insert_all_metadata(
-    sqlite3 *database,
+    Database *database,
     const char *created_at,
     const char *investigation_uuid
 )
 {
-    sqlite3_stmt *statement = NULL;
-    int result = SQLITE_ERROR;
+    DatabaseStatement *statement = NULL;
     bool success = false;
 
     if (database == NULL ||
@@ -252,59 +211,39 @@ static bool database_insert_all_metadata(
         return false;
     }
 
-    result = sqlite3_prepare_v2(
+    statement = database_statement_prepare(
         database,
-        database_insert_metadata_sql,
-        -1,
-        &statement,
-        NULL
+        database_insert_metadata_sql
     );
 
-    if (result != SQLITE_OK)
+    if (statement == NULL)
     {
-        g_warning(
-            "Impossible de préparer l'insertion des métadonnées : %s",
-            sqlite3_errmsg(database)
-        );
-
         return false;
     }
 
     success =
         database_insert_metadata(
-            database,
             statement,
             "schema_version",
             DATABASE_SCHEMA_VERSION
         ) &&
         database_insert_metadata(
-            database,
             statement,
             "application",
             DATABASE_APPLICATION_NAME
         ) &&
         database_insert_metadata(
-            database,
             statement,
             "created_at",
             created_at
         ) &&
         database_insert_metadata(
-            database,
             statement,
             "investigation_uuid",
             investigation_uuid
         );
 
-    if (sqlite3_finalize(statement) != SQLITE_OK)
-    {
-        g_warning(
-            "Impossible de finaliser la requête metadata : %s",
-            sqlite3_errmsg(database)
-        );
-
-        return false;
-    }
+    database_statement_finalize(statement);
 
     return success;
 }
@@ -313,15 +252,14 @@ static bool database_insert_all_metadata(
  * @brief Insère la ligne représentant l'enquête courante.
  */
 static bool database_insert_investigation(
-    sqlite3 *database,
+    Database *database,
     const char *investigation_uuid,
     const char *investigation_name,
     const char *investigation_root_path,
     const char *created_at
 )
 {
-    sqlite3_stmt *statement = NULL;
-    int result = SQLITE_ERROR;
+    DatabaseStatement *statement = NULL;
     bool success = false;
 
     if (database == NULL ||
@@ -333,117 +271,46 @@ static bool database_insert_investigation(
         return false;
     }
 
-    result = sqlite3_prepare_v2(
+    statement = database_statement_prepare(
         database,
-        database_insert_investigation_sql,
-        -1,
-        &statement,
-        NULL
+        database_insert_investigation_sql
     );
 
-    if (result != SQLITE_OK)
+    if (statement == NULL)
     {
-        g_warning(
-            "Impossible de préparer l'insertion de l'enquête : %s",
-            sqlite3_errmsg(database)
-        );
-
         return false;
     }
 
-    result = sqlite3_bind_text(
-        statement,
-        1,
-        investigation_uuid,
-        -1,
-        SQLITE_TRANSIENT
-    );
+    success =
+        database_statement_bind_text(
+            statement,
+            1,
+            investigation_uuid
+        ) &&
+        database_statement_bind_text(
+            statement,
+            2,
+            investigation_name
+        ) &&
+        database_statement_bind_text(
+            statement,
+            3,
+            investigation_root_path
+        ) &&
+        database_statement_bind_text(
+            statement,
+            4,
+            created_at
+        ) &&
+        database_statement_bind_text(
+            statement,
+            5,
+            created_at
+        ) &&
+        database_statement_step(statement) ==
+            DATABASE_STATEMENT_STEP_DONE;
 
-    if (result != SQLITE_OK)
-    {
-        goto cleanup;
-    }
-
-    result = sqlite3_bind_text(
-        statement,
-        2,
-        investigation_name,
-        -1,
-        SQLITE_TRANSIENT
-    );
-
-    if (result != SQLITE_OK)
-    {
-        goto cleanup;
-    }
-
-    result = sqlite3_bind_text(
-        statement,
-        3,
-        investigation_root_path,
-        -1,
-        SQLITE_TRANSIENT
-    );
-
-    if (result != SQLITE_OK)
-    {
-        goto cleanup;
-    }
-
-    result = sqlite3_bind_text(
-        statement,
-        4,
-        created_at,
-        -1,
-        SQLITE_TRANSIENT
-    );
-
-    if (result != SQLITE_OK)
-    {
-        goto cleanup;
-    }
-
-    result = sqlite3_bind_text(
-        statement,
-        5,
-        created_at,
-        -1,
-        SQLITE_TRANSIENT
-    );
-
-    if (result != SQLITE_OK)
-    {
-        goto cleanup;
-    }
-
-    result = sqlite3_step(statement);
-
-    if (result != SQLITE_DONE)
-    {
-        goto cleanup;
-    }
-
-    success = true;
-
-cleanup:
-
-    if (!success)
-    {
-        g_warning(
-            "Impossible d'insérer l'enquête : %s",
-            sqlite3_errmsg(database)
-        );
-    }
-
-    if (sqlite3_finalize(statement) != SQLITE_OK)
-    {
-        g_warning(
-            "Impossible de finaliser la requête investigation : %s",
-            sqlite3_errmsg(database)
-        );
-
-        success = false;
-    }
+    database_statement_finalize(statement);
 
     return success;
 }
@@ -584,11 +451,11 @@ bool database_initialize(
     const char *investigation_root_path
 )
 {
-    sqlite3 *database = NULL;
+    Database *database = NULL;
+
     char *created_at = NULL;
     char *investigation_uuid = NULL;
 
-    int result = SQLITE_ERROR;
     bool transaction_started = false;
     bool success = false;
 
@@ -612,43 +479,27 @@ bool database_initialize(
 
     if (investigation_uuid == NULL)
     {
-        g_free(created_at);
-        return false;
+        goto cleanup;
     }
 
-    result = sqlite3_open_v2(
-        database_path,
-        &database,
-        SQLITE_OPEN_READWRITE |
-        SQLITE_OPEN_CREATE |
-        SQLITE_OPEN_PRIVATECACHE,
-        NULL
+    database = database_open(
+        database_path
     );
 
-    if (result != SQLITE_OK)
-    {
-        g_warning(
-            "Impossible d'ouvrir la base '%s' : %s",
-            database_path,
-            database != NULL
-                ? sqlite3_errmsg(database)
-                : sqlite3_errstr(result)
-        );
-
-        goto cleanup;
-    }
-
-    if (!database_execute_sql(
-            database,
-            "PRAGMA foreign_keys = ON;"
-        ))
+    if (database == NULL)
     {
         goto cleanup;
     }
 
-    if (!database_execute_sql(
-            database,
-            "BEGIN IMMEDIATE;"
+    /*
+     * Accès temporaire au handle SQLite.
+     *
+     * Il reste nécessaire tant que schema_install_v1() et les anciennes
+     * fonctions d'insertion n'ont pas encore été migrées vers Database.
+     */
+
+    if (!database_transaction_begin(
+            database
         ))
     {
         goto cleanup;
@@ -656,11 +507,13 @@ bool database_initialize(
 
     transaction_started = true;
 
-    if (!schema_install_v1(database))
+    if (!schema_install_v1(
+            database
+        ))
     {
         goto rollback;
     }
-    
+
     if (!database_insert_all_metadata(
             database,
             created_at,
@@ -681,9 +534,8 @@ bool database_initialize(
         goto rollback;
     }
 
-    if (!database_execute_sql(
-            database,
-            "COMMIT;"
+    if (!database_transaction_commit(
+            database
         ))
     {
         goto rollback;
@@ -698,9 +550,8 @@ rollback:
 
     if (transaction_started)
     {
-        if (!database_execute_sql(
-                database,
-                "ROLLBACK;"
+        if (!database_transaction_rollback(
+                database
             ))
         {
             g_warning(
@@ -714,21 +565,7 @@ rollback:
 
 cleanup:
 
-    if (database != NULL)
-    {
-        result = sqlite3_close(database);
-
-        if (result != SQLITE_OK)
-        {
-            g_warning(
-                "Impossible de fermer proprement la base '%s' : %s",
-                database_path,
-                sqlite3_errstr(result)
-            );
-
-            success = false;
-        }
-    }
+    database_close(database);
 
     g_free(investigation_uuid);
     g_free(created_at);

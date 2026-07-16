@@ -6,9 +6,9 @@
 #ifndef LABFY_INVESTIGATION_SCHEMA_H
 #define LABFY_INVESTIGATION_SCHEMA_H
 
-#include <stdbool.h>
+#include "database/database.h"
 
-#include <sqlite3.h>
+#include <stdbool.h>
 
 /**
  * @brief Installe le schéma SQLite V1 dans une base ouverte.
@@ -23,12 +23,12 @@
  *
  * Elle ne réalise ni COMMIT ni ROLLBACK.
  *
- * @param database Connexion SQLite ouverte.
+ * @param database Connexion Database ouverte.
  *
  * @return true si le schéma a été correctement installé, sinon false.
  */
 bool schema_install_v1(
-    sqlite3 *database
+    Database *database
 );
 
 #endif

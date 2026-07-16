@@ -6,6 +6,7 @@
 #include "database/database.h"
 #include "database/statement.h"
 #include "database/transaction.h"
+#include "database/error.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -224,11 +225,93 @@ static void test_invalid_transaction_states(void)
     database_close(database);
 }
 
+/**
+ * @brief Vérifie l'enregistrement des erreurs de transaction.
+ */
+static void test_transaction_error_state(void)
+{
+    Database *database = NULL;
+    const char *error_message = NULL;
+
+    database = database_open(":memory:");
+
+    assert(database != NULL);
+
+    /*
+     * Aucun commit n'est possible sans transaction active.
+     */
+    assert(
+        !database_transaction_commit(database)
+    );
+
+    assert(
+        database_error_get_code(database) ==
+        DATABASE_ERROR_INVALID_STATE
+    );
+
+    error_message = database_error_get_message(
+        database
+    );
+
+    assert(error_message != NULL);
+    assert(error_message[0] != '\0');
+
+    /*
+     * Un début de transaction valide efface l'erreur précédente.
+     */
+    assert(
+        database_transaction_begin(database)
+    );
+
+    assert(
+        database_error_get_code(database) ==
+        DATABASE_ERROR_NONE
+    );
+
+    /*
+     * Une transaction imbriquée est refusée.
+     */
+    assert(
+        !database_transaction_begin(database)
+    );
+
+    assert(
+        database_error_get_code(database) ==
+        DATABASE_ERROR_INVALID_STATE
+    );
+
+    database_error_clear(database);
+
+    assert(
+        database_transaction_rollback(database)
+    );
+
+    assert(
+        database_error_get_code(database) ==
+        DATABASE_ERROR_NONE
+    );
+
+    /*
+     * Un second rollback est impossible.
+     */
+    assert(
+        !database_transaction_rollback(database)
+    );
+
+    assert(
+        database_error_get_code(database) ==
+        DATABASE_ERROR_INVALID_STATE
+    );
+
+    database_close(database);
+}
+
 int main(void)
 {
     test_transaction_commit();
     test_transaction_rollback();
     test_invalid_transaction_states();
+    test_transaction_error_state();
 
     printf(
         "DatabaseTransaction : tous les tests sont valides.\n"
