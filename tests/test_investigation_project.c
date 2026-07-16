@@ -735,6 +735,181 @@ static void test_validate_directory_replaced_by_file(void)
     g_free(temporary_parent);
 }
 
+/**
+ * @brief Vérifie l'ouverture d'un projet existant et ses accesseurs.
+ */
+static void test_open_existing_project(void)
+{
+    char *temporary_parent = NULL;
+    char *investigation_path = NULL;
+    char *path_with_dot = NULL;
+    char *expected_root_path = NULL;
+    char *expected_database_path = NULL;
+
+    InvestigationProject *project = NULL;
+
+    GError *error = NULL;
+
+    temporary_parent = g_dir_make_tmp(
+        "labfy-investigation-project-open-test-XXXXXX",
+        &error
+    );
+
+    assert(temporary_parent != NULL);
+    assert(error == NULL);
+
+    investigation_path = investigation_project_create(
+        temporary_parent,
+        "Enquete_Ouverte"
+    );
+
+    assert(investigation_path != NULL);
+
+    /*
+     * Le segment "." permet de vérifier la canonicalisation du chemin.
+     */
+    path_with_dot = g_build_filename(
+        investigation_path,
+        ".",
+        NULL
+    );
+
+    assert(path_with_dot != NULL);
+
+    expected_root_path = g_canonicalize_filename(
+        investigation_path,
+        NULL
+    );
+
+    assert(expected_root_path != NULL);
+
+    expected_database_path = g_build_filename(
+        expected_root_path,
+        "00_BaseDeDonnees",
+        "Enquete.sqlite",
+        NULL
+    );
+
+    assert(expected_database_path != NULL);
+
+    project = investigation_project_open(
+        path_with_dot
+    );
+
+    assert(project != NULL);
+
+    assert(
+        strcmp(
+            investigation_project_get_root_path(project),
+            expected_root_path
+        ) == 0
+    );
+
+    assert(
+        strcmp(
+            investigation_project_get_database_path(project),
+            expected_database_path
+        ) == 0
+    );
+
+    investigation_project_free(project);
+
+    assert(
+        test_remove_path_recursively(
+            temporary_parent
+        )
+    );
+
+    g_free(expected_database_path);
+    g_free(expected_root_path);
+    g_free(path_with_dot);
+    g_free(investigation_path);
+    g_free(temporary_parent);
+}
+
+/**
+ * @brief Vérifie le refus des chemins invalides lors de l'ouverture.
+ */
+static void test_open_invalid_project_paths(void)
+{
+    char *temporary_directory = NULL;
+    char *temporary_file = NULL;
+
+    GError *error = NULL;
+
+    assert(
+        investigation_project_open(NULL) == NULL
+    );
+
+    assert(
+        investigation_project_open("") == NULL
+    );
+
+    assert(
+        investigation_project_open(
+            "/tmp/labfy-investigation-project-does-not-exist"
+        ) == NULL
+    );
+
+    temporary_directory = g_dir_make_tmp(
+        "labfy-investigation-project-open-file-test-XXXXXX",
+        &error
+    );
+
+    assert(temporary_directory != NULL);
+    assert(error == NULL);
+
+    temporary_file = g_build_filename(
+        temporary_directory,
+        "not-a-directory.txt",
+        NULL
+    );
+
+    assert(temporary_file != NULL);
+
+    assert(
+        g_file_set_contents(
+            temporary_file,
+            "test\n",
+            -1,
+            &error
+        )
+    );
+
+    assert(error == NULL);
+
+    assert(
+        investigation_project_open(
+            temporary_file
+        ) == NULL
+    );
+
+    assert(
+        test_remove_path_recursively(
+            temporary_directory
+        )
+    );
+
+    g_free(temporary_file);
+    g_free(temporary_directory);
+}
+
+/**
+ * @brief Vérifie les fonctions acceptant un projet NULL.
+ */
+static void test_open_project_null_instance(void)
+{
+    assert(
+        investigation_project_get_root_path(NULL) == NULL
+    );
+
+    assert(
+        investigation_project_get_database_path(NULL) == NULL
+    );
+
+    investigation_project_free(NULL);
+}
+
 int main(void)
 {
     test_create_valid_investigation();
@@ -748,6 +923,11 @@ int main(void)
     test_validate_missing_database();
     test_validate_missing_directory();
     test_validate_directory_replaced_by_file();
+
+    
+    test_open_existing_project();
+    test_open_invalid_project_paths();
+    test_open_project_null_instance();
 
     printf(
         "InvestigationProject : tous les tests sont valides.\n"

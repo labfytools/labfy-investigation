@@ -9,13 +9,18 @@
 #include <stdbool.h>
 
 /**
+ * @brief Contexte opaque représentant les chemins d'un projet d'enquête.
+ */
+typedef struct InvestigationProject InvestigationProject;
+
+/**
  * @brief Crée une nouvelle enquête dans un dossier parent.
  *
  * La fonction crée :
  *
  * - le dossier racine de l'enquête ;
  * - l'arborescence standard ;
- * - le fichier vide 00_BaseDeDonnees/Enquete.sqlite.
+ * - le fichier 00_BaseDeDonnees/Enquete.sqlite.
  *
  * Le dossier parent doit déjà exister.
  *
@@ -28,7 +33,7 @@
  * La chaîne retournée appartient au code appelant et doit être libérée
  * avec g_free().
  *
- * @param parent_directory  Chemin du dossier parent.
+ * @param parent_directory Chemin du dossier parent.
  * @param investigation_name Nom de la nouvelle enquête.
  *
  * @return Le chemin complet de l'enquête créée, ou NULL en cas d'échec.
@@ -38,7 +43,7 @@ char *investigation_project_create(
     const char *investigation_name
 );
 
-/******************************************************************************
+/**
  * @brief Vérifie qu'un dossier est une enquête valide.
  *
  * La fonction contrôle que tous les éléments obligatoires de la structure
@@ -49,9 +54,62 @@ char *investigation_project_create(
  * @param investigation_path Chemin de l'enquête à vérifier.
  *
  * @return true si l'enquête est valide, sinon false.
- ******************************************************************************/
+ */
 bool investigation_project_validate(
     const char *investigation_path
+);
+
+/**
+ * @brief Crée un contexte de chemins pour une enquête existante.
+ *
+ * Le chemin racine est converti en chemin canonique.
+ *
+ * Cette fonction ne crée aucun fichier et ne modifie pas le projet.
+ * Elle construit uniquement les chemins nécessaires à son utilisation.
+ *
+ * @param investigation_root_path Chemin racine de l'enquête.
+ *
+ * @return Un nouveau contexte InvestigationProject, ou NULL en cas d'échec.
+ */
+InvestigationProject *investigation_project_open(
+    const char *investigation_root_path
+);
+
+/**
+ * @brief Libère un contexte InvestigationProject.
+ *
+ * Cette fonction accepte NULL.
+ *
+ * @param project Contexte à libérer.
+ */
+void investigation_project_free(
+    InvestigationProject *project
+);
+
+/**
+ * @brief Retourne le chemin racine canonique de l'enquête.
+ *
+ * Le pointeur retourné appartient au contexte et ne doit pas être libéré.
+ *
+ * @param project Contexte du projet.
+ *
+ * @return Chemin racine, ou NULL si project vaut NULL.
+ */
+const char *investigation_project_get_root_path(
+    const InvestigationProject *project
+);
+
+/**
+ * @brief Retourne le chemin du fichier SQLite de l'enquête.
+ *
+ * Le pointeur retourné appartient au contexte et ne doit pas être libéré.
+ *
+ * @param project Contexte du projet.
+ *
+ * @return Chemin du fichier Enquete.sqlite, ou NULL si project vaut NULL.
+ */
+const char *investigation_project_get_database_path(
+    const InvestigationProject *project
 );
 
 #endif

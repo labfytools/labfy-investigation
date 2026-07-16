@@ -39,6 +39,7 @@ TEST_TRANSACTION = tests/test_transaction
 TEST_ERROR = tests/test_error
 TEST_INVESTIGATION_RECORD = tests/test_investigation_record
 TEST_INVESTIGATION_DAO := tests/test_investigation_dao
+TEST_INVESTIGATION_SESSION := tests/test_investigation_session
 
 all: $(TARGET)
 
@@ -123,6 +124,19 @@ $(TEST_INVESTIGATION_DAO): \
 	src/database/error.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
+$(TEST_INVESTIGATION_SESSION): \
+	tests/test_investigation_session.c \
+	src/core/investigation_session.c \
+	src/core/investigation_project.c \
+	src/dao/investigation_dao.c \
+	src/models/investigation_record.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -133,7 +147,8 @@ test: \
 	$(TEST_TRANSACTION) \
 	$(TEST_ERROR) \
 	$(TEST_INVESTIGATION_RECORD) \
-	$(TEST_INVESTIGATION_DAO)
+	$(TEST_INVESTIGATION_DAO) \
+	$(TEST_INVESTIGATION_SESSION)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -145,6 +160,7 @@ test: \
 	@$(TEST_ERROR)
 	@$(TEST_INVESTIGATION_RECORD)
 	@$(TEST_INVESTIGATION_DAO)
+	@$(TEST_INVESTIGATION_SESSION)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -164,6 +180,7 @@ clean:
 		$(TEST_TRANSACTION) \
 		$(TEST_ERROR) \
 		$(TEST_INVESTIGATION_RECORD) \
-		$(TEST_INVESTIGATION_DAO)
+		$(TEST_INVESTIGATION_DAO) \
+		$(TEST_INVESTIGATION_SESSION)
 
 .PHONY: clean run test

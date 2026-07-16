@@ -13,6 +13,27 @@
 #include <glib/gstdio.h>
 
 /**
+ * @brief Nom du dossier contenant la base de données.
+ */
+#define INVESTIGATION_PROJECT_DATABASE_DIRECTORY \
+    "00_BaseDeDonnees"
+
+/**
+ * @brief Nom du fichier SQLite d'une enquête.
+ */
+#define INVESTIGATION_PROJECT_DATABASE_FILENAME \
+    "Enquete.sqlite"
+
+/**
+ * @brief Représentation privée des chemins d'un projet d'enquête.
+ */
+struct InvestigationProject
+{
+    char *root_path;
+    char *database_path;
+};
+
+/**
  * @brief Type d'un élément de la structure d'une enquête.
  */
 typedef enum
@@ -436,11 +457,10 @@ char *investigation_project_create(
             return NULL;
         }
     }
-
     database_path = g_build_filename(
         investigation_path,
-        "00_BaseDeDonnees",
-        "Enquete.sqlite",
+        INVESTIGATION_PROJECT_DATABASE_DIRECTORY,
+        INVESTIGATION_PROJECT_DATABASE_FILENAME,
         NULL
     );
 
@@ -460,14 +480,25 @@ char *investigation_project_create(
         return NULL;
     }
 
+    /*
+     * Le chemin est enregistré avant l'initialisation.
+     *
+     * Ainsi, si database_initialize() crée le fichier puis échoue,
+     * le nettoyage pourra supprimer ce fichier avant ses dossiers parents.
+     *
+     * Le tableau devient propriétaire de database_path.
+     */
+    g_ptr_array_add(
+        created_paths,
+        database_path
+    );
+
     if (!database_initialize(
             database_path,
             investigation_name,
             investigation_path
         ))
     {
-        g_free(database_path);
-
         investigation_project_cleanup_created_paths(
             created_paths
         );
@@ -483,21 +514,10 @@ char *investigation_project_create(
     }
 
     /*
-     * Le fichier doit également être supprimé avant ses dossiers
-     * si une évolution future ajoute une étape pouvant encore échouer.
-     *
-     * Le tableau devient propriétaire de database_path.
-     */
-    g_ptr_array_add(
-        created_paths,
-        database_path
-    );
-
-    /*
      * Tout est créé avec succès.
      *
-     * On libère seulement le tableau et ses copies de chemins.
-     * Les fichiers et dossiers restent sur le disque.
+     * On libère uniquement le tableau et ses chaînes.
+     * Les fichiers et dossiers restent présents sur le disque.
      */
     g_ptr_array_free(
         created_paths,
@@ -552,4 +572,110 @@ bool investigation_project_validate(
     }
 
     return true;
+}
+
+InvestigationProject *investigation_project_open(
+    const char *investigation_root_path
+)
+{
+    InvestigationProject *project = NULL;
+    char *canonical_root_path = NULL;
+
+    if (investigation_root_path == NULL ||
+        investigation_root_path[0] == '\0')
+    {
+        return NULL;
+    }
+
+    canonical_root_path = g_canonicalize_filename(
+        investigation_root_path,
+        NULL
+    );
+
+    if (canonical_root_path == NULL)
+    {
+        return NULL;
+    }
+
+    /*
+     * Le contexte représente une enquête existante.
+     *
+     * On vérifie seulement ici que sa racine est un dossier.
+     * La présence de la base SQLite sera contrôlée séparément par
+     * InvestigationSession afin de produire une erreur précise.
+     */
+    if (!g_file_test(
+            canonical_root_path,
+            G_FILE_TEST_IS_DIR
+        ))
+    {
+        g_free(canonical_root_path);
+        return NULL;
+    }
+
+    project = g_try_new0(
+        InvestigationProject,
+        1
+    );
+
+    if (project == NULL)
+    {
+        g_free(canonical_root_path);
+        return NULL;
+    }
+
+    project->root_path = canonical_root_path;
+
+    project->database_path = g_build_filename(
+        project->root_path,
+        INVESTIGATION_PROJECT_DATABASE_DIRECTORY,
+        INVESTIGATION_PROJECT_DATABASE_FILENAME,
+        NULL
+    );
+
+    if (project->database_path == NULL)
+    {
+        investigation_project_free(project);
+        return NULL;
+    }
+
+    return project;
+}
+
+void investigation_project_free(
+    InvestigationProject *project
+)
+{
+    if (project == NULL)
+    {
+        return;
+    }
+
+    g_free(project->database_path);
+    g_free(project->root_path);
+    g_free(project);
+}
+
+const char *investigation_project_get_root_path(
+    const InvestigationProject *project
+)
+{
+    if (project == NULL)
+    {
+        return NULL;
+    }
+
+    return project->root_path;
+}
+
+const char *investigation_project_get_database_path(
+    const InvestigationProject *project
+)
+{
+    if (project == NULL)
+    {
+        return NULL;
+    }
+
+    return project->database_path;
 }
