@@ -4,8 +4,6 @@
  * Schéma SQLite officiel V1
  ******************************************************************************/
 
-PRAGMA foreign_keys = ON;
-
 CREATE TABLE metadata
 (
     key   TEXT PRIMARY KEY,

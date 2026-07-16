@@ -1,6 +1,6 @@
 /******************************************************************************
  * @file database.h
- * @brief Interface publique d'initialisation de la base SQLite d'une enquête.
+ * @brief API principale de la couche Database.
  ******************************************************************************/
 
 #ifndef LABFY_INVESTIGATION_DATABASE_H
@@ -9,24 +9,50 @@
 #include <stdbool.h>
 
 /**
- * @brief Initialise la base SQLite d'une enquête.
+ * @brief Contexte opaque représentant une connexion SQLite.
+ */
+typedef struct Database Database;
+
+/**
+ * @brief Ouvre une base SQLite existante ou à créer.
  *
- * La fonction crée ou ouvre le fichier SQLite indiqué, installe le schéma
- * courant, puis enregistre les métadonnées de l'enquête.
+ * La fonction :
  *
- * Aucun handle SQLite n'est exposé au code appelant.
+ * - valide le chemin ;
+ * - ouvre la connexion SQLite ;
+ * - active les clés étrangères ;
+ * - conserve une copie du chemin.
  *
- * @param database_path
- *        Chemin complet du fichier Enquete.sqlite.
+ * @param database_path Chemin du fichier SQLite.
  *
- * @param investigation_name
- *        Nom de l'enquête.
+ * @return Une nouvelle instance de Database, ou NULL en cas d'échec.
+ */
+Database *database_open(
+    const char *database_path
+);
+
+/**
+ * @brief Ferme une base SQLite et libère ses ressources.
  *
- * @param investigation_root_path
- *        Chemin complet du dossier racine de l'enquête.
+ * Cette fonction accepte NULL.
  *
- * @return true si la base a été correctement initialisée,
- *         sinon false.
+ * @param database Instance à fermer.
+ */
+void database_close(
+    Database *database
+);
+
+/**
+ * @brief Initialise la base SQLite d'une nouvelle enquête.
+ *
+ * Cette fonction conserve temporairement son rôle actuel pendant le
+ * refactoring du ticket #025.
+ *
+ * @param database_path Chemin complet du fichier Enquete.sqlite.
+ * @param investigation_name Nom de l'enquête.
+ * @param investigation_root_path Chemin racine de l'enquête.
+ *
+ * @return true si l'initialisation réussit, sinon false.
  */
 bool database_initialize(
     const char *database_path,

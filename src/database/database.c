@@ -6,6 +6,8 @@
 #include "database/database.h"
 #include "database/schema.h"
 
+#include "database_internal.h"
+
 #include <glib.h>
 #include <sqlite3.h>
 
@@ -18,6 +20,18 @@
  * @brief Nom de l'application enregistré dans les métadonnées.
  */
 #define DATABASE_APPLICATION_NAME "Labfy Investigation"
+
+struct Database
+{
+    sqlite3 *handle;
+    char *database_path;
+
+    bool transaction_active;
+    int schema_version;
+
+    DatabaseErrorCode error_code;
+    char *error_message;
+};
 
 /**
  * @brief Requête d'insertion d'une métadonnée.
@@ -461,6 +475,109 @@ static char *database_create_utc_timestamp(void)
     return timestamp;
 }
 
+sqlite3 *database_get_handle(
+    Database *database
+)
+{
+    if (database == NULL)
+    {
+        return NULL;
+    }
+
+    return database->handle;
+}
+
+bool database_get_transaction_active(
+    const Database *database
+)
+{
+    if (database == NULL)
+    {
+        return false;
+    }
+
+    return database->transaction_active;
+}
+
+void database_set_transaction_active(
+    Database *database,
+    bool transaction_active
+)
+{
+    if (database == NULL)
+    {
+        return;
+    }
+
+    database->transaction_active = transaction_active;
+}
+
+Database *database_open(
+    const char *database_path
+)
+{
+    Database *database = NULL;
+    int result = SQLITE_ERROR;
+
+    if (database_path == NULL || database_path[0] == '\0')
+    {
+        return NULL;
+    }
+
+    database = g_new0(Database, 1);
+
+    if (database == NULL)
+    {
+        return NULL;
+    }
+
+    database->database_path = g_strdup(database_path);
+
+    if (database->database_path == NULL)
+    {
+        g_free(database);
+        return NULL;
+    }
+
+    result = sqlite3_open_v2(
+        database_path,
+        &database->handle,
+        SQLITE_OPEN_READWRITE |
+        SQLITE_OPEN_CREATE |
+        SQLITE_OPEN_PRIVATECACHE,
+        NULL
+    );
+
+    if (result != SQLITE_OK)
+    {
+        g_warning(
+            "Impossible d'ouvrir la base '%s' : %s",
+            database_path,
+            database->handle != NULL
+                ? sqlite3_errmsg(database->handle)
+                : sqlite3_errstr(result)
+        );
+
+        database_close(database);
+
+        return NULL;
+    }
+
+    if (!database_execute_sql(
+            database->handle,
+            "PRAGMA foreign_keys = ON;"
+        ))
+    {
+        database_close(database);
+        return NULL;
+    }
+
+    database->transaction_active = false;
+    database->schema_version = 0;
+
+    return database;
+}
+
 bool database_initialize(
     const char *database_path,
     const char *investigation_name,
@@ -617,4 +734,99 @@ cleanup:
     g_free(created_at);
 
     return success;
+}
+
+void database_set_error(
+    Database *database,
+    DatabaseErrorCode error_code,
+    const char *error_message
+)
+{
+    char *error_message_copy = NULL;
+
+    if (database == NULL)
+    {
+        return;
+    }
+
+    if (error_message != NULL)
+    {
+        error_message_copy = g_strdup(error_message);
+    }
+
+    g_free(database->error_message);
+
+    database->error_code = error_code;
+    database->error_message = error_message_copy;
+}
+
+DatabaseErrorCode database_get_error_code_internal(
+    const Database *database
+)
+{
+    if (database == NULL)
+    {
+        return DATABASE_ERROR_NONE;
+    }
+
+    return database->error_code;
+}
+
+const char *database_get_error_message_internal(
+    const Database *database
+)
+{
+    if (database == NULL)
+    {
+        return NULL;
+    }
+
+    return database->error_message;
+}
+
+void database_clear_error_internal(
+    Database *database
+)
+{
+    if (database == NULL)
+    {
+        return;
+    }
+
+    g_free(database->error_message);
+
+    database->error_message = NULL;
+    database->error_code = DATABASE_ERROR_NONE;
+}
+
+void database_close(
+    Database *database
+)
+{
+    int result = SQLITE_OK;
+
+    if (database == NULL)
+    {
+        return;
+    }
+
+    if (database->handle != NULL)
+    {
+        result = sqlite3_close(database->handle);
+
+        if (result != SQLITE_OK)
+        {
+            g_warning(
+                "Impossible de fermer proprement la base '%s' : %s",
+                database->database_path != NULL
+                    ? database->database_path
+                    : "(chemin inconnu)",
+                sqlite3_errstr(result)
+            );
+        }
+    }
+
+    g_free(database->error_message);
+    g_free(database->database_path);
+    g_free(database);
 }

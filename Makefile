@@ -34,6 +34,9 @@ TEST_TREE_MODEL = tests/test_investigation_tree_model
 TEST_TREE_BUILDER = tests/test_investigation_tree_builder
 TEST_PROJECT = tests/test_investigation_project
 TEST_DATABASE = tests/test_database
+TEST_STATEMENT = tests/test_statement
+TEST_TRANSACTION = tests/test_transaction
+TEST_ERROR = tests/test_error
 
 all: $(TARGET)
 
@@ -72,18 +75,47 @@ $(TEST_DATABASE): \
 	src/database/schema.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
+$(TEST_STATEMENT): \
+	tests/test_statement.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
+$(TEST_TRANSACTION): \
+	tests/test_transaction.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
+$(TEST_ERROR): \
+	tests/test_error.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/error.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
 	$(TEST_TREE_BUILDER) \
 	$(TEST_PROJECT) \
-	$(TEST_DATABASE)
+	$(TEST_DATABASE) \
+	$(TEST_STATEMENT) \
+	$(TEST_TRANSACTION) \
+	$(TEST_ERROR)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
 	@./$(TEST_TREE_BUILDER)
 	@./$(TEST_PROJECT)
 	@./$(TEST_DATABASE)
+	@$(TEST_STATEMENT)
+	@$(TEST_TRANSACTION)
+	@$(TEST_ERROR)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -98,6 +130,9 @@ clean:
 		$(TEST_TREE_MODEL) \
 		$(TEST_TREE_BUILDER) \
 		$(TEST_PROJECT) \
-		$(TEST_DATABASE)
+		$(TEST_DATABASE) \
+		$(TEST_STATEMENT) \
+		$(TEST_TRANSACTION) \
+		$(TEST_ERROR)
 
 .PHONY: clean run test
