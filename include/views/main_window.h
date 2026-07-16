@@ -18,6 +18,31 @@
 typedef struct MainWindow MainWindow;
 
 /**
+ * @brief Callback appelé lorsque l'utilisateur demande une nouvelle enquête.
+ *
+ * @param user_data Données utilisateur associées au callback.
+ */
+typedef void (*MainWindowNewInvestigationCallback)(
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback du bouton « Nouvelle enquête ».
+ *
+ * La fenêtre ne crée pas directement l'enquête. Elle transmet uniquement
+ * la demande au contrôleur.
+ *
+ * @param main_window Fenêtre principale.
+ * @param callback Fonction appelée lors du clic.
+ * @param user_data Données transmises au callback.
+ */
+void main_window_set_new_investigation_callback(
+    MainWindow *main_window,
+    MainWindowNewInvestigationCallback callback,
+    gpointer user_data
+);
+
+/**
  * @brief Crée une nouvelle fenêtre principale.
  *
  * @param application Application GTK.
@@ -58,6 +83,28 @@ void main_window_set_tree_model(
     const InvestigationTreeModel *tree_model
 );
 
+/**
+ * @brief Met à jour l'identité de l'enquête affichée.
+ *
+ * La fonction met à jour :
+ *
+ * - le titre de la fenêtre ;
+ * - le texte de la barre d'état.
+ *
+ * Les chaînes sont copiées par GTK et restent la propriété de l'appelant.
+ *
+ * Cette fonction accepte des chaînes NULL ou vides.
+ *
+ * @param main_window Fenêtre principale à mettre à jour.
+ * @param investigation_name Nom persistant de l'enquête.
+ * @param investigation_root_path Chemin racine de l'enquête.
+ */
+void main_window_set_investigation(
+    MainWindow *main_window,
+    const char *investigation_name,
+    const char *investigation_root_path
+);
+
 void main_window_set_tree_selection_callback(
     MainWindow *main_window,
     InvestigationTreeViewSelectionCallback callback,
@@ -75,6 +122,19 @@ void main_window_set_tree_selection_callback(
 void main_window_set_selected_node(
     MainWindow *main_window,
     const InvestigationNode *node
+);
+
+/**
+ * @brief Met à jour le texte de la barre d'état.
+ *
+ * Si status_text vaut NULL, le texte par défaut est affiché.
+ *
+ * @param main_window Fenêtre principale.
+ * @param status_text Nouveau texte de statut, ou NULL.
+ */
+void main_window_set_status(
+    MainWindow *main_window,
+    const char *status_text
 );
 
 /**

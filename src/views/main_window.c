@@ -26,6 +26,18 @@
 #define MAIN_WINDOW_SIDEBAR_POSITION 250
 
 /**
+ * @brief Titre par défaut de la fenêtre.
+ */
+#define MAIN_WINDOW_DEFAULT_TITLE \
+    "Labfy Investigation"
+
+/**
+ * @brief Texte affiché lorsqu'aucune enquête n'est ouverte.
+ */
+#define MAIN_WINDOW_NO_INVESTIGATION_STATUS \
+    "Aucune enquête ouverte"
+
+/**
  * @struct MainWindow
  * @brief Représentation interne de la fenêtre principale.
  *
@@ -35,12 +47,48 @@
 struct MainWindow
 {
     GtkWindow *window;
+
     GtkWidget *main_box;
+    GtkWidget *action_bar;
+    GtkWidget *new_investigation_button;
     GtkWidget *main_paned;
-    Workspace *workspace;
     GtkWidget *status_label;
+
     Sidebar *sidebar;
+    Workspace *workspace;
+
+    MainWindowNewInvestigationCallback
+        new_investigation_callback;
+
+    gpointer
+        new_investigation_user_data;
 };
+
+/**
+ * @brief Transmet la demande de création d'une enquête au contrôleur.
+ *
+ * @param button Bouton ayant reçu le clic.
+ * @param user_data Pointeur vers MainWindow.
+ */
+static void main_window_on_new_investigation_clicked(
+    GtkButton *button,
+    gpointer user_data
+)
+{
+    MainWindow *main_window = user_data;
+
+    (void) button;
+
+    if (main_window == NULL ||
+        main_window->new_investigation_callback == NULL)
+    {
+        return;
+    }
+
+    main_window->new_investigation_callback(
+        main_window->new_investigation_user_data
+    );
+}
 
 MainWindow *main_window_new(GtkApplication *application)
 {
@@ -67,7 +115,7 @@ MainWindow *main_window_new(GtkApplication *application)
 
     gtk_window_set_title(
         main_window->window,
-        "Labfy Investigation"
+        MAIN_WINDOW_DEFAULT_TITLE
     );
 
     gtk_window_set_default_size(
@@ -85,6 +133,53 @@ MainWindow *main_window_new(GtkApplication *application)
     main_window->main_box = gtk_box_new(
         GTK_ORIENTATION_VERTICAL,
         0
+    );
+
+    /*
+     * Barre regroupant les actions générales de l'application.
+     */
+    main_window->action_bar = gtk_box_new(
+        GTK_ORIENTATION_HORIZONTAL,
+        8
+    );
+
+    gtk_widget_set_margin_start(
+        main_window->action_bar,
+        8
+    );
+
+    gtk_widget_set_margin_end(
+        main_window->action_bar,
+        8
+    );
+
+    gtk_widget_set_margin_top(
+        main_window->action_bar,
+        8
+    );
+
+    gtk_widget_set_margin_bottom(
+        main_window->action_bar,
+        8
+    );
+
+    main_window->new_investigation_button =
+        gtk_button_new_with_label(
+            "Nouvelle enquête"
+        );
+
+    gtk_box_append(
+        GTK_BOX(main_window->action_bar),
+        main_window->new_investigation_button
+    );
+
+    g_signal_connect(
+        main_window->new_investigation_button,
+        "clicked",
+        G_CALLBACK(
+            main_window_on_new_investigation_clicked
+        ),
+        main_window
     );
 
     /*
@@ -195,7 +290,7 @@ MainWindow *main_window_new(GtkApplication *application)
     );
 
     main_window->status_label = gtk_label_new(
-        "Aucune enquête ouverte"
+        MAIN_WINDOW_NO_INVESTIGATION_STATUS
     );
 
     gtk_widget_set_halign(
@@ -226,9 +321,15 @@ MainWindow *main_window_new(GtkApplication *application)
     /*
      * Assemblage vertical :
      *
+     * Barre d'actions
      * GtkPaned
      * Barre d'état
      */
+    gtk_box_append(
+        GTK_BOX(main_window->main_box),
+        main_window->action_bar
+    );
+
     gtk_box_append(
         GTK_BOX(main_window->main_box),
         main_window->main_paned
@@ -285,6 +386,120 @@ void main_window_set_tree_model(
     );
 }
 
+void main_window_set_investigation(
+    MainWindow *main_window,
+    const char *investigation_name,
+    const char *investigation_root_path
+)
+{
+    char *window_title = NULL;
+    char *status_text = NULL;
+
+    gboolean has_name = FALSE;
+    gboolean has_root_path = FALSE;
+
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    has_name =
+        investigation_name != NULL &&
+        investigation_name[0] != '\0';
+
+    has_root_path =
+        investigation_root_path != NULL &&
+        investigation_root_path[0] != '\0';
+
+    if (has_name)
+    {
+        window_title = g_strdup_printf(
+            "%s — %s",
+            MAIN_WINDOW_DEFAULT_TITLE,
+            investigation_name
+        );
+    }
+    else
+    {
+        window_title = g_strdup(
+            MAIN_WINDOW_DEFAULT_TITLE
+        );
+    }
+
+    if (has_name && has_root_path)
+    {
+        status_text = g_strdup_printf(
+            "Enquête ouverte : %s — %s",
+            investigation_name,
+            investigation_root_path
+        );
+    }
+    else if (has_name)
+    {
+        status_text = g_strdup_printf(
+            "Enquête ouverte : %s",
+            investigation_name
+        );
+    }
+    else if (has_root_path)
+    {
+        status_text = g_strdup_printf(
+            "Enquête ouverte : %s",
+            investigation_root_path
+        );
+    }
+    else
+    {
+        status_text = g_strdup(
+            MAIN_WINDOW_NO_INVESTIGATION_STATUS
+        );
+    }
+
+    if (main_window->window != NULL)
+    {
+        gtk_window_set_title(
+            main_window->window,
+            window_title
+        );
+    }
+
+    if (main_window->status_label != NULL)
+    {
+        gtk_label_set_text(
+            GTK_LABEL(main_window->status_label),
+            status_text
+        );
+    }
+
+    g_free(status_text);
+    g_free(window_title);
+}
+
+void main_window_set_status(
+    MainWindow *main_window,
+    const char *status_text
+)
+{
+    const char *safe_status_text = NULL;
+
+    if (main_window == NULL ||
+        main_window->status_label == NULL)
+    {
+        return;
+    }
+
+    safe_status_text =
+        status_text != NULL &&
+        status_text[0] != '\0'
+            ? status_text
+            : MAIN_WINDOW_NO_INVESTIGATION_STATUS;
+
+    gtk_label_set_text(
+        GTK_LABEL(main_window->status_label),
+        safe_status_text
+    );
+}
+
 void main_window_set_tree_selection_callback(
     MainWindow *main_window,
     InvestigationTreeViewSelectionCallback callback,
@@ -301,6 +516,21 @@ void main_window_set_tree_selection_callback(
         callback,
         user_data
     );
+}
+
+void main_window_set_new_investigation_callback(
+    MainWindow *main_window,
+    MainWindowNewInvestigationCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    main_window->new_investigation_callback = callback;
+    main_window->new_investigation_user_data = user_data;
 }
 
 void main_window_set_selected_node(

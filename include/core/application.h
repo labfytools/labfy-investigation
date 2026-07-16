@@ -7,6 +7,11 @@
 #define LABFY_INVESTIGATION_APPLICATION_H
 
 /**
+ * @brief Représentation opaque d'une session d'enquête.
+ */
+typedef struct InvestigationSession InvestigationSession;
+
+/**
  * @brief Représentation opaque de l'application.
  *
  * Les détails GTK sont volontairement masqués au reste du programme.
@@ -29,7 +34,26 @@ Application *application_new(void);
  *
  * @return Code de sortie retourné par GTK.
  */
-int application_run(Application *application, int argc, char **argv);
+int application_run(
+    Application *application,
+    int argc,
+    char **argv
+);
+
+/**
+ * @brief Retourne la session d'enquête actuellement ouverte.
+ *
+ * Le pointeur retourné appartient à l'application.
+ * Le code appelant ne doit pas fermer cette session.
+ *
+ * @param application Application concernée.
+ *
+ * @return La session active, ou NULL si aucune enquête n'est ouverte
+ *         ou si application vaut NULL.
+ */
+const InvestigationSession *application_get_session(
+    const Application *application
+);
 
 /**
  * @brief Libère les ressources possédées par l'application.
@@ -38,6 +62,8 @@ int application_run(Application *application, int argc, char **argv);
  *
  * @param application Application à libérer.
  */
-void application_free(Application *application);
+void application_free(
+    Application *application
+);
 
 #endif
