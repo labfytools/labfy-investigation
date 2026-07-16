@@ -45,6 +45,21 @@ const char *database_error_get_message(
 );
 
 /**
+ * @brief Enregistre une erreur dans une connexion Database.
+ *
+ * Le message est copié par la connexion.
+ *
+ * @param database Connexion Database.
+ * @param error_code Code de l'erreur.
+ * @param error_message Message descriptif.
+ */
+void database_error_set(
+    Database *database,
+    DatabaseErrorCode error_code,
+    const char *error_message
+);
+
+/**
  * @brief Efface la dernière erreur enregistrée.
  *
  * @param database Connexion Database.

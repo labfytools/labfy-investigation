@@ -590,33 +590,24 @@ void database_statement_finalize(
     DatabaseStatement *statement
 )
 {
-    sqlite3 *database_handle = NULL;
-    int result = SQLITE_OK;
-
     if (statement == NULL)
     {
         return;
     }
 
-    database_handle = database_get_handle(
-        statement->database
-    );
-
     if (statement->handle != NULL)
     {
-        result = sqlite3_finalize(
+        /*
+         * sqlite3_finalize() peut retourner l'erreur produite par le dernier
+         * sqlite3_step(), même si la requête est correctement détruite.
+         *
+         * Cette erreur est déjà enregistrée par database_statement_step().
+         */
+        sqlite3_finalize(
             statement->handle
         );
 
-        if (result != SQLITE_OK)
-        {
-            g_warning(
-                "Impossible de finaliser la requête SQL : %s",
-                database_handle != NULL
-                    ? sqlite3_errmsg(database_handle)
-                    : sqlite3_errstr(result)
-            );
-        }
+        statement->handle = NULL;
     }
 
     g_free(statement);

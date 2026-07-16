@@ -133,6 +133,7 @@ static void test_database_initialize_valid_database(void)
     char *investigation_created_at = NULL;
     char *investigation_id = NULL;
     char *investigation_count = NULL;
+    char *investigation_updated_at = NULL;
 
     sqlite3 *database = NULL;
     GError *error = NULL;
@@ -231,6 +232,12 @@ static void test_database_initialize_valid_database(void)
         "LIMIT 1;"
     );
 
+    investigation_updated_at = test_database_read_single_text(
+        database,
+        "SELECT updated_at FROM investigation "
+        "LIMIT 1;"
+    );
+
     investigation_id = test_database_read_single_text(
         database,
         "SELECT id FROM investigation "
@@ -252,6 +259,13 @@ static void test_database_initialize_valid_database(void)
     assert(strcmp(investigation_name, "Enquete_Test") == 0);
     assert(strcmp(investigation_root_path, temporary_directory) == 0);
     assert(strcmp(investigation_created_at, created_at) == 0);
+
+    assert(investigation_updated_at[0] != '\0');
+
+    assert(strcmp(investigation_updated_at,created_at) == 0);
+
+    assert(strcmp(investigation_id,investigation_uuid) == 0
+    );
 
     result = sqlite3_close(database);
 
