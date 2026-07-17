@@ -40,6 +40,7 @@ TEST_ERROR = tests/test_error
 TEST_INVESTIGATION_RECORD = tests/test_investigation_record
 TEST_INVESTIGATION_DAO := tests/test_investigation_dao
 TEST_INVESTIGATION_SESSION := tests/test_investigation_session
+TEST_BACKGROUND_TASK := tests/test_background_task
 
 all: $(TARGET)
 
@@ -137,6 +138,11 @@ $(TEST_INVESTIGATION_SESSION): \
 	src/database/error.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
+$(TEST_BACKGROUND_TASK): \
+	tests/test_background_task.c \
+	src/core/background_task.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -148,7 +154,8 @@ test: \
 	$(TEST_ERROR) \
 	$(TEST_INVESTIGATION_RECORD) \
 	$(TEST_INVESTIGATION_DAO) \
-	$(TEST_INVESTIGATION_SESSION)
+	$(TEST_INVESTIGATION_SESSION) \
+	$(TEST_BACKGROUND_TASK)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -161,6 +168,7 @@ test: \
 	@$(TEST_INVESTIGATION_RECORD)
 	@$(TEST_INVESTIGATION_DAO)
 	@$(TEST_INVESTIGATION_SESSION)
+	@$(TEST_BACKGROUND_TASK)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -181,6 +189,7 @@ clean:
 		$(TEST_ERROR) \
 		$(TEST_INVESTIGATION_RECORD) \
 		$(TEST_INVESTIGATION_DAO) \
-		$(TEST_INVESTIGATION_SESSION)
+		$(TEST_INVESTIGATION_SESSION) \
+		$(TEST_BACKGROUND_TASK)
 
 .PHONY: clean run test
