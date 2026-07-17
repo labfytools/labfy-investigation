@@ -14,6 +14,7 @@
 #include "views/create_investigation_dialog.h"
 #include "views/folder_dialog.h"
 #include "views/main_window.h"
+#include "views/application_message_dialog.h"
 
 #include <gtk/gtk.h>
 
@@ -64,6 +65,37 @@ struct Application
     InvestigationSession *session;
     InvestigationTreeModel *tree_model;
 };
+
+/**
+ * @brief Affiche une erreur dans une fenêtre GTK.
+ *
+ * @param application Application propriétaire de la fenêtre principale.
+ * @param title Titre compréhensible par l'utilisateur.
+ * @param message Description de l'erreur.
+ */
+static void application_present_error(
+    Application *application,
+    const char *title,
+    const char *message
+)
+{
+    GtkWindow *parent_window = NULL;
+
+    if (application != NULL &&
+        application->main_window != NULL)
+    {
+        parent_window = main_window_get_window(
+            application->main_window
+        );
+    }
+
+    application_message_dialog_present(
+        parent_window,
+        APPLICATION_MESSAGE_DIALOG_ERROR,
+        title,
+        message
+    );
+}
 
 /**
  * @brief Installe une nouvelle session et son arbre dans l'application.
@@ -390,6 +422,14 @@ static void application_on_folder_selected(
                 : "erreur inconnue"
         );
 
+        application_present_error(
+            application,
+            "Ouverture impossible",
+            error != NULL
+                ? error->message
+                : "L'enquête sélectionnée n'a pas pu être ouverte."
+        );
+
         g_clear_error(
             &error
         );
@@ -412,6 +452,8 @@ static void application_on_create_investigation(
     Application *application = user_data;
 
     char *created_root_path = NULL;
+    char *user_message = NULL;
+
     GError *error = NULL;
 
     if (application == NULL)
@@ -441,6 +483,25 @@ static void application_on_create_investigation(
             parent_directory
         );
 
+        user_message = g_strdup_printf(
+            "L'enquête « %s » n'a pas pu être créée dans :\n"
+            "%s\n\n"
+            "Vérifiez que le dossier existe et que vous disposez "
+            "des droits d'écriture nécessaires.",
+            investigation_name,
+            parent_directory
+        );
+
+        application_present_error(
+            application,
+            "Création impossible",
+            user_message
+        );
+
+        g_free(
+            user_message
+        );
+
         return;
     }
 
@@ -459,11 +520,31 @@ static void application_on_create_investigation(
                 : "erreur inconnue"
         );
 
+        user_message = g_strdup_printf(
+            "L'enquête a bien été créée sur le disque dans :\n"
+            "%s\n\n"
+            "Labfy Investigation n'a cependant pas pu l'ouvrir :\n"
+            "%s",
+            created_root_path,
+            error != NULL
+                ? error->message
+                : "Aucun détail supplémentaire n'est disponible."
+        );
+
+        application_present_error(
+            application,
+            "Enquête créée mais non ouverte",
+            user_message
+        );
+
+        g_free(
+            user_message
+        );
+
         g_clear_error(
             &error
         );
     }
-
     g_free(
         created_root_path
     );
