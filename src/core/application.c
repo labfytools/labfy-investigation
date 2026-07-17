@@ -23,6 +23,35 @@
 #define APPLICATION_ID "com.labfytools.investigation"
 
 /**
+ * @brief Erreurs produites lors du chargement d'une enquête.
+ */
+typedef enum
+{
+    APPLICATION_OPEN_ERROR_INVALID_ARGUMENT,
+    APPLICATION_OPEN_ERROR_INVALID_PROJECT,
+    APPLICATION_OPEN_ERROR_TREE_BUILD,
+    APPLICATION_OPEN_ERROR_INSTALL
+} ApplicationOpenError;
+
+/**
+ * @brief Domaine d'erreur du chargement d'une enquête.
+ */
+#define APPLICATION_OPEN_ERROR \
+    application_open_error_quark()
+
+/**
+ * @brief Retourne le domaine d'erreur du chargement d'une enquête.
+ *
+ * @return Quark GLib du domaine d'erreur.
+ */
+static GQuark application_open_error_quark(void)
+{
+    return g_quark_from_static_string(
+        "labfy-investigation-application-open-error"
+    );
+}
+
+/**
  * @brief État interne de l'application.
  *
  * Cette structure reste privée au module afin d'empêcher les autres
@@ -130,6 +159,197 @@ static gboolean application_install_session(
 }
 
 /**
+ * @brief Ouvre une enquête et l'installe dans l'application.
+ *
+ * En cas de succès, Application devient propriétaire de la nouvelle
+ * session et du nouvel arbre.
+ *
+ * En cas d'échec, l'état précédent de l'application reste inchangé.
+ *
+ * @param application Application à mettre à jour.
+ * @param root_path Chemin racine de l'enquête.
+ * @param error Emplacement facultatif pour l'erreur.
+ *
+ * @return TRUE si l'enquête est ouverte et installée, sinon FALSE.
+ */
+static gboolean application_open_and_install_investigation(
+    Application *application,
+    const char *root_path,
+    GError **error
+)
+{
+    InvestigationSession *new_session = NULL;
+    InvestigationTreeModel *new_tree_model = NULL;
+
+    const InvestigationProject *project = NULL;
+    const char *canonical_root_path = NULL;
+
+    GError *session_error = NULL;
+
+    g_return_val_if_fail(
+        error == NULL || *error == NULL,
+        FALSE
+    );
+
+    if (application == NULL ||
+        application->main_window == NULL)
+    {
+        g_set_error_literal(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_INVALID_ARGUMENT,
+            "L'application ou sa fenêtre principale est invalide."
+        );
+
+        return FALSE;
+    }
+
+    if (root_path == NULL ||
+        root_path[0] == '\0')
+    {
+        g_set_error_literal(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_INVALID_ARGUMENT,
+            "Le chemin racine de l'enquête est invalide."
+        );
+
+        return FALSE;
+    }
+
+    new_session = investigation_session_open(
+        root_path,
+        &session_error
+    );
+
+    if (new_session == NULL)
+    {
+        if (session_error != NULL)
+        {
+            if (error != NULL)
+            {
+                g_propagate_prefixed_error(
+                    error,
+                    session_error,
+                    "Impossible d'ouvrir la session : "
+                );
+            }
+            else
+            {
+                g_clear_error(
+                    &session_error
+                );
+            }
+        }
+        else
+        {
+            g_set_error_literal(
+                error,
+                APPLICATION_OPEN_ERROR,
+                APPLICATION_OPEN_ERROR_INVALID_PROJECT,
+                "Impossible d'ouvrir la session de l'enquête."
+            );
+        }
+
+        return FALSE;
+    }
+
+    project = investigation_session_get_project(
+        new_session
+    );
+
+    if (project == NULL)
+    {
+        g_set_error_literal(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_INVALID_PROJECT,
+            "La session ne fournit aucun projet valide."
+        );
+
+        investigation_session_close(
+            new_session
+        );
+
+        return FALSE;
+    }
+
+    canonical_root_path =
+        investigation_project_get_root_path(
+            project
+        );
+
+    if (canonical_root_path == NULL ||
+        canonical_root_path[0] == '\0')
+    {
+        g_set_error_literal(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_INVALID_PROJECT,
+            "Le projet ne fournit aucun chemin racine valide."
+        );
+
+        investigation_session_close(
+            new_session
+        );
+
+        return FALSE;
+    }
+
+    new_tree_model = investigation_tree_builder_build(
+        canonical_root_path
+    );
+
+    if (new_tree_model == NULL)
+    {
+        g_set_error(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_TREE_BUILD,
+            "Impossible de construire l'arborescence de l'enquête "
+            "située dans '%s'.",
+            canonical_root_path
+        );
+
+        investigation_session_close(
+            new_session
+        );
+
+        return FALSE;
+    }
+
+    if (!application_install_session(
+            application,
+            new_session,
+            new_tree_model
+        ))
+    {
+        g_set_error_literal(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_INSTALL,
+            "Impossible d'installer la session dans l'application."
+        );
+
+        investigation_tree_model_free(
+            new_tree_model
+        );
+
+        investigation_session_close(
+            new_session
+        );
+
+        return FALSE;
+    }
+
+    /*
+     * La propriété de new_session et new_tree_model a été
+     * transférée à Application.
+     */
+    return TRUE;
+}
+
+/**
  * @brief Traite le dossier d'enquête sélectionné par l'utilisateur.
  *
  * @param folder_path Chemin sélectionné, ou NULL en cas d'annulation.
@@ -141,13 +361,6 @@ static void application_on_folder_selected(
 )
 {
     Application *application = user_data;
-
-    InvestigationSession *new_session = NULL;
-    InvestigationTreeModel *new_tree_model = NULL;
-
-    const InvestigationProject *project = NULL;
-    const char *root_path = NULL;
-
     GError *error = NULL;
 
     if (application == NULL)
@@ -155,88 +368,30 @@ static void application_on_folder_selected(
         return;
     }
 
+    /*
+     * L'annulation du sélecteur ne constitue pas une erreur.
+     */
     if (folder_path == NULL)
     {
-        g_print("Ouverture annulée.\n");
         return;
     }
 
-    new_session = investigation_session_open(
-        folder_path,
-        &error
-    );
-
-    if (new_session == NULL)
+    if (!application_open_and_install_investigation(
+            application,
+            folder_path,
+            &error
+        ))
     {
         g_warning(
-            "Impossible d'ouvrir l'enquête : %s",
+            "Impossible d'ouvrir l'enquête '%s' : %s",
+            folder_path,
             error != NULL
                 ? error->message
                 : "erreur inconnue"
         );
 
-        g_clear_error(&error);
-        return;
-    }
-
-    project = investigation_session_get_project(
-        new_session
-    );
-
-    if (project != NULL)
-    {
-        root_path = investigation_project_get_root_path(
-            project
-        );
-    }
-
-    if (root_path == NULL ||
-        root_path[0] == '\0')
-    {
-        g_warning(
-            "La session ne fournit aucun chemin racine valide."
-        );
-
-        investigation_session_close(
-            new_session
-        );
-
-        return;
-    }
-
-    new_tree_model = investigation_tree_builder_build(
-        root_path
-    );
-
-    if (new_tree_model == NULL)
-    {
-        g_warning(
-            "Impossible de construire l'arborescence de l'enquête."
-        );
-
-        investigation_session_close(
-            new_session
-        );
-
-        return;
-    }
-
-    if (!application_install_session(
-            application,
-            new_session,
-            new_tree_model
-        ))
-    {
-        g_warning(
-            "Impossible d'installer l'enquête dans l'application."
-        );
-
-        investigation_tree_model_free(
-            new_tree_model
-        );
-
-        investigation_session_close(
-            new_session
+        g_clear_error(
+            &error
         );
     }
 }
@@ -257,13 +412,6 @@ static void application_on_create_investigation(
     Application *application = user_data;
 
     char *created_root_path = NULL;
-
-    InvestigationSession *new_session = NULL;
-    InvestigationTreeModel *new_tree_model = NULL;
-
-    const InvestigationProject *project = NULL;
-    const char *root_path = NULL;
-
     GError *error = NULL;
 
     if (application == NULL)
@@ -296,98 +444,29 @@ static void application_on_create_investigation(
         return;
     }
 
-    new_session = investigation_session_open(
-        created_root_path,
-        &error
-    );
-
-    if (new_session == NULL)
+    if (!application_open_and_install_investigation(
+            application,
+            created_root_path,
+            &error
+        ))
     {
         g_warning(
-            "L'enquête a été créée dans '%s', mais son ouverture "
-            "a échoué : %s",
+            "L'enquête a été créée dans '%s', mais son "
+            "ouverture a échoué : %s",
             created_root_path,
             error != NULL
                 ? error->message
                 : "erreur inconnue"
         );
 
-        g_clear_error(&error);
-        g_free(created_root_path);
-
-        return;
+        g_clear_error(
+            &error
+        );
     }
 
-    project = investigation_session_get_project(
-        new_session
+    g_free(
+        created_root_path
     );
-
-    if (project != NULL)
-    {
-        root_path = investigation_project_get_root_path(
-            project
-        );
-    }
-
-    if (root_path == NULL ||
-        root_path[0] == '\0')
-    {
-        g_warning(
-            "L'enquête a été créée dans '%s', mais la session "
-            "ne fournit aucun chemin racine valide.",
-            created_root_path
-        );
-
-        investigation_session_close(new_session);
-        g_free(created_root_path);
-
-        return;
-    }
-
-    new_tree_model = investigation_tree_builder_build(
-        root_path
-    );
-
-    if (new_tree_model == NULL)
-    {
-        g_warning(
-            "L'enquête a été créée dans '%s', mais son "
-            "arborescence n'a pas pu être construite.",
-            created_root_path
-        );
-
-        investigation_session_close(new_session);
-        g_free(created_root_path);
-
-        return;
-    }
-
-    if (!application_install_session(
-            application,
-            new_session,
-            new_tree_model
-        ))
-    {
-        g_warning(
-            "L'enquête a été créée dans '%s', mais la session "
-            "n'a pas pu être installée dans l'application.",
-            created_root_path
-        );
-
-        investigation_tree_model_free(
-            new_tree_model
-        );
-
-        investigation_session_close(
-            new_session
-        );
-
-        g_free(created_root_path);
-
-        return;
-    }
-
-    g_free(created_root_path);
 }
 
 /**
