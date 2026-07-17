@@ -499,6 +499,30 @@ static void application_on_tree_node_selected(
 }
 
 /**
+ * @brief Ferme proprement l'application.
+ *
+ * @param user_data Pointeur vers Application.
+ */
+static void application_on_quit_requested(
+    gpointer user_data
+)
+{
+    Application *application = user_data;
+
+    if (application == NULL ||
+        application->gtk_application == NULL)
+    {
+        return;
+    }
+
+    g_application_quit(
+        G_APPLICATION(
+            application->gtk_application
+        )
+    );
+}
+
+/**
  * @brief Crée la fenêtre principale lors de l'activation.
  *
  * Le signal activate peut être reçu plusieurs fois. Si la fenêtre existe
@@ -556,6 +580,12 @@ static void application_on_activate(
     main_window_set_open_investigation_callback(
         application->main_window,
         application_on_open_investigation_requested,
+        application
+    );
+
+    main_window_set_quit_callback(
+        application->main_window,
+        application_on_quit_requested,
         application
     );
 

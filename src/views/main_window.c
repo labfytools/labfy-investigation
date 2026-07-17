@@ -54,6 +54,7 @@ struct MainWindow
     GtkWidget *open_investigation_button;
     GtkWidget *main_paned;
     GtkWidget *status_label;
+    GtkWidget *quit_button;
 
     Sidebar *sidebar;
     Workspace *workspace;
@@ -69,6 +70,12 @@ struct MainWindow
 
     gpointer
         open_investigation_user_data;
+
+    MainWindowQuitCallback
+        quit_callback;
+
+    gpointer
+        quit_user_data;
 };
 
 /**
@@ -120,6 +127,32 @@ static void main_window_on_open_investigation_clicked(
 
     main_window->open_investigation_callback(
         main_window->open_investigation_user_data
+    );
+}
+
+/**
+ * @brief Transmet la demande de fermeture au contrôleur.
+ *
+ * @param button Bouton ayant reçu le clic.
+ * @param user_data Pointeur vers MainWindow.
+ */
+static void main_window_on_quit_clicked(
+    GtkButton *button,
+    gpointer user_data
+)
+{
+    MainWindow *main_window = user_data;
+
+    (void) button;
+
+    if (main_window == NULL ||
+        main_window->quit_callback == NULL)
+    {
+        return;
+    }
+
+    main_window->quit_callback(
+        main_window->quit_user_data
     );
 }
 
@@ -206,6 +239,11 @@ MainWindow *main_window_new(GtkApplication *application)
             "Ouvrir une enquête"
         );
 
+    main_window->quit_button =
+        gtk_button_new_with_label(
+            "Quitter"
+        );
+    
     gtk_box_append(
         GTK_BOX(main_window->action_bar),
         main_window->new_investigation_button
@@ -214,6 +252,11 @@ MainWindow *main_window_new(GtkApplication *application)
     gtk_box_append(
         GTK_BOX(main_window->action_bar),
         main_window->open_investigation_button
+    );
+
+    gtk_box_append(
+        GTK_BOX(main_window->action_bar),
+        main_window->quit_button
     );
 
     g_signal_connect(
@@ -230,6 +273,15 @@ MainWindow *main_window_new(GtkApplication *application)
         "clicked",
         G_CALLBACK(
             main_window_on_open_investigation_clicked
+        ),
+        main_window
+    );
+
+    g_signal_connect(
+        main_window->quit_button,
+        "clicked",
+        G_CALLBACK(
+            main_window_on_quit_clicked
         ),
         main_window
     );
@@ -600,6 +652,21 @@ void main_window_set_open_investigation_callback(
     main_window->open_investigation_user_data = user_data;
 }
 
+void main_window_set_quit_callback(
+    MainWindow *main_window,
+    MainWindowQuitCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    main_window->quit_callback = callback;
+    main_window->quit_user_data = user_data;
+}
+
 void main_window_set_selected_node(
     MainWindow *main_window,
     const InvestigationNode *node
@@ -616,7 +683,9 @@ void main_window_set_selected_node(
     );
 }
 
-void main_window_free(MainWindow *main_window)
+void main_window_free(
+    MainWindow *main_window
+)
 {
     if (main_window == NULL)
     {
@@ -624,13 +693,31 @@ void main_window_free(MainWindow *main_window)
     }
 
     /*
-     * La structure Sidebar a été allouée par sidebar_new().
-     * MainWindow en est donc propriétaire et doit la libérer.
+     * La fenêtre et tous ses widgets doivent être détruits pendant que
+     * les structures MainWindow, Sidebar et Workspace existent encore.
      *
-     * Les widgets GTK, eux, restent gérés par GTK.
+     * Certains widgets possèdent des callbacks dont user_data pointe vers
+     * ces structures.
      */
-    workspace_free(main_window->workspace);
-    sidebar_free(main_window->sidebar);
+    if (main_window->window != NULL)
+    {
+        gtk_window_destroy(
+            main_window->window
+        );
+
+        main_window->window = NULL;
+    }
+
+    workspace_free(
+        main_window->workspace
+    );
+
+    sidebar_free(
+        main_window->sidebar
+    );
+
+    main_window->workspace = NULL;
+    main_window->sidebar = NULL;
 
     g_free(main_window);
 }

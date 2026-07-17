@@ -148,6 +148,15 @@ typedef void (*MainWindowOpenInvestigationCallback)(
 );
 
 /**
+ * @brief Callback appelé lorsque l'utilisateur demande à quitter.
+ *
+ * @param user_data Données utilisateur associées au callback.
+ */
+typedef void (*MainWindowQuitCallback)(
+    gpointer user_data
+);
+
+/**
  * @brief Définit le callback du bouton « Ouvrir une enquête ».
  *
  * La fenêtre transmet uniquement la demande au contrôleur.
@@ -159,6 +168,21 @@ typedef void (*MainWindowOpenInvestigationCallback)(
 void main_window_set_open_investigation_callback(
     MainWindow *main_window,
     MainWindowOpenInvestigationCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback du bouton « Quitter ».
+ *
+ * MainWindow transmet uniquement la demande au contrôleur.
+ *
+ * @param main_window Fenêtre principale.
+ * @param callback Fonction appelée lors du clic.
+ * @param user_data Données transmises au callback.
+ */
+void main_window_set_quit_callback(
+    MainWindow *main_window,
+    MainWindowQuitCallback callback,
     gpointer user_data
 );
 
