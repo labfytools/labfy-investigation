@@ -45,6 +45,7 @@ TEST_TASK_MANAGER := tests/test_task_manager
 TEST_TOOL_REGISTRY := tests/test_tool_registry
 TEST_TOOL_PROCESS := tests/test_tool_process
 TEST_TOOL_TASK := tests/test_tool_task
+TEST_TOOL_CATALOG := tests/test_tool_catalog
 
 all: $(TARGET)
 
@@ -171,6 +172,13 @@ $(TEST_TOOL_TASK): \
 	src/core/background_task.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_TOOL_CATALOG): \
+	tests/test_tool_catalog.c \
+	src/core/tool_catalog.c \
+	src/core/tool_registry.c \
+	src/core/tool_process.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -187,7 +195,8 @@ test: \
 	$(TEST_TASK_MANAGER) \
 	$(TEST_TOOL_REGISTRY) \
 	$(TEST_TOOL_PROCESS) \
-	$(TEST_TOOL_TASK)
+	$(TEST_TOOL_TASK) \
+	$(TEST_TOOL_CATALOG)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -205,6 +214,7 @@ test: \
 	@$(TEST_TOOL_REGISTRY)
 	@$(TEST_TOOL_PROCESS)
 	@$(TEST_TOOL_TASK)
+	@$(TEST_TOOL_CATALOG)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -230,6 +240,7 @@ clean:
 		$(TEST_TASK_MANAGER) \
 		$(TEST_TOOL_REGISTRY) \
 		$(TEST_TOOL_PROCESS) \
-		$(TEST_TOOL_TASK)
+		$(TEST_TOOL_TASK) \
+		$(TEST_TOOL_CATALOG)
 
 .PHONY: clean run test
