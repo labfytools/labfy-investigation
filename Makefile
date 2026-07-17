@@ -43,6 +43,7 @@ TEST_INVESTIGATION_SESSION := tests/test_investigation_session
 TEST_BACKGROUND_TASK := tests/test_background_task
 TEST_TASK_MANAGER := tests/test_task_manager
 TEST_TOOL_REGISTRY := tests/test_tool_registry
+TEST_TOOL_PROCESS := tests/test_tool_process
 
 all: $(TARGET)
 
@@ -156,6 +157,12 @@ $(TEST_TOOL_REGISTRY): \
 	src/core/tool_registry.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_TOOL_PROCESS): \
+	tests/test_tool_process.c \
+	src/core/tool_process.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -170,7 +177,8 @@ test: \
 	$(TEST_INVESTIGATION_SESSION) \
 	$(TEST_BACKGROUND_TASK) \
 	$(TEST_TASK_MANAGER) \
-	$(TEST_TOOL_REGISTRY)
+	$(TEST_TOOL_REGISTRY) \
+	$(TEST_TOOL_PROCESS)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -186,6 +194,7 @@ test: \
 	@$(TEST_BACKGROUND_TASK)
 	@$(TEST_TASK_MANAGER)
 	@$(TEST_TOOL_REGISTRY)
+	@$(TEST_TOOL_PROCESS)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -208,7 +217,8 @@ clean:
 		$(TEST_INVESTIGATION_DAO) \
 		$(TEST_INVESTIGATION_SESSION) \
 		$(TEST_BACKGROUND_TASK) \
-		$(TEST_TASK_MANAGER) \ 
-		$(TEST_TOOL_REGISTRY)
+		$(TEST_TASK_MANAGER) \
+		$(TEST_TOOL_REGISTRY) \
+		$(TEST_TOOL_PROCESS)
 
 .PHONY: clean run test
