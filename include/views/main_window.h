@@ -138,6 +138,31 @@ void main_window_set_status(
 );
 
 /**
+ * @brief Callback appelé lorsque l'utilisateur demande l'ouverture
+ *        d'une enquête existante.
+ *
+ * @param user_data Données utilisateur associées au callback.
+ */
+typedef void (*MainWindowOpenInvestigationCallback)(
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback du bouton « Ouvrir une enquête ».
+ *
+ * La fenêtre transmet uniquement la demande au contrôleur.
+ *
+ * @param main_window Fenêtre principale.
+ * @param callback Fonction appelée lors du clic.
+ * @param user_data Données transmises au callback.
+ */
+void main_window_set_open_investigation_callback(
+    MainWindow *main_window,
+    MainWindowOpenInvestigationCallback callback,
+    gpointer user_data
+);
+
+/**
  * @brief Libère les ressources de la fenêtre.
  *
  * @param main_window Fenêtre à détruire.

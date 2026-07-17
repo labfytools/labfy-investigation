@@ -12,6 +12,7 @@
 #include "models/investigation_record.h"
 #include "core/investigation_tree_builder.h"
 #include "views/create_investigation_dialog.h"
+#include "views/folder_dialog.h"
 #include "views/main_window.h"
 
 #include <gtk/gtk.h>
@@ -126,6 +127,118 @@ static gboolean application_install_session(
     );
 
     return TRUE;
+}
+
+/**
+ * @brief Traite le dossier d'enquête sélectionné par l'utilisateur.
+ *
+ * @param folder_path Chemin sélectionné, ou NULL en cas d'annulation.
+ * @param user_data Pointeur vers Application.
+ */
+static void application_on_folder_selected(
+    const char *folder_path,
+    gpointer user_data
+)
+{
+    Application *application = user_data;
+
+    InvestigationSession *new_session = NULL;
+    InvestigationTreeModel *new_tree_model = NULL;
+
+    const InvestigationProject *project = NULL;
+    const char *root_path = NULL;
+
+    GError *error = NULL;
+
+    if (application == NULL)
+    {
+        return;
+    }
+
+    if (folder_path == NULL)
+    {
+        g_print("Ouverture annulée.\n");
+        return;
+    }
+
+    new_session = investigation_session_open(
+        folder_path,
+        &error
+    );
+
+    if (new_session == NULL)
+    {
+        g_warning(
+            "Impossible d'ouvrir l'enquête : %s",
+            error != NULL
+                ? error->message
+                : "erreur inconnue"
+        );
+
+        g_clear_error(&error);
+        return;
+    }
+
+    project = investigation_session_get_project(
+        new_session
+    );
+
+    if (project != NULL)
+    {
+        root_path = investigation_project_get_root_path(
+            project
+        );
+    }
+
+    if (root_path == NULL ||
+        root_path[0] == '\0')
+    {
+        g_warning(
+            "La session ne fournit aucun chemin racine valide."
+        );
+
+        investigation_session_close(
+            new_session
+        );
+
+        return;
+    }
+
+    new_tree_model = investigation_tree_builder_build(
+        root_path
+    );
+
+    if (new_tree_model == NULL)
+    {
+        g_warning(
+            "Impossible de construire l'arborescence de l'enquête."
+        );
+
+        investigation_session_close(
+            new_session
+        );
+
+        return;
+    }
+
+    if (!application_install_session(
+            application,
+            new_session,
+            new_tree_model
+        ))
+    {
+        g_warning(
+            "Impossible d'installer l'enquête dans l'application."
+        );
+
+        investigation_tree_model_free(
+            new_tree_model
+        );
+
+        investigation_session_close(
+            new_session
+        );
+    }
 }
 
 /**
@@ -304,6 +417,32 @@ static void application_on_new_investigation_requested(
 }
 
 /**
+ * @brief Ouvre le sélecteur d'une enquête existante.
+ *
+ * @param user_data Pointeur vers Application.
+ */
+static void application_on_open_investigation_requested(
+    gpointer user_data
+)
+{
+    Application *application = user_data;
+
+    if (application == NULL ||
+        application->main_window == NULL)
+    {
+        return;
+    }
+
+    folder_dialog_select_folder(
+        main_window_get_window(
+            application->main_window
+        ),
+        application_on_folder_selected,
+        application
+    );
+}
+
+/**
  * @brief Traite la sélection d'un nœud dans l'arborescence.
  *
  * @param node Nœud sélectionné, ou NULL si aucune sélection.
@@ -414,17 +553,15 @@ static void application_on_activate(
         application
     );
 
+    main_window_set_open_investigation_callback(
+        application->main_window,
+        application_on_open_investigation_requested,
+        application
+    );
+
     main_window_present(
         application->main_window
     );
-
-/*    folder_dialog_select_folder(
-        main_window_get_window(
-            application->main_window
-        ),
-        application_on_folder_selected,
-        application
-    ); */
 }
 
 Application *application_new(void)

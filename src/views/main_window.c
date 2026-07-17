@@ -51,6 +51,7 @@ struct MainWindow
     GtkWidget *main_box;
     GtkWidget *action_bar;
     GtkWidget *new_investigation_button;
+    GtkWidget *open_investigation_button;
     GtkWidget *main_paned;
     GtkWidget *status_label;
 
@@ -62,6 +63,12 @@ struct MainWindow
 
     gpointer
         new_investigation_user_data;
+
+    MainWindowOpenInvestigationCallback
+        open_investigation_callback;
+
+    gpointer
+        open_investigation_user_data;
 };
 
 /**
@@ -87,6 +94,32 @@ static void main_window_on_new_investigation_clicked(
 
     main_window->new_investigation_callback(
         main_window->new_investigation_user_data
+    );
+}
+
+/**
+ * @brief Transmet la demande d'ouverture d'une enquête au contrôleur.
+ *
+ * @param button Bouton ayant reçu le clic.
+ * @param user_data Pointeur vers MainWindow.
+ */
+static void main_window_on_open_investigation_clicked(
+    GtkButton *button,
+    gpointer user_data
+)
+{
+    MainWindow *main_window = user_data;
+
+    (void) button;
+
+    if (main_window == NULL ||
+        main_window->open_investigation_callback == NULL)
+    {
+        return;
+    }
+
+    main_window->open_investigation_callback(
+        main_window->open_investigation_user_data
     );
 }
 
@@ -168,9 +201,19 @@ MainWindow *main_window_new(GtkApplication *application)
             "Nouvelle enquête"
         );
 
+    main_window->open_investigation_button =
+        gtk_button_new_with_label(
+            "Ouvrir une enquête"
+        );
+
     gtk_box_append(
         GTK_BOX(main_window->action_bar),
         main_window->new_investigation_button
+    );
+
+    gtk_box_append(
+        GTK_BOX(main_window->action_bar),
+        main_window->open_investigation_button
     );
 
     g_signal_connect(
@@ -178,6 +221,15 @@ MainWindow *main_window_new(GtkApplication *application)
         "clicked",
         G_CALLBACK(
             main_window_on_new_investigation_clicked
+        ),
+        main_window
+    );
+
+    g_signal_connect(
+        main_window->open_investigation_button,
+        "clicked",
+        G_CALLBACK(
+            main_window_on_open_investigation_clicked
         ),
         main_window
     );
@@ -531,6 +583,21 @@ void main_window_set_new_investigation_callback(
 
     main_window->new_investigation_callback = callback;
     main_window->new_investigation_user_data = user_data;
+}
+
+void main_window_set_open_investigation_callback(
+    MainWindow *main_window,
+    MainWindowOpenInvestigationCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    main_window->open_investigation_callback = callback;
+    main_window->open_investigation_user_data = user_data;
 }
 
 void main_window_set_selected_node(
