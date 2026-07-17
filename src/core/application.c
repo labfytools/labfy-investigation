@@ -15,6 +15,8 @@
 #include "views/folder_dialog.h"
 #include "views/main_window.h"
 #include "views/application_message_dialog.h"
+#include "core/task_manager.h"
+#include "core/background_task.h"
 
 #include <gtk/gtk.h>
 
@@ -64,6 +66,7 @@ struct Application
     MainWindow *main_window;
     InvestigationSession *session;
     InvestigationTreeModel *tree_model;
+    TaskManager *task_manager;
 };
 
 /**
@@ -603,6 +606,269 @@ static void application_on_open_investigation_requested(
 }
 
 /**
+ * @brief Exécute une tâche temporaire servant à tester le panneau.
+ *
+ * Cette fonction s'exécute dans un thread secondaire.
+ *
+ * @param task Tâche en cours.
+ * @param cancellable Objet d'annulation.
+ * @param worker_data Données inutilisées.
+ * @param result Emplacement recevant le résultat.
+ * @param error Emplacement recevant une erreur.
+ *
+ * @return TRUE en cas de succès, sinon FALSE.
+ */
+static gboolean application_demo_task_worker(
+    BackgroundTask *task,
+    GCancellable *cancellable,
+    gpointer worker_data,
+    gpointer *result,
+    GError **error
+)
+{
+    guint step = 0;
+    char status_message[64];
+
+    (void) worker_data;
+
+    if (task == NULL ||
+        cancellable == NULL ||
+        result == NULL ||
+        error == NULL)
+    {
+        return FALSE;
+    }
+
+    for (step = 0; step <= 20; step++)
+    {
+        if (g_cancellable_set_error_if_cancelled(
+                cancellable,
+                error
+            ))
+        {
+            return FALSE;
+        }
+
+        g_snprintf(
+            status_message,
+            sizeof(status_message),
+            "Étape %u sur 20",
+            step
+        );
+
+        background_task_report_progress(
+            task,
+            (double) step / 20.0,
+            status_message
+        );
+
+        if (step < 20)
+        {
+            g_usleep(
+                500000
+            );
+        }
+    }
+
+    *result = g_strdup(
+        "Tâche de démonstration terminée."
+    );
+
+    return TRUE;
+}
+
+/**
+ * @brief Journalise la fin de la tâche de démonstration.
+ *
+ * @param task Tâche terminée.
+ * @param user_data Données inutilisées.
+ */
+static void application_demo_task_completed(
+    BackgroundTask *task,
+    gpointer user_data
+)
+{
+    BackgroundTaskState state;
+    const char *result = NULL;
+    GError *error = NULL;
+
+    (void) user_data;
+
+    if (task == NULL)
+    {
+        return;
+    }
+
+    state = background_task_get_state(
+        task
+    );
+
+    if (state == BACKGROUND_TASK_STATE_COMPLETED)
+    {
+        result = background_task_get_result(
+            task
+        );
+
+        g_print(
+            "%s\n",
+            result != NULL
+                ? result
+                : "Tâche terminée."
+        );
+
+        return;
+    }
+
+    if (state == BACKGROUND_TASK_STATE_CANCELLED)
+    {
+        g_print(
+            "Tâche de démonstration annulée.\n"
+        );
+
+        return;
+    }
+
+    error = background_task_dup_error(
+        task
+    );
+
+    g_warning(
+        "La tâche de démonstration a échoué : %s",
+        error != NULL
+            ? error->message
+            : "erreur inconnue"
+    );
+
+    g_clear_error(
+        &error
+    );
+}
+
+/**
+ * @brief Crée et lance une tâche de démonstration.
+ *
+ * @param user_data Pointeur vers Application.
+ */
+static void application_on_demo_task_requested(
+    gpointer user_data
+)
+{
+    Application *application = user_data;
+    BackgroundTask *task = NULL;
+    GError *error = NULL;
+
+    if (application == NULL ||
+        application->task_manager == NULL)
+    {
+        return;
+    }
+
+    task = background_task_new(
+        "Tâche de démonstration"
+    );
+
+    if (task == NULL)
+    {
+        application_present_error(
+            application,
+            "Tâche impossible",
+            "La tâche de démonstration n'a pas pu être créée."
+        );
+
+        return;
+    }
+
+    /*
+     * Le manager prend une référence supplémentaire.
+     */
+    if (!task_manager_add(
+            application->task_manager,
+            task,
+            &error
+        ))
+    {
+        g_warning(
+            "Impossible d'ajouter la tâche : %s",
+            error != NULL
+                ? error->message
+                : "erreur inconnue"
+        );
+
+        application_present_error(
+            application,
+            "Tâche impossible",
+            error != NULL
+                ? error->message
+                : "La tâche n'a pas pu être ajoutée."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        background_task_unref(
+            task
+        );
+
+        return;
+    }
+
+    if (!background_task_start(
+            task,
+            application_demo_task_worker,
+            NULL,
+            NULL,
+            g_free,
+            application_demo_task_completed,
+            NULL,
+            NULL,
+            &error
+        ))
+    {
+        g_warning(
+            "Impossible de démarrer la tâche : %s",
+            error != NULL
+                ? error->message
+                : "erreur inconnue"
+        );
+
+        application_present_error(
+            application,
+            "Démarrage impossible",
+            error != NULL
+                ? error->message
+                : "La tâche n'a pas pu être démarrée."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        task_manager_remove(
+            application->task_manager,
+            task
+        );
+
+        background_task_unref(
+            task
+        );
+
+        return;
+    }
+
+    /*
+     * La référence locale n'est plus nécessaire :
+     *
+     * - TaskManager conserve une référence ;
+     * - BackgroundTask conserve une référence interne pendant
+     *   l'exécution.
+     */
+    background_task_unref(
+        task
+    );
+}
+
+/**
  * @brief Traite la sélection d'un nœud dans l'arborescence.
  *
  * @param node Nœud sélectionné, ou NULL si aucune sélection.
@@ -675,6 +941,10 @@ static void application_on_quit_requested(
         return;
     }
 
+    task_manager_cancel_all(
+        application->task_manager
+    );
+
     g_application_quit(
         G_APPLICATION(
             application->gtk_application
@@ -713,7 +983,8 @@ static void application_on_activate(
     }
 
     application->main_window = main_window_new(
-        gtk_application
+        gtk_application,
+        application->task_manager
     );
 
     if (application->main_window == NULL)
@@ -743,6 +1014,12 @@ static void application_on_activate(
         application
     );
 
+    main_window_set_demo_task_callback(
+        application->main_window,
+        application_on_demo_task_requested,
+        application
+    );
+
     main_window_set_quit_callback(
         application->main_window,
         application_on_quit_requested,
@@ -763,6 +1040,18 @@ Application *application_new(void)
         1
     );
 
+    application->task_manager =
+        task_manager_new();
+
+    if (application->task_manager == NULL)
+    {
+        g_free(
+            application
+        );
+
+        return NULL;
+    }
+
     application->gtk_application = gtk_application_new(
         APPLICATION_ID,
         G_APPLICATION_DEFAULT_FLAGS
@@ -770,7 +1059,14 @@ Application *application_new(void)
 
     if (application->gtk_application == NULL)
     {
-        g_free(application);
+        task_manager_free(
+            application->task_manager
+        );
+
+        g_free(
+            application
+        );
+
         return NULL;
     }
 
@@ -834,8 +1130,16 @@ void application_free(
         application->session
     );
 
+    /*
+     * MainWindow contient TaskPanel.
+     * TaskPanel doit être détruit avant TaskManager.
+     */
     main_window_free(
         application->main_window
+    );
+
+    task_manager_free(
+        application->task_manager
     );
 
     if (application->gtk_application != NULL)
@@ -845,5 +1149,7 @@ void application_free(
         );
     }
 
-    g_free(application);
+    g_free(
+        application
+    );
 }

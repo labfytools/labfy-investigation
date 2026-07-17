@@ -9,6 +9,7 @@
 #include "core/investigation_tree_model.h"
 #include "widgets/investigation_tree_view.h"
 #include "core/investigation_node.h"
+#include "core/task_manager.h"
 
 #include <gtk/gtk.h>
 
@@ -45,11 +46,17 @@ void main_window_set_new_investigation_callback(
 /**
  * @brief Crée une nouvelle fenêtre principale.
  *
- * @param application Application GTK.
+ * MainWindow ne devient pas propriétaire de task_manager.
  *
- * @return Une nouvelle fenêtre ou NULL en cas d'échec.
+ * @param application Application GTK.
+ * @param task_manager Gestionnaire de tâches de l'application.
+ *
+ * @return Nouvelle fenêtre, ou NULL en cas d'échec.
  */
-MainWindow *main_window_new(GtkApplication *application);
+MainWindow *main_window_new(
+    GtkApplication *application,
+    TaskManager *task_manager
+);
 
 /**
  * @brief Affiche la fenêtre principale.
@@ -157,6 +164,16 @@ typedef void (*MainWindowQuitCallback)(
 );
 
 /**
+ * @brief Callback appelé lorsque l'utilisateur demande une tâche
+ *        de démonstration.
+ *
+ * @param user_data Données utilisateur associées au callback.
+ */
+typedef void (*MainWindowDemoTaskCallback)(
+    gpointer user_data
+);
+
+/**
  * @brief Définit le callback du bouton « Ouvrir une enquête ».
  *
  * La fenêtre transmet uniquement la demande au contrôleur.
@@ -183,6 +200,21 @@ void main_window_set_open_investigation_callback(
 void main_window_set_quit_callback(
     MainWindow *main_window,
     MainWindowQuitCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback du bouton « Tâche de test ».
+ *
+ * Ce bouton est temporaire et sert à valider le panneau d'activité.
+ *
+ * @param main_window Fenêtre principale.
+ * @param callback Fonction appelée lors du clic.
+ * @param user_data Données transmises au callback.
+ */
+void main_window_set_demo_task_callback(
+    MainWindow *main_window,
+    MainWindowDemoTaskCallback callback,
     gpointer user_data
 );
 

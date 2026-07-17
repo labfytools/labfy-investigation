@@ -7,6 +7,7 @@
 #include "widgets/sidebar.h"
 #include "widgets/workspace.h"
 #include "widgets/investigation_tree_view.h"
+#include "widgets/task_panel.h"
 
 #include <glib.h>
 
@@ -24,6 +25,11 @@
  * @brief Position initiale de la séparation horizontale.
  */
 #define MAIN_WINDOW_SIDEBAR_POSITION 250
+
+/**
+ * @brief Position initiale de la séparation verticale.
+ */
+#define MAIN_WINDOW_TASK_PANEL_POSITION 430
 
 /**
  * @brief Titre par défaut de la fenêtre.
@@ -52,12 +58,15 @@ struct MainWindow
     GtkWidget *action_bar;
     GtkWidget *new_investigation_button;
     GtkWidget *open_investigation_button;
+    GtkWidget *demo_task_button;
+    GtkWidget *content_paned;
     GtkWidget *main_paned;
     GtkWidget *status_label;
     GtkWidget *quit_button;
 
     Sidebar *sidebar;
     Workspace *workspace;
+    TaskPanel *task_panel;
 
     MainWindowNewInvestigationCallback
         new_investigation_callback;
@@ -76,6 +85,12 @@ struct MainWindow
 
     gpointer
         quit_user_data;
+
+    MainWindowDemoTaskCallback
+        demo_task_callback;
+
+    gpointer
+        demo_task_user_data;
 };
 
 /**
@@ -131,6 +146,32 @@ static void main_window_on_open_investigation_clicked(
 }
 
 /**
+ * @brief Transmet la demande de tâche de démonstration au contrôleur.
+ *
+ * @param button Bouton ayant reçu le clic.
+ * @param user_data Pointeur vers MainWindow.
+ */
+static void main_window_on_demo_task_clicked(
+    GtkButton *button,
+    gpointer user_data
+)
+{
+    MainWindow *main_window = user_data;
+
+    (void) button;
+
+    if (main_window == NULL ||
+        main_window->demo_task_callback == NULL)
+    {
+        return;
+    }
+
+    main_window->demo_task_callback(
+        main_window->demo_task_user_data
+    );
+}
+
+/**
  * @brief Transmet la demande de fermeture au contrôleur.
  *
  * @param button Bouton ayant reçu le clic.
@@ -156,13 +197,18 @@ static void main_window_on_quit_clicked(
     );
 }
 
-MainWindow *main_window_new(GtkApplication *application)
+MainWindow *main_window_new(
+    GtkApplication *application,
+    TaskManager *task_manager
+)
 {
     MainWindow *main_window = NULL;
     GtkWidget *sidebar_widget = NULL;
     GtkWidget *workspace_widget = NULL;
+    GtkWidget *task_panel_widget = NULL;
 
-    if (application == NULL)
+    if (application == NULL ||
+        task_manager == NULL)
     {
         return NULL;
     }
@@ -239,6 +285,11 @@ MainWindow *main_window_new(GtkApplication *application)
             "Ouvrir une enquête"
         );
 
+    main_window->demo_task_button =
+        gtk_button_new_with_label(
+            "Tâche de test"
+    );
+
     main_window->quit_button =
         gtk_button_new_with_label(
             "Quitter"
@@ -252,6 +303,11 @@ MainWindow *main_window_new(GtkApplication *application)
     gtk_box_append(
         GTK_BOX(main_window->action_bar),
         main_window->open_investigation_button
+    );
+
+    gtk_box_append(
+        GTK_BOX(main_window->action_bar),
+        main_window->demo_task_button
     );
 
     gtk_box_append(
@@ -273,6 +329,15 @@ MainWindow *main_window_new(GtkApplication *application)
         "clicked",
         G_CALLBACK(
             main_window_on_open_investigation_clicked
+        ),
+        main_window
+    );
+
+    g_signal_connect(
+        main_window->demo_task_button,
+        "clicked",
+        G_CALLBACK(
+            main_window_on_demo_task_clicked
         ),
         main_window
     );
@@ -345,6 +410,32 @@ MainWindow *main_window_new(GtkApplication *application)
         return NULL;
     }
     
+    main_window->task_panel = task_panel_new(
+        task_manager
+    );
+
+    if (main_window->task_panel == NULL)
+    {
+        main_window_free(
+            main_window
+        );
+
+        return NULL;
+    }
+
+    task_panel_widget = task_panel_get_widget(
+        main_window->task_panel
+    );
+
+    if (task_panel_widget == NULL)
+    {
+        main_window_free(
+            main_window
+        );
+
+        return NULL;
+    }
+
     /*
      * Placement des deux composants dans GtkPaned.
      */
@@ -393,6 +484,55 @@ MainWindow *main_window_new(GtkApplication *application)
         TRUE
     );
 
+    main_window->content_paned = gtk_paned_new(
+        GTK_ORIENTATION_VERTICAL
+    );
+
+    gtk_widget_set_hexpand(
+        main_window->content_paned,
+        TRUE
+    );
+
+    gtk_widget_set_vexpand(
+        main_window->content_paned,
+        TRUE
+    );
+
+    gtk_paned_set_start_child(
+        GTK_PANED(main_window->content_paned),
+        main_window->main_paned
+    );
+
+    gtk_paned_set_end_child(
+        GTK_PANED(main_window->content_paned),
+        task_panel_widget
+    );
+
+    gtk_paned_set_position(
+        GTK_PANED(main_window->content_paned),
+        MAIN_WINDOW_TASK_PANEL_POSITION
+    );
+
+    gtk_paned_set_resize_start_child(
+        GTK_PANED(main_window->content_paned),
+        TRUE
+    );
+
+    gtk_paned_set_resize_end_child(
+        GTK_PANED(main_window->content_paned),
+        FALSE
+    );
+
+    gtk_paned_set_shrink_start_child(
+        GTK_PANED(main_window->content_paned),
+        TRUE
+    );
+
+    gtk_paned_set_shrink_end_child(
+        GTK_PANED(main_window->content_paned),
+        TRUE
+    );
+
     main_window->status_label = gtk_label_new(
         MAIN_WINDOW_NO_INVESTIGATION_STATUS
     );
@@ -436,7 +576,7 @@ MainWindow *main_window_new(GtkApplication *application)
 
     gtk_box_append(
         GTK_BOX(main_window->main_box),
-        main_window->main_paned
+        main_window->content_paned
     );
 
     gtk_box_append(
@@ -449,6 +589,9 @@ MainWindow *main_window_new(GtkApplication *application)
         main_window->main_box
     );
 
+    /*
+     * Ce volet vertical sépare la zone principale du panneau d'activité.
+     */
     return main_window;
 }
 
@@ -652,6 +795,21 @@ void main_window_set_open_investigation_callback(
     main_window->open_investigation_user_data = user_data;
 }
 
+void main_window_set_demo_task_callback(
+    MainWindow *main_window,
+    MainWindowDemoTaskCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    main_window->demo_task_callback = callback;
+    main_window->demo_task_user_data = user_data;
+}
+
 void main_window_set_quit_callback(
     MainWindow *main_window,
     MainWindowQuitCallback callback,
@@ -693,11 +851,57 @@ void main_window_free(
     }
 
     /*
-     * La fenêtre et tous ses widgets doivent être détruits pendant que
-     * les structures MainWindow, Sidebar et Workspace existent encore.
-     *
-     * Certains widgets possèdent des callbacks dont user_data pointe vers
-     * ces structures.
+     * TaskPanel possède un timer et un callback enregistré dans
+     * TaskManager. Ils doivent être retirés avant la destruction
+     * des widgets GTK.
+     */
+    task_panel_free(
+        main_window->task_panel
+    );
+
+    main_window->task_panel = NULL;
+
+    /*
+     * Empêche la destruction du modèle de transmettre une dernière
+     * sélection à Application.
+     */
+    if (main_window->sidebar != NULL)
+    {
+        sidebar_set_selection_callback(
+            main_window->sidebar,
+            NULL,
+            NULL
+        );
+
+        /*
+         * Le modèle est détaché pendant que le GtkListView existe
+         * encore.
+         */
+        sidebar_set_tree_model(
+            main_window->sidebar,
+            NULL
+        );
+    }
+
+    /*
+     * Les structures qui manipulent encore leurs widgets doivent être
+     * nettoyées avant gtk_window_destroy().
+     */
+    sidebar_free(
+        main_window->sidebar
+    );
+
+    workspace_free(
+        main_window->workspace
+    );
+
+    main_window->sidebar = NULL;
+    main_window->workspace = NULL;
+
+    /*
+     * Les modules ne manipulent plus leurs widgets.
+     * GTK peut maintenant détruire tout l'arbre sans callback vers
+     * des structures déjà libérées.
      */
     if (main_window->window != NULL)
     {
@@ -708,16 +912,7 @@ void main_window_free(
         main_window->window = NULL;
     }
 
-    workspace_free(
-        main_window->workspace
+    g_free(
+        main_window
     );
-
-    sidebar_free(
-        main_window->sidebar
-    );
-
-    main_window->workspace = NULL;
-    main_window->sidebar = NULL;
-
-    g_free(main_window);
 }
