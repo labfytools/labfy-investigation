@@ -1,5 +1,28 @@
 # Labfy Investigation
 
+> [!IMPORTANT]
+> **Forgejo est le dépôt principal du projet.**
+>
+> Le code peut également être publié sur GitHub comme miroir public, mais le suivi du développement, les tickets, les décisions techniques et la feuille de route se trouvent sur :
+>
+> **https://git.labfytools.com/fy59/labfy-investigation**
+>
+> Tickets :
+>
+> **https://git.labfytools.com/fy59/labfy-investigation/issues**
+>
+> Les tickets et pull requests ouverts uniquement sur GitHub risquent de ne pas être suivis.
+
+Labfy Investigation est un poste de travail libre d’investigation numérique et d’OSINT, développé en **C17** avec **GTK4**.
+
+Le projet vise à fournir un environnement local, modulaire et traçable pour organiser une enquête, préserver les preuves originales, analyser des données, corréler des entités et produire des rapports exploitables.
+
+> **État du projet : développement actif**
+>
+> Le logiciel n’est pas encore prêt pour un usage opérationnel en production. Les formats internes, l’interface et les mécanismes d’intégration peuvent encore évoluer.
+
+---
+
 Labfy Investigation est un poste de travail libre d’investigation numérique et d’OSINT, développé en **C17** avec **GTK4**.
 
 Le projet vise à fournir un environnement local, modulaire et traçable pour organiser une enquête, préserver les preuves originales, analyser des données, corréler des entités et produire des rapports exploitables.
