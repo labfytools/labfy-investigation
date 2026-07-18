@@ -17,6 +17,7 @@
 #include "views/application_message_dialog.h"
 #include "core/task_manager.h"
 #include "core/background_task.h"
+#include "core/tool_initializer.h"
 
 #include <gtk/gtk.h>
 
@@ -67,7 +68,60 @@ struct Application
     InvestigationSession *session;
     InvestigationTreeModel *tree_model;
     TaskManager *task_manager;
+    ToolInitializer *tool_initializer;
 };
+
+static void application_present_error(
+    Application *application,
+    const char *title,
+    const char *message
+);
+
+/**
+ * @brief Démarre la détection asynchrone des outils externes.
+ *
+ * Une erreur empêche seulement l’initialisation des outils.
+ * Elle ne doit pas fermer l’application.
+ *
+ * @param application Application concernée.
+ */
+static void application_start_tool_initialization(
+    Application *application
+)
+{
+    GError *error = NULL;
+
+    if (application == NULL ||
+        application->tool_initializer == NULL)
+    {
+        return;
+    }
+
+    if (!tool_initializer_start(
+        application->tool_initializer,
+        &error
+    ))
+    {
+        g_warning(
+            "Impossible d’initialiser les outils externes : %s",
+            error != NULL
+            ? error->message
+            : "erreur inconnue"
+        );
+
+        application_present_error(
+            application,
+            "Initialisation des outils impossible",
+            error != NULL
+            ? error->message
+            : "Les outils externes n’ont pas pu être initialisés."
+        );
+
+        g_clear_error(
+            &error
+        );
+    }
+}
 
 /**
  * @brief Affiche une erreur dans une fenêtre GTK.
@@ -1029,11 +1083,20 @@ static void application_on_activate(
     main_window_present(
         application->main_window
     );
+
+    /*
+     * Le démarrage est non bloquant. Le worker s’exécute dans un
+     * thread secondaire et sa progression apparaît dans TaskPanel.
+     */
+    application_start_tool_initialization(
+        application
+    );
 }
 
 Application *application_new(void)
 {
     Application *application = NULL;
+    GError *error = NULL;
 
     application = g_new0(
         Application,
@@ -1052,6 +1115,36 @@ Application *application_new(void)
         return NULL;
     }
 
+    application->tool_initializer =
+        tool_initializer_new(
+            application->task_manager,
+            &error
+        );
+
+    if (application->tool_initializer == NULL)
+    {
+        g_warning(
+            "Impossible de créer l’initialiseur des outils : %s",
+            error != NULL
+            ? error->message
+            : "erreur inconnue"
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        task_manager_free(
+            application->task_manager
+        );
+
+        g_free(
+            application
+        );
+
+        return NULL;
+    }
+
     application->gtk_application = gtk_application_new(
         APPLICATION_ID,
         G_APPLICATION_DEFAULT_FLAGS
@@ -1059,6 +1152,10 @@ Application *application_new(void)
 
     if (application->gtk_application == NULL)
     {
+        tool_initializer_free(
+            application->tool_initializer
+        );
+        
         task_manager_free(
             application->task_manager
         );
@@ -1122,6 +1219,10 @@ void application_free(
         return;
     }
 
+    task_manager_cancel_all(
+        application->task_manager
+    );
+
     investigation_tree_model_free(
         application->tree_model
     );
@@ -1132,10 +1233,18 @@ void application_free(
 
     /*
      * MainWindow contient TaskPanel.
-     * TaskPanel doit être détruit avant TaskManager.
+     * Il doit être détruit avant TaskManager.
      */
     main_window_free(
         application->main_window
+    );
+
+    /*
+     * ToolInitializer emprunte TaskManager.
+     * Il doit être libéré avant celui-ci.
+     */
+    tool_initializer_free(
+        application->tool_initializer
     );
 
     task_manager_free(
