@@ -1,0 +1,503 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://labfytools.com/schemas/osint-tools.schema.json",
+  "title": "Labfy Investigation OSINT Tool Inventory",
+  "description": "Schéma de qualification des outils OSINT intégrables à Labfy Investigation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tools"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tool"
+      }
+    }
+  },
+  "$defs": {
+    "ubuntu_support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supported",
+        "official_packages",
+        "install_methods",
+        "tested_versions",
+        "notes"
+      ],
+      "properties": {
+        "supported": {
+          "type": "boolean"
+        },
+        "official_packages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "install_methods": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "APT",
+              "DEB",
+              "PIPX",
+              "PYTHON_VENV",
+              "BINARY_RELEASE",
+              "SOURCE_BUILD",
+              "CONTAINER_ROOTLESS",
+              "MANUAL"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "minimum_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tested_versions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "arch_support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supported",
+        "official_packages",
+        "aur_packages",
+        "install_methods",
+        "tested_versions",
+        "notes"
+      ],
+      "properties": {
+        "supported": {
+          "type": "boolean"
+        },
+        "official_packages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "aur_packages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "install_methods": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "PACMAN",
+              "AUR",
+              "PIPX",
+              "PYTHON_VENV",
+              "BINARY_RELEASE",
+              "SOURCE_BUILD",
+              "CONTAINER_ROOTLESS",
+              "MANUAL"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "tested_versions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identifier",
+        "name",
+        "repository",
+        "homepage",
+        "publisher",
+        "category",
+        "subcategories",
+        "description",
+        "license",
+        "license_verified",
+        "open_source_status",
+        "latest_release",
+        "last_activity",
+        "primary_language",
+        "platforms",
+        "source_build_supported",
+        "runtime_dependencies",
+        "input_types",
+        "output_formats",
+        "supports_json",
+        "supports_csv",
+        "supports_stdout",
+        "supports_file_output",
+        "requires_account",
+        "requires_api_key",
+        "requires_paid_service",
+        "network_activity",
+        "collection_mode",
+        "authentication_mode",
+        "rate_limit_risk",
+        "terms_of_service_risk",
+        "personal_data_risk",
+        "false_positive_risk",
+        "evidentiary_value",
+        "reproducibility",
+        "tool_version_command",
+        "integration_mode",
+        "integration_priority",
+        "legal_status",
+        "maintenance_status",
+        "decision",
+        "decision_reason",
+        "score",
+        "notes",
+        "reviewed_at",
+        "reviewed_by"
+      ],
+      "properties": {
+        "identifier": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repository": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "homepage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "publisher": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subcategories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "license": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "license_verified": {
+          "type": "boolean"
+        },
+        "open_source_status": {
+          "enum": [
+            "OPEN_SOURCE",
+            "SOURCE_AVAILABLE",
+            "OPEN_CLIENT_CLOSED_SERVICE",
+            "CLOSED_SOURCE",
+            "UNKNOWN"
+          ]
+        },
+        "latest_release": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_activity": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "primary_language": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "platforms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ubuntu",
+            "arch"
+          ],
+          "properties": {
+            "ubuntu": {
+              "$ref": "#/$defs/ubuntu_support"
+            },
+            "arch": {
+              "$ref": "#/$defs/arch_support"
+            }
+          }
+        },
+        "source_build_supported": {
+          "type": "boolean"
+        },
+        "runtime_dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "input_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "output_formats": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "supports_json": {
+          "type": "boolean"
+        },
+        "supports_csv": {
+          "type": "boolean"
+        },
+        "supports_stdout": {
+          "type": "boolean"
+        },
+        "supports_file_output": {
+          "type": "boolean"
+        },
+        "requires_account": {
+          "type": "boolean"
+        },
+        "requires_api_key": {
+          "type": "boolean"
+        },
+        "requires_paid_service": {
+          "type": "boolean"
+        },
+        "network_activity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "collection_mode": {
+          "enum": [
+            "LOCAL_ONLY",
+            "PASSIVE_REMOTE",
+            "REMOTE_PUBLIC_REQUESTS",
+            "AUTHENTICATED_PUBLIC_API",
+            "ACTIVE_LOW_IMPACT",
+            "ACTIVE_INTRUSIVE",
+            "MIXED"
+          ]
+        },
+        "authentication_mode": {
+          "enum": [
+            "NONE",
+            "OPTIONAL_ACCOUNT",
+            "REQUIRED_ACCOUNT",
+            "API_KEY",
+            "COOKIE",
+            "OAUTH",
+            "MIXED"
+          ]
+        },
+        "rate_limit_risk": {
+          "enum": [
+            "NONE",
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "UNKNOWN"
+          ]
+        },
+        "terms_of_service_risk": {
+          "enum": [
+            "NONE",
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "UNKNOWN"
+          ]
+        },
+        "personal_data_risk": {
+          "enum": [
+            "NONE",
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "UNKNOWN"
+          ]
+        },
+        "false_positive_risk": {
+          "enum": [
+            "NONE",
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "UNKNOWN"
+          ]
+        },
+        "evidentiary_value": {
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "CONTEXT_ONLY",
+            "UNKNOWN"
+          ]
+        },
+        "reproducibility": {
+          "enum": [
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "UNKNOWN"
+          ]
+        },
+        "tool_version_command": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "integration_mode": {
+          "enum": [
+            "DIRECT_CLI",
+            "DIRECT_LIBRARY",
+            "LOCAL_SERVICE",
+            "REMOTE_API",
+            "BROWSER_ASSISTED",
+            "EXPORT_IMPORT",
+            "REFERENCE_ONLY",
+            "REJECTED"
+          ]
+        },
+        "integration_priority": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3",
+            "BACKLOG",
+            "REJECTED"
+          ]
+        },
+        "legal_status": {
+          "enum": [
+            "APPROVED_PASSIVE",
+            "APPROVED_WITH_CONFIGURATION",
+            "MANUAL_REVIEW_REQUIRED",
+            "RESTRICTED_TO_AUTHORIZED_TARGETS",
+            "REJECTED",
+            "UNKNOWN"
+          ]
+        },
+        "maintenance_status": {
+          "enum": [
+            "ACTIVE",
+            "MAINTAINED",
+            "LOW_ACTIVITY",
+            "UNMAINTAINED",
+            "ARCHIVED",
+            "UNKNOWN"
+          ]
+        },
+        "decision": {
+          "enum": [
+            "INTEGRATE",
+            "PROTOTYPE",
+            "MONITOR",
+            "MANUAL_ONLY",
+            "REJECT",
+            "UNREVIEWED"
+          ]
+        },
+        "decision_reason": {
+          "type": "string"
+        },
+        "score": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "notes": {
+          "type": "string"
+        },
+        "reviewed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "reviewed_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

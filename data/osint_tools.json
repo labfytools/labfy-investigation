@@ -1,0 +1,213 @@
+{
+  "schema_version": "1.0.0",
+  "tools": [
+    {
+      "identifier": "identity.sherlock",
+      "name": "Sherlock",
+      "repository": "https://github.com/sherlock-project/sherlock",
+      "homepage": "https://sherlockproject.xyz",
+      "publisher": "Sherlock Project",
+      "category": "IDENTITY_AND_USERNAME",
+      "subcategories": [
+        "USERNAME_ENUMERATION",
+        "PUBLIC_SOCIAL_ACCOUNTS"
+      ],
+      "description": "Recherche la présence publique d'un pseudonyme sur de nombreux sites et réseaux sociaux.",
+      "license": "MIT",
+      "license_verified": true,
+      "open_source_status": "OPEN_SOURCE",
+      "latest_release": "0.16.0",
+      "last_activity": null,
+      "primary_language": "Python",
+      "platforms": {
+        "ubuntu": {
+          "supported": true,
+          "official_packages": [
+            "sherlock"
+          ],
+          "install_methods": [
+            "APT",
+            "PIPX",
+            "PYTHON_VENV",
+            "SOURCE_BUILD"
+          ],
+          "minimum_version": "24.04",
+          "tested_versions": [],
+          "notes": "Le paquet sherlock est disponible dans Ubuntu Noble. La présence du paquet dépendra des dépôts activés sur les postes de la gendarmerie. Une solution Python isolée devra être évaluée comme solution de secours."
+        },
+        "arch": {
+          "supported": true,
+          "official_packages": [],
+          "aur_packages": [
+            "sherlock"
+          ],
+          "install_methods": [
+            "AUR",
+            "PIPX",
+            "PYTHON_VENV",
+            "SOURCE_BUILD"
+          ],
+          "tested_versions": [],
+          "notes": "Le paquet sherlock est disponible dans l'AUR. Le PKGBUILD doit être relu avant chaque installation ou mise à jour."
+        }
+      },
+      "source_build_supported": true,
+      "runtime_dependencies": [
+        "Python >=3.9,<4.0",
+        "python-certifi",
+        "python-colorama",
+        "python-openpyxl",
+        "python-pandas",
+        "python-pysocks",
+        "python-requests",
+        "python-requests-futures",
+        "python-stem",
+        "python-torrequest"
+      ],
+      "input_types": [
+        "USERNAME"
+      ],
+      "output_formats": [
+        "TERMINAL",
+        "TXT",
+        "CSV",
+        "XLSX"
+      ],
+      "supports_json": false,
+      "supports_csv": true,
+      "supports_stdout": true,
+      "supports_file_output": true,
+      "requires_account": false,
+      "requires_api_key": false,
+      "requires_paid_service": false,
+      "network_activity": "Envoie des requêtes HTTP ou HTTPS directes aux sites configurés afin de déterminer si le pseudonyme recherché semble exister.",
+      "collection_mode": "REMOTE_PUBLIC_REQUESTS",
+      "authentication_mode": "NONE",
+      "rate_limit_risk": "MEDIUM",
+      "terms_of_service_risk": "MEDIUM",
+      "personal_data_risk": "MEDIUM",
+      "false_positive_risk": "HIGH",
+      "evidentiary_value": "CONTEXT_ONLY",
+      "reproducibility": "MEDIUM",
+      "tool_version_command": [
+        "sherlock",
+        "--version"
+      ],
+      "integration_mode": "DIRECT_CLI",
+      "integration_priority": "P0",
+      "legal_status": "APPROVED_WITH_CONFIGURATION",
+      "maintenance_status": "MAINTAINED",
+      "decision": "PROTOTYPE",
+      "decision_reason": "Très utile pour repérer rapidement les réutilisations d'un pseudonyme, mais les résultats doivent être vérifiés manuellement et ne prouvent jamais que plusieurs comptes appartiennent à la même personne.",
+      "score": 81,
+      "notes": "Limiter les sites interrogés lorsque cela est possible, imposer un délai entre les recherches, conserver les URL retournées et archiver séparément les profils confirmés. Ne jamais interpréter une simple correspondance de pseudonyme comme une identité certaine.",
+      "reviewed_at": "2026-07-17",
+      "reviewed_by": null
+    },
+    {
+      "identifier": "identity.maigret",
+      "name": "Maigret",
+      "repository": "https://github.com/soxoj/maigret",
+      "homepage": "https://maigret.readthedocs.io/",
+      "publisher": "soxoj et contributeurs",
+      "category": "IDENTITY_AND_USERNAME",
+      "subcategories": [
+        "USERNAME_ENUMERATION",
+        "PUBLIC_SOCIAL_ACCOUNTS",
+        "PROFILE_ENRICHMENT",
+        "IDENTIFIER_CORRELATION"
+      ],
+      "description": "Recherche des comptes publics associés à un pseudonyme, extrait les informations publiées sur les profils et peut corréler des identifiants supplémentaires.",
+      "license": "MIT",
+      "license_verified": true,
+      "open_source_status": "OPEN_SOURCE",
+      "latest_release": "0.6.3",
+      "last_activity": "2026-07-13",
+      "primary_language": "Python",
+      "platforms": {
+        "ubuntu": {
+          "supported": true,
+          "official_packages": [],
+          "install_methods": [
+            "PIPX",
+            "PYTHON_VENV",
+            "CONTAINER_ROOTLESS",
+            "SOURCE_BUILD"
+          ],
+          "minimum_version": null,
+          "tested_versions": [],
+          "notes": "Aucun paquet Ubuntu officiel n'est retenu à ce stade. L'installation devra utiliser un environnement Python isolé ou le conteneur officiel. Python 3.10 ou plus récent est requis."
+        },
+        "arch": {
+          "supported": true,
+          "official_packages": [],
+          "aur_packages": [
+            "maigret"
+          ],
+          "install_methods": [
+            "AUR",
+            "PIPX",
+            "PYTHON_VENV",
+            "CONTAINER_ROOTLESS",
+            "SOURCE_BUILD"
+          ],
+          "tested_versions": [],
+          "notes": "Le paquet AUR maigret existe en version 0.6.3-1. Le PKGBUILD et ses nombreuses dépendances AUR doivent être relus avant installation."
+        }
+      },
+      "source_build_supported": true,
+      "runtime_dependencies": [
+        "Python >= 3.10",
+        "aiohttp",
+        "requests",
+        "socid-extractor",
+        "lxml",
+        "dépendances supplémentaires selon les formats de rapport"
+      ],
+      "input_types": [
+        "USERNAME"
+      ],
+      "output_formats": [
+        "TERMINAL",
+        "TXT",
+        "CSV",
+        "HTML",
+        "JSON",
+        "MARKDOWN",
+        "PDF",
+        "XMIND",
+        "GRAPH_HTML"
+      ],
+      "supports_json": true,
+      "supports_csv": true,
+      "supports_stdout": true,
+      "supports_file_output": true,
+      "requires_account": false,
+      "requires_api_key": false,
+      "requires_paid_service": false,
+      "network_activity": "Interroge de nombreux sites publics. Peut effectuer des recherches récursives à partir des identifiants découverts et actualise normalement sa base de sites depuis GitHub une fois toutes les 24 heures.",
+      "collection_mode": "REMOTE_PUBLIC_REQUESTS",
+      "authentication_mode": "MIXED",
+      "rate_limit_risk": "HIGH",
+      "terms_of_service_risk": "HIGH",
+      "personal_data_risk": "HIGH",
+      "false_positive_risk": "HIGH",
+      "evidentiary_value": "CONTEXT_ONLY",
+      "reproducibility": "MEDIUM",
+      "tool_version_command": [
+        "maigret",
+        "--version"
+      ],
+      "integration_mode": "DIRECT_CLI",
+      "integration_priority": "P0",
+      "legal_status": "APPROVED_WITH_CONFIGURATION",
+      "maintenance_status": "ACTIVE",
+      "decision": "PROTOTYPE",
+      "decision_reason": "Maigret possède une couverture très large, des sorties structurées et des capacités de corrélation intéressantes. Son volume de requêtes, sa récursion, ses fonctions de contournement et le risque de faux positifs imposent toutefois un profil d'exécution restrictif.",
+      "score": 79,
+      "notes": "Dans Labfy, désactiver par défaut l'actualisation automatique, la récursion, l'IA, les cookies, Tor, I2P et les fonctions de contournement. Restreindre les sites ou catégories interrogés. Conserver le rapport JSON, la version de Maigret, la copie ou l'empreinte de sa base de sites et les URL confirmées manuellement.",
+      "reviewed_at": "2026-07-17",
+      "reviewed_by": null
+    }
+  ]
+}
