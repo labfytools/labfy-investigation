@@ -78,6 +78,107 @@ static void application_present_error(
 );
 
 /**
+ * @brief Traite la fin de l’initialisation des outils externes.
+ *
+ * Ce callback est exécuté sur le contexte principal GLib.
+ *
+ * @param tool_initializer Initialiseur ayant terminé.
+ * @param final_state État final de la tâche.
+ * @param summary Résumé emprunté en cas de réussite.
+ * @param error Erreur empruntée en cas d’échec.
+ * @param user_data Pointeur emprunté vers Application.
+ */
+static void application_on_tool_initialization_completed(
+    ToolInitializer *tool_initializer,
+    BackgroundTaskState final_state,
+    const ToolInitializationSummary *summary,
+    const GError *error,
+    gpointer user_data
+)
+{
+    Application *application = user_data;
+
+    if (application == NULL ||
+        tool_initializer == NULL)
+    {
+        return;
+    }
+
+    if (tool_initializer !=
+        application->tool_initializer)
+    {
+        g_warning(
+            "Notification reçue depuis un initialiseur inconnu."
+        );
+
+        return;
+    }
+
+    switch (final_state)
+    {
+        case BACKGROUND_TASK_STATE_COMPLETED:
+            if (summary == NULL)
+            {
+                g_warning(
+                    "L’initialisation des outils est terminée "
+                    "sans résumé valide."
+                );
+
+                return;
+            }
+
+            g_message(
+                "Outils externes initialisés : "
+                "%" G_GSIZE_FORMAT " disponibles, "
+                "%" G_GSIZE_FORMAT " absents, "
+                "%" G_GSIZE_FORMAT " versions détectées, "
+                "%" G_GSIZE_FORMAT " versions non détectées.",
+                summary->available_count,
+                summary->missing_count,
+                summary->version_detected_count,
+                summary->version_failed_count
+            );
+
+            break;
+
+        case BACKGROUND_TASK_STATE_CANCELLED:
+            g_message(
+                "L’initialisation des outils externes a été annulée."
+            );
+
+            break;
+
+        case BACKGROUND_TASK_STATE_FAILED:
+            g_warning(
+                "L’initialisation des outils externes a échoué : %s",
+                error != NULL
+                    ? error->message
+                    : "erreur inconnue"
+            );
+
+            application_present_error(
+                application,
+                "Initialisation des outils impossible",
+                error != NULL
+                    ? error->message
+                    : "Les outils externes n’ont pas pu être initialisés."
+            );
+
+            break;
+
+        case BACKGROUND_TASK_STATE_PENDING:
+        case BACKGROUND_TASK_STATE_RUNNING:
+        default:
+            g_warning(
+                "Notification de fin reçue avec un état invalide : %d.",
+                (int) final_state
+            );
+
+            break;
+    }
+}
+
+/**
  * @brief Démarre la détection asynchrone des outils externes.
  *
  * Une erreur empêche seulement l’initialisation des outils.
@@ -153,6 +254,20 @@ static void application_present_error(
         message
     );
 }
+
+static void application_on_tool_initialization_completed(
+    ToolInitializer *tool_initializer,
+    BackgroundTaskState final_state,
+    const ToolInitializationSummary *summary,
+    const GError *error,
+    gpointer user_data
+);
+
+static void application_present_error(
+    Application *application,
+    const char *title,
+    const char *message
+);
 
 /**
  * @brief Installe une nouvelle session et son arbre dans l'application.
@@ -1145,6 +1260,13 @@ Application *application_new(void)
         return NULL;
     }
 
+    tool_initializer_set_completed_callback(
+        application->tool_initializer,
+        application_on_tool_initialization_completed,
+        application,
+        NULL
+    );
+
     application->gtk_application = gtk_application_new(
         APPLICATION_ID,
         G_APPLICATION_DEFAULT_FLAGS
@@ -1217,6 +1339,16 @@ void application_free(
     if (application == NULL)
     {
         return;
+    }
+
+    if (application->tool_initializer != NULL)
+    {
+        tool_initializer_set_completed_callback(
+            application->tool_initializer,
+            NULL,
+            NULL,
+            NULL
+        );
     }
 
     task_manager_cancel_all(

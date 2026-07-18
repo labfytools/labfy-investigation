@@ -9,6 +9,15 @@
 #include <gio/gio.h>
 #include <glib.h>
 
+typedef struct
+{
+    gatomicrefcount reference_count;
+
+    ToolInitializerCompletedCallback callback;
+    gpointer user_data;
+    GDestroyNotify destroy_notify;
+} ToolInitializerCallbackRegistration;
+
 /**
  * @struct ToolInitializer
  * @brief État interne de l’initialiseur d’outils.
@@ -24,10 +33,88 @@ struct ToolInitializer
     BackgroundTask *task;
 
     ToolInitializationSummary last_summary;
-
+    ToolInitializerCallbackRegistration *callback_registration;
     gboolean has_last_summary;
     gboolean is_running;
 };
+
+/**
+ * @brief Enregistrement immuable d’un callback de fin.
+ */
+static ToolInitializerCallbackRegistration *
+tool_initializer_callback_registration_new(
+    ToolInitializerCompletedCallback callback,
+    gpointer user_data,
+    GDestroyNotify destroy_notify
+)
+{
+    ToolInitializerCallbackRegistration *registration = NULL;
+
+    if (callback == NULL)
+    {
+        return NULL;
+    }
+
+    registration = g_new0(
+        ToolInitializerCallbackRegistration,
+        1
+    );
+
+    g_atomic_ref_count_init(
+        &registration->reference_count
+    );
+
+    registration->callback = callback;
+    registration->user_data = user_data;
+    registration->destroy_notify = destroy_notify;
+
+    return registration;
+}
+
+static ToolInitializerCallbackRegistration *
+tool_initializer_callback_registration_ref(
+    ToolInitializerCallbackRegistration *registration
+)
+{
+    if (registration == NULL)
+    {
+        return NULL;
+    }
+
+    g_atomic_ref_count_inc(
+        &registration->reference_count
+    );
+
+    return registration;
+}
+
+static void tool_initializer_callback_registration_unref(
+    ToolInitializerCallbackRegistration *registration
+)
+{
+    if (registration == NULL)
+    {
+        return;
+    }
+
+    if (!g_atomic_ref_count_dec(
+        &registration->reference_count
+    ))
+    {
+        return;
+    }
+
+    if (registration->destroy_notify != NULL)
+    {
+        registration->destroy_notify(
+            registration->user_data
+        );
+    }
+
+    g_free(
+        registration
+    );
+}
 
 static gboolean tool_initializer_ensure_catalog_registered(
     ToolInitializer *tool_initializer,
@@ -69,6 +156,8 @@ static void tool_initializer_unref_internal(
     BackgroundTask *task = NULL;
     ToolRegistry *tool_registry = NULL;
 
+    ToolInitializerCallbackRegistration *callback_registration = NULL;
+
     if (tool_initializer == NULL)
     {
         return;
@@ -85,11 +174,18 @@ static void tool_initializer_unref_internal(
         &tool_initializer->mutex
     );
 
-    task = tool_initializer->task;
-    tool_registry = tool_initializer->tool_registry;
+    task =
+        tool_initializer->task;
+
+    tool_registry =
+        tool_initializer->tool_registry;
+
+    callback_registration =
+        tool_initializer->callback_registration;
 
     tool_initializer->task = NULL;
     tool_initializer->tool_registry = NULL;
+    tool_initializer->callback_registration = NULL;
     tool_initializer->task_manager = NULL;
     tool_initializer->is_running = FALSE;
 
@@ -99,6 +195,10 @@ static void tool_initializer_unref_internal(
 
     background_task_unref(
         task
+    );
+
+    tool_initializer_callback_registration_unref(
+        callback_registration
     );
 
     tool_registry_free(
@@ -771,8 +871,16 @@ static void tool_initializer_bootstrap_completed(
     ToolInitializer *tool_initializer =
         user_data;
 
-    const ToolInitializationSummary *summary =
-        NULL;
+    ToolInitializerCallbackRegistration *callback_registration = NULL;
+
+    BackgroundTaskState final_state;
+
+    const ToolInitializationSummary *task_summary = NULL;
+    const ToolInitializationSummary *callback_summary = NULL;
+
+    ToolInitializationSummary summary_copy = {0};
+
+    GError *callback_error = NULL;
 
     if (task == NULL ||
         tool_initializer == NULL)
@@ -780,32 +888,88 @@ static void tool_initializer_bootstrap_completed(
         return;
     }
 
-    if (background_task_get_state(
-        task
-    ) == BACKGROUND_TASK_STATE_COMPLETED)
-    {
-        summary = background_task_get_result(
+    final_state =
+        background_task_get_state(
             task
         );
+
+    if (final_state == BACKGROUND_TASK_STATE_COMPLETED)
+    {
+        task_summary =
+            background_task_get_result(
+                task
+            );
+
+        if (task_summary != NULL)
+        {
+            summary_copy =
+                *task_summary;
+
+            callback_summary =
+                &summary_copy;
+        }
+    }
+    else if (final_state == BACKGROUND_TASK_STATE_FAILED)
+    {
+        callback_error =
+            background_task_dup_error(
+                task
+            );
     }
 
     g_mutex_lock(
         &tool_initializer->mutex
     );
 
-    if (summary != NULL)
+    if (callback_summary != NULL)
     {
         tool_initializer->last_summary =
-            *summary;
+            summary_copy;
 
         tool_initializer->has_last_summary =
             TRUE;
     }
+    else
+    {
+        tool_initializer->last_summary =
+            (ToolInitializationSummary) {0};
+
+        tool_initializer->has_last_summary =
+            FALSE;
+    }
 
     tool_initializer->is_running = FALSE;
 
+    callback_registration =
+        tool_initializer_callback_registration_ref(
+            tool_initializer->callback_registration
+        );
+
     g_mutex_unlock(
         &tool_initializer->mutex
+    );
+
+    /*
+     * Le callback utilisateur est toujours appelé hors du mutex.
+     * Il peut donc consulter l’initialiseur ou remplacer son callback.
+     */
+    if (callback_registration != NULL)
+    {
+        callback_registration->callback(
+            tool_initializer,
+            final_state,
+            callback_summary,
+            callback_error,
+            callback_registration->user_data
+        );
+    }
+
+    tool_initializer_callback_registration_unref(
+        callback_registration
+    );
+
+    g_clear_error(
+        &callback_error
     );
 }
 
@@ -876,6 +1040,17 @@ void tool_initializer_free(
     {
         return;
     }
+
+    /*
+     * Le propriétaire public abandonne l’initialiseur.
+     * Aucun callback ne doit désormais utiliser son user_data.
+     */
+    tool_initializer_set_completed_callback(
+        tool_initializer,
+        NULL,
+        NULL,
+        NULL
+    );
 
     task = tool_initializer_get_task(
         tool_initializer
@@ -1031,15 +1206,15 @@ gboolean tool_initializer_start(
 
         tool_initializer->is_running = FALSE;
 
-        g_mutex_unlock(
-            &tool_initializer->mutex
-        );
-
         tool_initializer->last_summary =
             previous_summary;
 
         tool_initializer->has_last_summary =
             previous_has_last_summary;  
+
+        g_mutex_unlock(
+            &tool_initializer->mutex
+        );
 
         tool_initializer_set_wrapped_error(
             error,
@@ -1173,6 +1348,77 @@ gboolean tool_initializer_start(
     );
 
     return TRUE;
+}
+
+void tool_initializer_set_completed_callback(
+    ToolInitializer *tool_initializer,
+    ToolInitializerCompletedCallback callback,
+    gpointer user_data,
+    GDestroyNotify destroy_notify
+)
+{
+    ToolInitializerCallbackRegistration *new_registration = NULL;
+    ToolInitializerCallbackRegistration *previous_registration = NULL;
+
+    if (callback != NULL)
+    {
+        new_registration =
+            tool_initializer_callback_registration_new(
+                callback,
+                user_data,
+                destroy_notify
+            );
+    }
+
+    if (tool_initializer == NULL)
+    {
+        tool_initializer_callback_registration_unref(
+            new_registration
+        );
+
+        /*
+         * Aucun enregistrement n’a pu prendre possession des données.
+         */
+        if (new_registration == NULL &&
+            destroy_notify != NULL)
+        {
+            destroy_notify(
+                user_data
+            );
+        }
+
+        return;
+    }
+
+    g_mutex_lock(
+        &tool_initializer->mutex
+    );
+
+    previous_registration =
+        tool_initializer->callback_registration;
+
+    tool_initializer->callback_registration =
+        new_registration;
+
+    g_mutex_unlock(
+        &tool_initializer->mutex
+    );
+
+    tool_initializer_callback_registration_unref(
+        previous_registration
+    );
+
+    /*
+     * callback == NULL signifie suppression.
+     * Les éventuelles nouvelles données ne sont pas conservées.
+     */
+    if (callback == NULL &&
+        destroy_notify != NULL)
+    {
+        destroy_notify(
+            user_data
+        );
+    }
 }
 
 gboolean tool_initializer_cancel(

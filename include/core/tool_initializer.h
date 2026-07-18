@@ -32,6 +32,25 @@ typedef struct
 } ToolInitializationSummary;
 
 /**
+ * @brief Fonction appelée après la fin d’une initialisation.
+ *
+ * Le callback est exécuté sur le contexte principal GLib.
+ *
+ * summary est non NULL uniquement après une réussite.
+ * error est non NULL uniquement lorsqu’une erreur est disponible.
+ *
+ * Les pointeurs summary et error sont empruntés et restent valides
+ * uniquement pendant l’appel du callback.
+ */
+typedef void (*ToolInitializerCompletedCallback)(
+    ToolInitializer *tool_initializer,
+    BackgroundTaskState final_state,
+    const ToolInitializationSummary *summary,
+    const GError *error,
+    gpointer user_data
+);
+
+/**
  * @brief Codes d’erreur de ToolInitializer.
  */
 typedef enum
@@ -148,6 +167,35 @@ void tool_initializer_free(
  */
 ToolRegistry *tool_initializer_get_registry(
     ToolInitializer *tool_initializer
+);
+
+/**
+ * @brief Enregistre le callback appelé après chaque initialisation.
+ *
+ * Le même callback est conservé pour les lancements suivants.
+ *
+ * En passant callback == NULL, l’enregistrement actuel est supprimé.
+ *
+ * Lorsque destroy_notify est non NULL, ToolInitializer devient
+ * responsable de user_data. La fonction de destruction sera appelée
+ * exactement une fois lorsque :
+ *
+ * - le callback est remplacé ;
+ * - le callback est supprimé ;
+ * - l’initialiseur est détruit.
+ *
+ * Le callback est exécuté sur le contexte principal GLib.
+ *
+ * @param tool_initializer Initialiseur concerné.
+ * @param callback Fonction appelée après la fin, ou NULL.
+ * @param user_data Données transmises au callback.
+ * @param destroy_notify Fonction libérant user_data, ou NULL.
+ */
+void tool_initializer_set_completed_callback(
+    ToolInitializer *tool_initializer,
+    ToolInitializerCompletedCallback callback,
+    gpointer user_data,
+    GDestroyNotify destroy_notify
 );
 
 /**
