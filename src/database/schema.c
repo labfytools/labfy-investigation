@@ -1,6 +1,6 @@
 /******************************************************************************
  * @file schema.c
- * @brief Installation du schéma SQLite de Labfy Investigation.
+ * @brief Installation des versions du schéma SQLite.
  ******************************************************************************/
 
 #include "database/schema.h"
@@ -11,22 +11,34 @@
 #include <sqlite3.h>
 
 /**
- * @brief Charge le schéma SQL V1 depuis le fichier du projet.
+ * @brief Charge un fichier SQL du projet.
  *
- * @param database Connexion utilisée pour enregistrer une éventuelle erreur.
+ * @param database Connexion recevant les erreurs.
+ * @param schema_path Chemin du fichier SQL.
+ * @param schema_name Nom utilisé dans les diagnostics.
  *
- * @return Une nouvelle chaîne terminée par zéro, à libérer avec g_free(),
- *         ou NULL en cas d'échec.
+ * @return Nouvelle chaîne SQL, ou NULL.
  */
-static char *schema_load_v1_sql(
-    Database *database
+static char *schema_load_sql(
+    Database *database,
+    const char *schema_path,
+    const char *schema_name
 )
 {
     char *schema_sql = NULL;
     GError *error = NULL;
 
+    if (database == NULL ||
+        schema_path == NULL ||
+        schema_path[0] == '\0' ||
+        schema_name == NULL ||
+        schema_name[0] == '\0')
+    {
+        return NULL;
+    }
+
     if (!g_file_get_contents(
-            "database/schema_v1.sql",
+            schema_path,
             &schema_sql,
             NULL,
             &error
@@ -37,17 +49,21 @@ static char *schema_load_v1_sql(
             DATABASE_ERROR_INVALID_STATE,
             error != NULL
                 ? error->message
-                : "Impossible de charger le schéma SQLite V1."
+                : "Impossible de charger le schéma SQLite."
         );
 
         g_warning(
-            "Impossible de charger database/schema_v1.sql : %s",
+            "Impossible de charger %s depuis '%s' : %s",
+            schema_name,
+            schema_path,
             error != NULL
                 ? error->message
                 : "erreur inconnue"
         );
 
-        g_clear_error(&error);
+        g_clear_error(
+            &error
+        );
 
         return NULL;
     }
@@ -55,11 +71,19 @@ static char *schema_load_v1_sql(
     return schema_sql;
 }
 
-bool schema_install_v1(
-    Database *database
+/**
+ * @brief Exécute le contenu d’un fichier de schéma SQL.
+ *
+ * La transaction reste sous la responsabilité du code appelant.
+ */
+static bool schema_execute_file(
+    Database *database,
+    const char *schema_path,
+    const char *schema_name
 )
 {
     sqlite3 *database_handle = NULL;
+
     char *schema_sql = NULL;
     char *error_message = NULL;
 
@@ -70,9 +94,10 @@ bool schema_install_v1(
         return false;
     }
 
-    database_handle = database_get_handle(
-        database
-    );
+    database_handle =
+        database_get_handle(
+            database
+        );
 
     if (database_handle == NULL)
     {
@@ -85,24 +110,30 @@ bool schema_install_v1(
         return false;
     }
 
-    schema_sql = schema_load_v1_sql(
-        database
-    );
+    schema_sql =
+        schema_load_sql(
+            database,
+            schema_path,
+            schema_name
+        );
 
     if (schema_sql == NULL)
     {
         return false;
     }
 
-    result = sqlite3_exec(
-        database_handle,
-        schema_sql,
-        NULL,
-        NULL,
-        &error_message
-    );
+    result =
+        sqlite3_exec(
+            database_handle,
+            schema_sql,
+            NULL,
+            NULL,
+            &error_message
+        );
 
-    g_free(schema_sql);
+    g_free(
+        schema_sql
+    );
 
     if (result != SQLITE_OK)
     {
@@ -115,22 +146,49 @@ bool schema_install_v1(
         );
 
         g_warning(
-            "Impossible d'installer le schéma SQLite V1 : %s",
+            "Impossible d’installer %s : %s",
+            schema_name,
             error_message != NULL
                 ? error_message
                 : sqlite3_errmsg(database_handle)
         );
 
-        sqlite3_free(error_message);
+        sqlite3_free(
+            error_message
+        );
 
         return false;
     }
 
-    sqlite3_free(error_message);
+    sqlite3_free(
+        error_message
+    );
 
     database_clear_error_internal(
         database
     );
 
     return true;
+}
+
+bool schema_install_v1(
+    Database *database
+)
+{
+    return schema_execute_file(
+        database,
+        "database/schema_v1.sql",
+        "le schéma SQLite V1"
+    );
+}
+
+bool schema_install_v2(
+    Database *database
+)
+{
+    return schema_execute_file(
+        database,
+        "database/schema_v2.sql",
+        "la migration SQLite V2"
+    );
 }

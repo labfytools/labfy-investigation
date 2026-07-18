@@ -187,23 +187,6 @@ bool database_statement_bind_null(
 );
 
 /**
- * @brief Lie une chaîne de caractères à un paramètre SQL.
- *
- * Les indices des paramètres SQLite commencent à 1.
- *
- * @param statement Requête préparée.
- * @param index Indice du paramètre SQL.
- * @param value Chaîne de caractères à lier.
- *
- * @return true en cas de succès, sinon false.
- */
-bool database_statement_bind_text(
-    DatabaseStatement *statement,
-    int index,
-    const char *value
-);
-
-/**
  * @brief Finalise une requête préparée et libère ses ressources.
  *
  * Cette fonction accepte NULL.

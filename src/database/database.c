@@ -16,7 +16,12 @@
 /**
  * @brief Version actuelle du schéma SQLite.
  */
-#define DATABASE_SCHEMA_VERSION "1"
+#define DATABASE_SCHEMA_VERSION_CURRENT 2
+
+/**
+ * @brief Version actuelle sous forme textuelle pour metadata.
+ */
+#define DATABASE_SCHEMA_VERSION_CURRENT_TEXT "2"
 
 /**
  * @brief Nom de l'application enregistré dans les métadonnées.
@@ -225,7 +230,7 @@ static bool database_insert_all_metadata(
         database_insert_metadata(
             statement,
             "schema_version",
-            DATABASE_SCHEMA_VERSION
+            DATABASE_SCHEMA_VERSION_CURRENT_TEXT
         ) &&
         database_insert_metadata(
             statement,
@@ -366,6 +371,22 @@ bool database_get_transaction_active(
     return database->transaction_active;
 }
 
+/**
+ * @brief Requête de lecture de la version du schéma.
+ */
+static const char *const database_select_schema_version_sql =
+    "SELECT value "
+    "FROM metadata "
+    "WHERE key = ?;";
+
+/**
+ * @brief Requête de mise à jour de la version du schéma.
+ */
+static const char *const database_update_schema_version_sql =
+    "UPDATE metadata "
+    "SET value = ? "
+    "WHERE key = ?;";
+
 void database_set_transaction_active(
     Database *database,
     bool transaction_active
@@ -377,6 +398,274 @@ void database_set_transaction_active(
     }
 
     database->transaction_active = transaction_active;
+}
+
+/**
+ * @brief Lit et valide la version enregistrée dans metadata.
+ */
+static bool database_read_schema_version(
+    Database *database,
+    int *out_schema_version
+)
+{
+    DatabaseStatement *statement = NULL;
+    DatabaseStatementStepResult step_result;
+
+    char *version_text = NULL;
+    char *end_pointer = NULL;
+
+    gint64 parsed_version = 0;
+
+    bool success = false;
+
+    if (database == NULL ||
+        out_schema_version == NULL)
+    {
+        return false;
+    }
+
+    *out_schema_version = 0;
+
+    statement =
+        database_statement_prepare(
+            database,
+            database_select_schema_version_sql
+        );
+
+    if (statement == NULL)
+    {
+        return false;
+    }
+
+    if (!database_statement_bind_text(
+            statement,
+            1,
+            "schema_version"
+        ))
+    {
+        goto cleanup;
+    }
+
+    step_result =
+        database_statement_step(
+            statement
+        );
+
+    if (step_result == DATABASE_STATEMENT_STEP_ERROR)
+    {
+        goto cleanup;
+    }
+
+    if (step_result == DATABASE_STATEMENT_STEP_DONE)
+    {
+        database_set_error(
+            database,
+            DATABASE_ERROR_INVALID_STATE,
+            "La version du schéma est absente des métadonnées."
+        );
+
+        goto cleanup;
+    }
+
+    if (!database_statement_column_text(
+            statement,
+            0,
+            &version_text
+        ) ||
+        version_text == NULL ||
+        version_text[0] == '\0')
+    {
+        database_set_error(
+            database,
+            DATABASE_ERROR_INVALID_STATE,
+            "La version du schéma est invalide."
+        );
+
+        goto cleanup;
+    }
+
+    parsed_version =
+        g_ascii_strtoll(
+            version_text,
+            &end_pointer,
+            10
+        );
+
+    if (end_pointer == version_text ||
+        end_pointer == NULL ||
+        end_pointer[0] != '\0' ||
+        parsed_version < 1 ||
+        parsed_version > G_MAXINT)
+    {
+        database_set_error(
+            database,
+            DATABASE_ERROR_INVALID_STATE,
+            "La version du schéma n’est pas un entier valide."
+        );
+
+        goto cleanup;
+    }
+
+    /*
+     * La clé metadata est primaire, mais on vérifie malgré tout
+     * que la requête ne retourne aucune seconde ligne.
+     */
+    step_result =
+        database_statement_step(
+            statement
+        );
+
+    if (step_result != DATABASE_STATEMENT_STEP_DONE)
+    {
+        if (step_result == DATABASE_STATEMENT_STEP_ROW)
+        {
+            database_set_error(
+                database,
+                DATABASE_ERROR_INVALID_STATE,
+                "Plusieurs versions du schéma sont enregistrées."
+            );
+        }
+
+        goto cleanup;
+    }
+
+    *out_schema_version =
+        (int) parsed_version;
+
+    database_clear_error_internal(
+        database
+    );
+
+    success = true;
+
+cleanup:
+
+    g_free(
+        version_text
+    );
+
+    database_statement_finalize(
+        statement
+    );
+
+    return success;
+}
+
+/**
+ * @brief Met à jour la version enregistrée dans metadata.
+ */
+static bool database_update_schema_version(
+    Database *database,
+    const char *version_text
+)
+{
+    DatabaseStatement *statement = NULL;
+    bool success = false;
+
+    if (database == NULL ||
+        version_text == NULL ||
+        version_text[0] == '\0')
+    {
+        return false;
+    }
+
+    statement =
+        database_statement_prepare(
+            database,
+            database_update_schema_version_sql
+        );
+
+    if (statement == NULL)
+    {
+        return false;
+    }
+
+    success =
+        database_statement_bind_text(
+            statement,
+            1,
+            version_text
+        ) &&
+        database_statement_bind_text(
+            statement,
+            2,
+            "schema_version"
+        ) &&
+        database_statement_step(
+            statement
+        ) == DATABASE_STATEMENT_STEP_DONE;
+
+    database_statement_finalize(
+        statement
+    );
+
+    return success;
+}
+
+/**
+ * @brief Applique atomiquement la migration du schéma V1 vers V2.
+ */
+static bool database_migrate_v1_to_v2(
+    Database *database
+)
+{
+    bool transaction_started = false;
+
+    if (database == NULL)
+    {
+        return false;
+    }
+
+    if (!database_transaction_begin(
+            database
+        ))
+    {
+        return false;
+    }
+
+    transaction_started = true;
+
+    if (!schema_install_v2(
+            database
+        ))
+    {
+        goto rollback;
+    }
+
+    if (!database_update_schema_version(
+            database,
+            "2"
+        ))
+    {
+        goto rollback;
+    }
+
+    if (!database_transaction_commit(
+            database
+        ))
+    {
+        goto rollback;
+    }
+
+    transaction_started = false;
+
+    return true;
+
+rollback:
+
+    if (transaction_started)
+    {
+        if (!database_transaction_rollback(
+                database
+            ))
+        {
+            g_warning(
+                "Impossible d’annuler la migration SQLite V1 vers V2."
+            );
+        }
+    }
+
+    return false;
 }
 
 Database *database_open(
@@ -445,6 +734,89 @@ Database *database_open(
     return database;
 }
 
+bool database_migrate_to_latest(
+    Database *database
+)
+{
+    int schema_version = 0;
+
+    if (database == NULL)
+    {
+        return false;
+    }
+
+    if (database_get_transaction_active(
+            database
+        ))
+    {
+        database_set_error(
+            database,
+            DATABASE_ERROR_INVALID_STATE,
+            "La migration est impossible pendant une transaction active."
+        );
+
+        return false;
+    }
+
+    if (!database_read_schema_version(
+            database,
+            &schema_version
+        ))
+    {
+        return false;
+    }
+
+    if (schema_version >
+        DATABASE_SCHEMA_VERSION_CURRENT)
+    {
+        database_set_error(
+            database,
+            DATABASE_ERROR_INVALID_STATE,
+            "La base utilise une version de schéma plus récente "
+            "que cette version de Labfy Investigation."
+        );
+
+        return false;
+    }
+
+    while (schema_version <
+           DATABASE_SCHEMA_VERSION_CURRENT)
+    {
+        switch (schema_version)
+        {
+            case 1:
+                if (!database_migrate_v1_to_v2(
+                        database
+                    ))
+                {
+                    return false;
+                }
+
+                schema_version = 2;
+                break;
+
+            default:
+                database_set_error(
+                    database,
+                    DATABASE_ERROR_INVALID_STATE,
+                    "La version du schéma ne possède aucune "
+                    "migration prise en charge."
+                );
+
+                return false;
+        }
+    }
+
+    database->schema_version =
+        schema_version;
+
+    database_clear_error_internal(
+        database
+    );
+
+    return true;
+}
+
 bool database_initialize(
     const char *database_path,
     const char *investigation_name,
@@ -508,6 +880,17 @@ bool database_initialize(
     transaction_started = true;
 
     if (!schema_install_v1(
+            database
+        ))
+    {
+        goto rollback;
+    }
+
+    /*
+     * Une nouvelle base reçoit immédiatement toutes les versions du schéma
+     * dans la transaction initiale.
+     */
+    if (!schema_install_v2(
             database
         ))
     {

@@ -43,6 +43,7 @@ TEST_INVESTIGATION_RECORD = tests/test_investigation_record
 TEST_EVIDENCE_RECORD := tests/test_evidence_record
 TEST_EVIDENCE_RECORD := tests/test_evidence_record
 TEST_INVESTIGATION_DAO := tests/test_investigation_dao
+TEST_EVIDENCE_DAO := tests/test_evidence_dao
 TEST_INVESTIGATION_SESSION := tests/test_investigation_session
 TEST_BACKGROUND_TASK := tests/test_background_task
 TEST_TASK_MANAGER := tests/test_task_manager
@@ -90,7 +91,8 @@ $(TEST_DATABASE): \
 	src/database/database.c \
 	src/database/transaction.c \
 	src/database/statement.c \
-	src/database/schema.c
+	src/database/schema.c \
+	src/database/error.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
 $(TEST_STATEMENT): \
@@ -133,6 +135,17 @@ $(TEST_INVESTIGATION_DAO): \
 	tests/test_investigation_dao.c \
 	src/dao/investigation_dao.c \
 	src/models/investigation_record.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
+$(TEST_EVIDENCE_DAO): \
+	tests/test_evidence_dao.c \
+	src/dao/evidence_dao.c \
+	src/models/evidence_record.c \
 	src/database/database.c \
 	src/database/schema.c \
 	src/database/statement.c \
@@ -211,6 +224,7 @@ test: \
 	$(TEST_INVESTIGATION_RECORD) \
 	$(TEST_EVIDENCE_RECORD) \
 	$(TEST_INVESTIGATION_DAO) \
+	$(TEST_EVIDENCE_DAO) \
 	$(TEST_INVESTIGATION_SESSION) \
 	$(TEST_BACKGROUND_TASK) \
 	$(TEST_TASK_MANAGER) \
@@ -231,6 +245,7 @@ test: \
 	@$(TEST_INVESTIGATION_RECORD)
 	@$(TEST_EVIDENCE_RECORD)
 	@$(TEST_INVESTIGATION_DAO)
+	@$(TEST_EVIDENCE_DAO)
 	@$(TEST_INVESTIGATION_SESSION)
 	@$(TEST_BACKGROUND_TASK)
 	@$(TEST_TASK_MANAGER)
@@ -260,6 +275,7 @@ clean:
 		$(TEST_INVESTIGATION_RECORD) \
 		$(TEST_EVIDENCE_RECORD) \
 		$(TEST_INVESTIGATION_DAO) \
+		$(TEST_EVIDENCE_DAO) \
 		$(TEST_INVESTIGATION_SESSION) \
 		$(TEST_BACKGROUND_TASK) \
 		$(TEST_TASK_MANAGER) \

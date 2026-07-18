@@ -43,6 +43,26 @@ void database_close(
 );
 
 /**
+ * @brief Met à jour une base ouverte vers la dernière version du schéma.
+ *
+ * La fonction :
+ *
+ * - lit metadata.schema_version ;
+ * - applique chaque migration manquante dans une transaction ;
+ * - met à jour la version uniquement après une migration réussie ;
+ * - ne modifie rien lorsque la base est déjà à jour.
+ *
+ * La fonction refuse une migration lorsqu’une transaction est déjà active.
+ *
+ * @param database Connexion Database ouverte.
+ *
+ * @return true si la base est à jour, sinon false.
+ */
+bool database_migrate_to_latest(
+    Database *database
+);
+
+/**
  * @brief Initialise la base SQLite d'une nouvelle enquête.
  *
  * Cette fonction :

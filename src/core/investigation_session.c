@@ -192,6 +192,33 @@ InvestigationSession *investigation_session_open(
         goto cleanup;
     }
 
+    if (!database_migrate_to_latest(
+            database
+        ))
+    {
+        database_error_message =
+            database_error_get_message(
+                database
+            );
+
+        if (database_error_message == NULL ||
+            database_error_message[0] == '\0')
+        {
+            database_error_message =
+                "La base de données n’a pas pu être mise à jour.";
+        }
+
+        g_set_error(
+            error,
+            INVESTIGATION_SESSION_ERROR,
+            INVESTIGATION_SESSION_ERROR_DATABASE,
+            "Impossible de mettre à jour le schéma SQLite : %s",
+            database_error_message
+        );
+
+        goto cleanup;
+    }
+
     record = investigation_dao_load(
         database
     );

@@ -548,7 +548,7 @@ static void test_open_invalid_database(void)
 
     test_assert_session_error(
         error,
-        INVESTIGATION_SESSION_ERROR_RECORD
+        INVESTIGATION_SESSION_ERROR_DATABASE
     );
 
     g_clear_error(&error);

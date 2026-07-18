@@ -6,7 +6,6 @@
 #include "models/evidence_record.h"
 
 #include <glib.h>
-#include <string.h>
 
 #define TEST_EVIDENCE_IDENTIFIER \
     "6e62b9af-2046-4efd-b3b9-29869f816951"
