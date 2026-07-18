@@ -23,6 +23,8 @@ TEST_CFLAGS = -std=c17 \
 
 TEST_LDFLAGS = $(shell $(PKG_CONFIG) --libs glib-2.0 gio-2.0)
 
+EVIDENCE_RECORD_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
+
 SRC := $(shell find src -name "*.c")
 
 OBJ := $(SRC:.c=.o)
@@ -38,6 +40,8 @@ TEST_STATEMENT = tests/test_statement
 TEST_TRANSACTION = tests/test_transaction
 TEST_ERROR = tests/test_error
 TEST_INVESTIGATION_RECORD = tests/test_investigation_record
+TEST_EVIDENCE_RECORD := tests/test_evidence_record
+TEST_EVIDENCE_RECORD := tests/test_evidence_record
 TEST_INVESTIGATION_DAO := tests/test_investigation_dao
 TEST_INVESTIGATION_SESSION := tests/test_investigation_session
 TEST_BACKGROUND_TASK := tests/test_background_task
@@ -120,6 +124,11 @@ $(TEST_INVESTIGATION_RECORD): \
 	src/models/investigation_record.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_EVIDENCE_RECORD): \
+	tests/test_evidence_record.c \
+	src/models/evidence_record.c
+	$(CC) $(EVIDENCE_RECORD_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 $(TEST_INVESTIGATION_DAO): \
 	tests/test_investigation_dao.c \
 	src/dao/investigation_dao.c \
@@ -200,6 +209,7 @@ test: \
 	$(TEST_TRANSACTION) \
 	$(TEST_ERROR) \
 	$(TEST_INVESTIGATION_RECORD) \
+	$(TEST_EVIDENCE_RECORD) \
 	$(TEST_INVESTIGATION_DAO) \
 	$(TEST_INVESTIGATION_SESSION) \
 	$(TEST_BACKGROUND_TASK) \
@@ -219,6 +229,7 @@ test: \
 	@$(TEST_TRANSACTION)
 	@$(TEST_ERROR)
 	@$(TEST_INVESTIGATION_RECORD)
+	@$(TEST_EVIDENCE_RECORD)
 	@$(TEST_INVESTIGATION_DAO)
 	@$(TEST_INVESTIGATION_SESSION)
 	@$(TEST_BACKGROUND_TASK)
@@ -247,6 +258,7 @@ clean:
 		$(TEST_TRANSACTION) \
 		$(TEST_ERROR) \
 		$(TEST_INVESTIGATION_RECORD) \
+		$(TEST_EVIDENCE_RECORD) \
 		$(TEST_INVESTIGATION_DAO) \
 		$(TEST_INVESTIGATION_SESSION) \
 		$(TEST_BACKGROUND_TASK) \
