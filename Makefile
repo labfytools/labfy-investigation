@@ -52,6 +52,7 @@ TEST_TOOL_PROCESS := tests/test_tool_process
 TEST_TOOL_TASK := tests/test_tool_task
 TEST_TOOL_CATALOG := tests/test_tool_catalog
 TEST_TOOL_INITIALIZER := tests/test_tool_initializer
+TEST_FILE_HASH := tests/test_file_hash
 
 all: $(TARGET)
 
@@ -212,6 +213,13 @@ $(TEST_TOOL_INITIALIZER): \
 	src/core/tool_process.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_FILE_HASH): \
+	tests/test_file_hash.c \
+	src/core/file_hash.c
+	$(CC) $(TEST_CFLAGS) \
+		-DFILE_HASH_ENABLE_TEST_HOOKS \
+		$^ -o $@ $(TEST_LDFLAGS)
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -232,7 +240,8 @@ test: \
 	$(TEST_TOOL_PROCESS) \
 	$(TEST_TOOL_TASK) \
 	$(TEST_TOOL_CATALOG) \
-	$(TEST_TOOL_INITIALIZER)
+	$(TEST_TOOL_INITIALIZER) \
+	$(TEST_FILE_HASH)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -254,6 +263,7 @@ test: \
 	@$(TEST_TOOL_TASK)
 	@$(TEST_TOOL_CATALOG)
 	@$(TEST_TOOL_INITIALIZER)
+	@$(TEST_FILE_HASH)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -283,6 +293,8 @@ clean:
 		$(TEST_TOOL_PROCESS) \
 		$(TEST_TOOL_TASK) \
 		$(TEST_TOOL_CATALOG) \
-		$(TEST_TOOL_INITIALIZER)
+		$(TEST_TOOL_INITIALIZER) \
+		$(TEST_FILE_HASH)
+
 
 .PHONY: clean run test
