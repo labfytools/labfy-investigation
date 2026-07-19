@@ -88,6 +88,20 @@ static bool database_transaction_execute(
     return true;
 }
 
+bool database_transaction_is_active(
+    const Database *database
+)
+{
+    if (database == NULL)
+    {
+        return false;
+    }
+
+    return database_get_transaction_active(
+        database
+    );
+}
+
 bool database_transaction_begin(
     Database *database
 )

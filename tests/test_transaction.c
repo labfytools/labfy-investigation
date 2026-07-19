@@ -10,6 +10,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 /**
  * @brief Crée la table utilisée par les tests.
@@ -306,12 +307,158 @@ static void test_transaction_error_state(void)
     database_close(database);
 }
 
+/**
+ * @brief Vérifie l’exposition publique de l’état de transaction.
+ */
+static void test_transaction_active_state(void)
+{
+    Database *database = NULL;
+
+    const char *error_message = NULL;
+
+    database =
+        database_open(
+            ":memory:"
+        );
+
+    assert(database != NULL);
+
+    /*
+     * Une connexion nouvelle ne possède aucune transaction active.
+     */
+    assert(
+        !database_transaction_is_active(
+            database
+        )
+    );
+
+    /*
+     * Une connexion NULL est considérée comme inactive.
+     */
+    assert(
+        !database_transaction_is_active(
+            NULL
+        )
+    );
+
+    /*
+     * La consultation de l’état ne doit pas modifier l’erreur courante.
+     */
+    database_error_set(
+        database,
+        DATABASE_ERROR_INVALID_ARGUMENT,
+        "erreur témoin"
+    );
+
+    assert(
+        !database_transaction_is_active(
+            database
+        )
+    );
+
+    assert(
+        database_error_get_code(
+            database
+        ) ==
+        DATABASE_ERROR_INVALID_ARGUMENT
+    );
+
+    error_message =
+        database_error_get_message(
+            database
+        );
+
+    assert(error_message != NULL);
+
+    assert(
+        strcmp(
+            error_message,
+            "erreur témoin"
+        ) == 0
+    );
+
+    database_error_clear(
+        database
+    );
+
+    /*
+     * L’état devient actif après BEGIN.
+     */
+    assert(
+        database_transaction_begin(
+            database
+        )
+    );
+
+    assert(
+        database_transaction_is_active(
+            database
+        )
+    );
+
+    /*
+     * Un simple contrôle ne doit pas terminer la transaction.
+     */
+    assert(
+        database_transaction_is_active(
+            database
+        )
+    );
+
+    /*
+     * L’état redevient inactif après COMMIT.
+     */
+    assert(
+        database_transaction_commit(
+            database
+        )
+    );
+
+    assert(
+        !database_transaction_is_active(
+            database
+        )
+    );
+
+    /*
+     * Même vérification avec un ROLLBACK.
+     */
+    assert(
+        database_transaction_begin(
+            database
+        )
+    );
+
+    assert(
+        database_transaction_is_active(
+            database
+        )
+    );
+
+    assert(
+        database_transaction_rollback(
+            database
+        )
+    );
+
+    assert(
+        !database_transaction_is_active(
+            database
+        )
+    );
+
+    database_close(
+        database
+    );
+}
+
 int main(void)
 {
     test_transaction_commit();
     test_transaction_rollback();
     test_invalid_transaction_states();
     test_transaction_error_state();
+    test_transaction_active_state();
 
     printf(
         "DatabaseTransaction : tous les tests sont valides.\n"

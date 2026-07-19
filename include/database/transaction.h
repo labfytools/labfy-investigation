@@ -11,6 +11,20 @@
 #include <stdbool.h>
 
 /**
+ * @brief Indique si une transaction est actuellement active.
+ *
+ * Cette fonction ne modifie ni la connexion ni son erreur courante.
+ *
+ * @param database Connexion à inspecter.
+ *
+ * @return true lorsqu’une transaction est active, sinon false.
+ *         Une connexion NULL retourne false.
+ */
+bool database_transaction_is_active(
+    const Database *database
+);
+
+/**
  * @brief Démarre une transaction d'écriture immédiate.
  *
  * Une seule transaction peut être active sur une instance Database.
