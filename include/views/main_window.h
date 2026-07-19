@@ -28,6 +28,16 @@ typedef void (*MainWindowNewInvestigationCallback)(
 );
 
 /**
+ * @brief Callback appelé lorsque l'utilisateur demande
+ *        l'import d'une preuve.
+ *
+ * @param user_data Données utilisateur associées au callback.
+ */
+typedef void (*MainWindowImportEvidenceCallback)(
+    gpointer user_data
+);
+
+/**
  * @brief Définit le callback du bouton « Nouvelle enquête ».
  *
  * La fenêtre ne crée pas directement l'enquête. Elle transmet uniquement
@@ -164,16 +174,6 @@ typedef void (*MainWindowQuitCallback)(
 );
 
 /**
- * @brief Callback appelé lorsque l'utilisateur demande une tâche
- *        de démonstration.
- *
- * @param user_data Données utilisateur associées au callback.
- */
-typedef void (*MainWindowDemoTaskCallback)(
-    gpointer user_data
-);
-
-/**
  * @brief Définit le callback du bouton « Ouvrir une enquête ».
  *
  * La fenêtre transmet uniquement la demande au contrôleur.
@@ -204,18 +204,29 @@ void main_window_set_quit_callback(
 );
 
 /**
- * @brief Définit le callback du bouton « Tâche de test ».
+ * @brief Définit le callback de l'action « Importer une preuve ».
  *
- * Ce bouton est temporaire et sert à valider le panneau d'activité.
+ * MainWindow transmet uniquement la demande au contrôleur.
  *
  * @param main_window Fenêtre principale.
  * @param callback Fonction appelée lors du clic.
  * @param user_data Données transmises au callback.
  */
-void main_window_set_demo_task_callback(
+void main_window_set_import_evidence_callback(
     MainWindow *main_window,
-    MainWindowDemoTaskCallback callback,
+    MainWindowImportEvidenceCallback callback,
     gpointer user_data
+);
+
+/**
+ * @brief Active ou désactive l'action d'import d'une preuve.
+ *
+ * @param main_window Fenêtre principale.
+ * @param enabled TRUE pour autoriser l'import.
+ */
+void main_window_set_import_evidence_enabled(
+    MainWindow *main_window,
+    gboolean enabled
 );
 
 /**

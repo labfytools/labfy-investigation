@@ -18,13 +18,29 @@
 #include "core/task_manager.h"
 #include "core/background_task.h"
 #include "core/tool_initializer.h"
+#include "views/file_dialog.h"
+#include "core/evidence_import_task.h"
+#include "models/evidence_record.h"
 
 #include <gtk/gtk.h>
+#include <errno.h>
 
 /**
  * @brief Identifiant unique utilisé par GLib pour l'application.
  */
 #define APPLICATION_ID "com.labfytools.investigation"
+
+/**
+ * @brief Dossier physique recevant les documents importés.
+ */
+#define APPLICATION_EVIDENCE_DIRECTORY \
+    "01_Preuves_Originales/Documents"
+
+/**
+ * @brief Type utilisé avant l’ajout du formulaire de métadonnées.
+ */
+#define APPLICATION_DEFAULT_EVIDENCE_TYPE \
+    "document"
 
 /**
  * @brief Erreurs produites lors du chargement d'une enquête.
@@ -70,6 +86,78 @@ struct Application
     TaskManager *task_manager;
     ToolInitializer *tool_initializer;
 };
+
+/**
+ * @brief Contexte conservé jusqu’à la fin d’un import.
+ */
+typedef struct
+{
+    Application *application;
+    char *investigation_root_path;
+} ApplicationEvidenceImportContext;
+
+/**
+ * @brief Libère le contexte d’un import asynchrone.
+ */
+static void application_evidence_import_context_free(
+    gpointer user_data
+)
+{
+    ApplicationEvidenceImportContext *context =
+        user_data;
+
+    if (context == NULL)
+    {
+        return;
+    }
+
+    g_free(
+        context->investigation_root_path
+    );
+
+    g_free(
+        context
+    );
+}
+
+/**
+ * @brief Vérifie que l’enquête active correspond à un chemin racine.
+ */
+static gboolean application_session_matches_root(
+    const Application *application,
+    const char *expected_root_path
+)
+{
+    const InvestigationProject *project = NULL;
+    const char *current_root_path = NULL;
+
+    if (application == NULL ||
+        application->session == NULL ||
+        expected_root_path == NULL)
+    {
+        return FALSE;
+    }
+
+    project =
+        investigation_session_get_project(
+            application->session
+        );
+
+    if (project == NULL)
+    {
+        return FALSE;
+    }
+
+    current_root_path =
+        investigation_project_get_root_path(
+            project
+        );
+
+    return g_strcmp0(
+        current_root_path,
+        expected_root_path
+    ) == 0;
+}
 
 static void application_present_error(
     Application *application,
@@ -357,6 +445,11 @@ static gboolean application_install_session(
         application->main_window,
         investigation_name,
         root_path
+    );
+
+    main_window_set_import_evidence_enabled(
+        application->main_window,
+        TRUE
     );
 
     return TRUE;
@@ -775,137 +868,241 @@ static void application_on_open_investigation_requested(
 }
 
 /**
- * @brief Exécute une tâche temporaire servant à tester le panneau.
+ * @brief Reconstruit et remplace l’arborescence active.
  *
- * Cette fonction s'exécute dans un thread secondaire.
+ * Le nouveau modèle est entièrement construit avant que l’ancien
+ * soit détaché et libéré.
  *
- * @param task Tâche en cours.
- * @param cancellable Objet d'annulation.
- * @param worker_data Données inutilisées.
- * @param result Emplacement recevant le résultat.
- * @param error Emplacement recevant une erreur.
+ * @param application Application concernée.
+ * @param investigation_root_path Racine à parcourir.
  *
- * @return TRUE en cas de succès, sinon FALSE.
+ * @return TRUE si le remplacement a réussi.
  */
-static gboolean application_demo_task_worker(
-    BackgroundTask *task,
-    GCancellable *cancellable,
-    gpointer worker_data,
-    gpointer *result,
-    GError **error
+static gboolean application_refresh_investigation_tree(
+    Application *application,
+    const char *investigation_root_path
 )
 {
-    guint step = 0;
-    char status_message[64];
+    InvestigationTreeModel *new_tree_model = NULL;
+    InvestigationTreeModel *old_tree_model = NULL;
 
-    (void) worker_data;
-
-    if (task == NULL ||
-        cancellable == NULL ||
-        result == NULL ||
-        error == NULL)
+    if (application == NULL ||
+        application->main_window == NULL ||
+        investigation_root_path == NULL ||
+        investigation_root_path[0] == '\0')
     {
         return FALSE;
     }
 
-    for (step = 0; step <= 20; step++)
+    new_tree_model =
+        investigation_tree_builder_build(
+            investigation_root_path
+        );
+
+    if (new_tree_model == NULL)
     {
-        if (g_cancellable_set_error_if_cancelled(
-                cancellable,
-                error
-            ))
-        {
-            return FALSE;
-        }
-
-        g_snprintf(
-            status_message,
-            sizeof(status_message),
-            "Étape %u sur 20",
-            step
-        );
-
-        background_task_report_progress(
-            task,
-            (double) step / 20.0,
-            status_message
-        );
-
-        if (step < 20)
-        {
-            g_usleep(
-                500000
-            );
-        }
+        return FALSE;
     }
 
-    *result = g_strdup(
-        "Tâche de démonstration terminée."
+    old_tree_model =
+        application->tree_model;
+
+    /*
+     * MainWindow transmet le nouveau modèle à la Sidebar.
+     *
+     * InvestigationTreeView détache d’abord son ancien modèle GTK,
+     * puis construit le nouveau. L’ancien modèle métier reste vivant
+     * pendant toute cette opération.
+     */
+    main_window_set_tree_model(
+        application->main_window,
+        new_tree_model
+    );
+
+    application->tree_model =
+        new_tree_model;
+
+    /*
+     * La vue ne référence plus les anciens nœuds.
+     */
+    investigation_tree_model_free(
+        old_tree_model
     );
 
     return TRUE;
 }
 
 /**
- * @brief Journalise la fin de la tâche de démonstration.
+ * @brief Traite la fin d’une tâche d’import.
  *
- * @param task Tâche terminée.
- * @param user_data Données inutilisées.
+ * @param task Tâche d’import terminée.
+ * @param user_data Contexte ApplicationEvidenceImportContext.
  */
-static void application_demo_task_completed(
+static void application_on_evidence_import_completed(
     BackgroundTask *task,
     gpointer user_data
 )
 {
+    ApplicationEvidenceImportContext *context =
+        user_data;
+
+    Application *application = NULL;
+
     BackgroundTaskState state;
-    const char *result = NULL;
+
+    EvidenceRecord *evidence_record = NULL;
+
+    const char *original_name = NULL;
+
+    char *status_message = NULL;
+
     GError *error = NULL;
 
-    (void) user_data;
-
-    if (task == NULL)
+    if (task == NULL ||
+        context == NULL)
     {
         return;
     }
 
-    state = background_task_get_state(
-        task
+    application =
+        context->application;
+
+    if (application == NULL ||
+        application->main_window == NULL)
+    {
+        return;
+    }
+
+    main_window_set_import_evidence_enabled(
+        application->main_window,
+        application->session != NULL
     );
 
-    if (state == BACKGROUND_TASK_STATE_COMPLETED)
-    {
-        result = background_task_get_result(
+    state =
+        background_task_get_state(
             task
         );
 
-        g_print(
-            "%s\n",
-            result != NULL
-                ? result
-                : "Tâche terminée."
-        );
-
-        return;
-    }
-
-    if (state == BACKGROUND_TASK_STATE_CANCELLED)
+    if (state ==
+        BACKGROUND_TASK_STATE_COMPLETED)
     {
-        g_print(
-            "Tâche de démonstration annulée.\n"
+        evidence_record =
+            background_task_get_result(
+                task
+            );
+
+        if (evidence_record == NULL)
+        {
+            application_present_error(
+                application,
+                "Import incomplet",
+                "La tâche est terminée sans fournir de preuve."
+            );
+
+            return;
+        }
+
+        original_name =
+            evidence_record_get_original_name(
+                evidence_record
+            );
+
+    if (application_session_matches_root(
+            application,
+            context->investigation_root_path
+        ))
+    {
+        if (application_refresh_investigation_tree(
+                application,
+                context->investigation_root_path
+            ))
+        {
+            status_message =
+                g_strdup_printf(
+                    "Preuve importée : %s",
+                    original_name != NULL
+                        ? original_name
+                        : "(nom indisponible)"
+                );
+        }
+        else
+        {
+            /*
+             * L’import reste valide même si le rafraîchissement visuel
+             * échoue. Le fichier et la ligne SQLite ne doivent surtout
+             * pas être présentés comme un échec.
+             */
+            status_message =
+                g_strdup_printf(
+                    "Preuve importée : %s — "
+                    "arborescence non actualisée",
+                    original_name != NULL
+                        ? original_name
+                        : "(nom indisponible)"
+                );
+
+            g_warning(
+                "La preuve a été importée, mais l’arborescence de '%s' "
+                "n’a pas pu être reconstruite.",
+                context->investigation_root_path
+            );
+        }
+
+        main_window_set_status(
+            application->main_window,
+            status_message
+        );
+    }
+        g_message(
+            "Preuve importée dans '%s' : %s",
+            context->investigation_root_path,
+            original_name != NULL
+                ? original_name
+                : "(nom indisponible)"
+        );
+
+        g_free(
+            status_message
         );
 
         return;
     }
 
-    error = background_task_dup_error(
-        task
-    );
+    if (state ==
+        BACKGROUND_TASK_STATE_CANCELLED)
+    {
+        if (application_session_matches_root(
+                application,
+                context->investigation_root_path
+            ))
+        {
+            main_window_set_status(
+                application->main_window,
+                "Import de preuve annulé."
+            );
+        }
+
+        return;
+    }
+
+    error =
+        background_task_dup_error(
+            task
+        );
 
     g_warning(
-        "La tâche de démonstration a échoué : %s",
+        "L’import de la preuve a échoué : %s",
         error != NULL
             ? error->message
             : "erreur inconnue"
+    );
+
+    application_present_error(
+        application,
+        "Import impossible",
+        error != NULL
+            ? error->message
+            : "La preuve n’a pas pu être importée."
     );
 
     g_clear_error(
@@ -914,126 +1111,388 @@ static void application_demo_task_completed(
 }
 
 /**
- * @brief Crée et lance une tâche de démonstration.
+ * @brief Prépare et démarre l’import asynchrone d’un fichier.
+ */
+static void application_start_evidence_import(
+    Application *application,
+    const char *file_path
+)
+{
+    const InvestigationProject *project = NULL;
+
+    const char *root_path = NULL;
+    const char *database_path = NULL;
+
+    EvidenceImportTaskRequest request =
+        {0};
+
+    ApplicationEvidenceImportContext *context =
+        NULL;
+
+    BackgroundTask *task = NULL;
+
+    char *destination_directory = NULL;
+    char *source_name = NULL;
+    char *status_message = NULL;
+
+    GError *error = NULL;
+
+    if (application == NULL ||
+        application->main_window == NULL ||
+        application->session == NULL ||
+        application->task_manager == NULL ||
+        file_path == NULL ||
+        file_path[0] == '\0')
+    {
+        return;
+    }
+
+    project =
+        investigation_session_get_project(
+            application->session
+        );
+
+    if (project == NULL)
+    {
+        application_present_error(
+            application,
+            "Import impossible",
+            "La session ne fournit aucun projet d’enquête."
+        );
+
+        return;
+    }
+
+    root_path =
+        investigation_project_get_root_path(
+            project
+        );
+
+    database_path =
+        investigation_project_get_database_path(
+            project
+        );
+
+    if (root_path == NULL ||
+        root_path[0] == '\0' ||
+        database_path == NULL ||
+        database_path[0] == '\0')
+    {
+        application_present_error(
+            application,
+            "Import impossible",
+            "Les chemins de l’enquête sont invalides."
+        );
+
+        return;
+    }
+
+    destination_directory =
+        g_build_filename(
+            root_path,
+            "01_Preuves_Originales",
+            "Documents",
+            NULL
+        );
+
+    if (destination_directory == NULL)
+    {
+        application_present_error(
+            application,
+            "Import impossible",
+            "Impossible de construire le dossier de destination."
+        );
+
+        return;
+    }
+
+    /*
+     * Le dossier devrait exister dans une enquête normale.
+     * Cette création rend néanmoins l’import robuste face à un dossier
+     * supprimé accidentellement.
+     */
+    if (g_mkdir_with_parents(
+            destination_directory,
+            0700
+        ) != 0)
+    {
+        status_message =
+            g_strdup_printf(
+                "Impossible de préparer le dossier '%s' : %s",
+                destination_directory,
+                g_strerror(errno)
+            );
+
+        application_present_error(
+            application,
+            "Import impossible",
+            status_message
+        );
+
+        g_free(
+            status_message
+        );
+
+        g_free(
+            destination_directory
+        );
+
+        return;
+    }
+
+    context =
+        g_try_new0(
+            ApplicationEvidenceImportContext,
+            1
+        );
+
+    if (context == NULL)
+    {
+        application_present_error(
+            application,
+            "Import impossible",
+            "Impossible d’allouer le contexte de la tâche."
+        );
+
+        g_free(
+            destination_directory
+        );
+
+        return;
+    }
+
+    context->application =
+        application;
+
+    context->investigation_root_path =
+        g_strdup(
+            root_path
+        );
+
+    if (context->investigation_root_path == NULL)
+    {
+        application_evidence_import_context_free(
+            context
+        );
+
+        g_free(
+            destination_directory
+        );
+
+        application_present_error(
+            application,
+            "Import impossible",
+            "Impossible de conserver le chemin de l’enquête."
+        );
+
+        return;
+    }
+
+    request.database_path =
+        database_path;
+
+    request.source_path =
+        file_path;
+
+    request.destination_directory =
+        destination_directory;
+
+    request.relative_directory =
+        APPLICATION_EVIDENCE_DIRECTORY;
+
+    request.type_identifier =
+        APPLICATION_DEFAULT_EVIDENCE_TYPE;
+
+    request.collected_at = NULL;
+    request.source = NULL;
+    request.description = NULL;
+
+    task =
+        evidence_import_task_start(
+            application->task_manager,
+            &request,
+            application_on_evidence_import_completed,
+            context,
+            application_evidence_import_context_free,
+            &error
+        );
+
+    if (task == NULL)
+    {
+        /*
+         * La tâche n’a pas pris possession du contexte.
+         */
+        application_evidence_import_context_free(
+            context
+        );
+
+        application_present_error(
+            application,
+            "Import impossible",
+            error != NULL
+                ? error->message
+                : "La tâche d’import n’a pas pu être démarrée."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        g_free(
+            destination_directory
+        );
+
+        return;
+    }
+
+    /*
+     * Le TaskManager et le worker conservent désormais leurs références.
+     */
+    background_task_unref(
+        task
+    );
+
+    main_window_set_import_evidence_enabled(
+        application->main_window,
+        FALSE
+    );
+
+    source_name =
+        g_path_get_basename(
+            file_path
+        );
+
+    status_message =
+        g_strdup_printf(
+            "Import en cours : %s",
+            source_name != NULL
+                ? source_name
+                : file_path
+        );
+
+    main_window_set_status(
+        application->main_window,
+        status_message
+    );
+
+    g_free(
+        status_message
+    );
+
+    g_free(
+        source_name
+    );
+
+    g_free(
+        destination_directory
+    );
+}
+
+/**
+ * @brief Traite le fichier de preuve sélectionné.
+ *
+ * @param file_path Chemin local sélectionné, ou NULL.
+ * @param error Erreur de sélection, ou NULL.
+ * @param user_data Pointeur vers Application.
+ */
+static void application_on_evidence_file_selected(
+    const char *file_path,
+    const GError *error,
+    gpointer user_data
+)
+{
+    Application *application =
+        user_data;
+
+    if (application == NULL ||
+        application->main_window == NULL)
+    {
+        return;
+    }
+
+    /*
+     * Une annulation ne constitue pas une erreur.
+     */
+    if (file_path == NULL &&
+        error == NULL)
+    {
+        main_window_set_status(
+            application->main_window,
+            "Import de preuve annulé."
+        );
+
+        return;
+    }
+
+    if (error != NULL)
+    {
+        g_warning(
+            "Impossible de sélectionner le fichier : %s",
+            error->message
+        );
+
+        application_present_error(
+            application,
+            "Sélection impossible",
+            error->message
+        );
+
+        return;
+    }
+
+    if (file_path == NULL ||
+        file_path[0] == '\0')
+    {
+        application_present_error(
+            application,
+            "Sélection impossible",
+            "Le chemin du fichier sélectionné est invalide."
+        );
+
+        return;
+    }
+    
+    application_start_evidence_import(
+        application,
+        file_path
+    );
+}
+
+/**
+ * @brief Traite la demande d'import d'une preuve.
+ *
+ * Le sélecteur de fichier sera ajouté à l'étape suivante.
  *
  * @param user_data Pointeur vers Application.
  */
-static void application_on_demo_task_requested(
+static void application_on_import_evidence_requested(
     gpointer user_data
 )
 {
     Application *application = user_data;
-    BackgroundTask *task = NULL;
-    GError *error = NULL;
 
     if (application == NULL ||
-        application->task_manager == NULL)
+        application->main_window == NULL)
     {
         return;
     }
 
-    task = background_task_new(
-        "Tâche de démonstration"
-    );
-
-    if (task == NULL)
+    if (application->session == NULL)
     {
-        application_present_error(
-            application,
-            "Tâche impossible",
-            "La tâche de démonstration n'a pas pu être créée."
+        main_window_set_import_evidence_enabled(
+            application->main_window,
+            FALSE
         );
 
         return;
     }
 
-    /*
-     * Le manager prend une référence supplémentaire.
-     */
-    if (!task_manager_add(
-            application->task_manager,
-            task,
-            &error
-        ))
-    {
-        g_warning(
-            "Impossible d'ajouter la tâche : %s",
-            error != NULL
-                ? error->message
-                : "erreur inconnue"
-        );
-
-        application_present_error(
-            application,
-            "Tâche impossible",
-            error != NULL
-                ? error->message
-                : "La tâche n'a pas pu être ajoutée."
-        );
-
-        g_clear_error(
-            &error
-        );
-
-        background_task_unref(
-            task
-        );
-
-        return;
-    }
-
-    if (!background_task_start(
-            task,
-            application_demo_task_worker,
-            NULL,
-            NULL,
-            g_free,
-            application_demo_task_completed,
-            NULL,
-            NULL,
-            &error
-        ))
-    {
-        g_warning(
-            "Impossible de démarrer la tâche : %s",
-            error != NULL
-                ? error->message
-                : "erreur inconnue"
-        );
-
-        application_present_error(
-            application,
-            "Démarrage impossible",
-            error != NULL
-                ? error->message
-                : "La tâche n'a pas pu être démarrée."
-        );
-
-        g_clear_error(
-            &error
-        );
-
-        task_manager_remove(
-            application->task_manager,
-            task
-        );
-
-        background_task_unref(
-            task
-        );
-
-        return;
-    }
-
-    /*
-     * La référence locale n'est plus nécessaire :
-     *
-     * - TaskManager conserve une référence ;
-     * - BackgroundTask conserve une référence interne pendant
-     *   l'exécution.
-     */
-    background_task_unref(
-        task
+    file_dialog_select_file(
+        main_window_get_window(
+            application->main_window
+        ),
+        application_on_evidence_file_selected,
+        application
     );
 }
 
@@ -1183,10 +1642,15 @@ static void application_on_activate(
         application
     );
 
-    main_window_set_demo_task_callback(
+    main_window_set_import_evidence_callback(
         application->main_window,
-        application_on_demo_task_requested,
+        application_on_import_evidence_requested,
         application
+    );
+
+    main_window_set_import_evidence_enabled(
+        application->main_window,
+        application->session != NULL
     );
 
     main_window_set_quit_callback(

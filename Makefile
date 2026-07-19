@@ -54,6 +54,7 @@ TEST_TOOL_INITIALIZER := tests/test_tool_initializer
 TEST_FILE_HASH := tests/test_file_hash
 TEST_EVIDENCE_COPY := tests/test_evidence_copy
 TEST_EVIDENCE_IMPORTER := tests/test_evidence_importer
+TEST_EVIDENCE_IMPORT_TASK := tests/test_evidence_import_task
 
 all: $(TARGET)
 
@@ -245,6 +246,25 @@ $(TEST_EVIDENCE_IMPORTER): \
 		-DEVIDENCE_IMPORTER_ENABLE_TEST_HOOKS \
 		$^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
+$(TEST_EVIDENCE_IMPORT_TASK): \
+	tests/test_evidence_import_task.c \
+	src/core/evidence_import_task.c \
+	src/core/evidence_importer.c \
+	src/core/evidence_copy.c \
+	src/core/file_hash.c \
+	src/core/background_task.c \
+	src/core/task_manager.c \
+	src/dao/evidence_dao.c \
+	src/models/evidence_record.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(TEST_CFLAGS) \
+		-DEVIDENCE_IMPORTER_ENABLE_TEST_HOOKS \
+		$^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -268,7 +288,8 @@ test: \
 	$(TEST_TOOL_INITIALIZER) \
 	$(TEST_FILE_HASH) \
 	$(TEST_EVIDENCE_COPY) \
-	$(TEST_EVIDENCE_IMPORTER)
+	$(TEST_EVIDENCE_IMPORTER) \
+	$(TEST_EVIDENCE_IMPORT_TASK)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -293,6 +314,7 @@ test: \
 	@$(TEST_FILE_HASH)
 	@$(TEST_EVIDENCE_COPY)
 	@$(TEST_EVIDENCE_IMPORTER)
+	@$(TEST_EVIDENCE_IMPORT_TASK)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -325,7 +347,8 @@ clean:
 		$(TEST_TOOL_INITIALIZER) \
 		$(TEST_FILE_HASH) \
 		$(TEST_EVIDENCE_COPY) \
-		$(TEST_EVIDENCE_IMPORTER)
+		$(TEST_EVIDENCE_IMPORTER) \
+		$(TEST_EVIDENCE_IMPORT_TASK)
 
 
 .PHONY: clean run test

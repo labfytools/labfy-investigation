@@ -58,7 +58,7 @@ struct MainWindow
     GtkWidget *action_bar;
     GtkWidget *new_investigation_button;
     GtkWidget *open_investigation_button;
-    GtkWidget *demo_task_button;
+    GtkWidget *import_evidence_button;
     GtkWidget *content_paned;
     GtkWidget *main_paned;
     GtkWidget *status_label;
@@ -80,17 +80,18 @@ struct MainWindow
     gpointer
         open_investigation_user_data;
 
+    MainWindowImportEvidenceCallback
+        import_evidence_callback;
+
+    gpointer
+        import_evidence_user_data;
+
     MainWindowQuitCallback
         quit_callback;
 
     gpointer
         quit_user_data;
 
-    MainWindowDemoTaskCallback
-        demo_task_callback;
-
-    gpointer
-        demo_task_user_data;
 };
 
 /**
@@ -146,12 +147,12 @@ static void main_window_on_open_investigation_clicked(
 }
 
 /**
- * @brief Transmet la demande de tâche de démonstration au contrôleur.
+ * @brief Transmet la demande d'import d'une preuve au contrôleur.
  *
  * @param button Bouton ayant reçu le clic.
  * @param user_data Pointeur vers MainWindow.
  */
-static void main_window_on_demo_task_clicked(
+static void main_window_on_import_evidence_clicked(
     GtkButton *button,
     gpointer user_data
 )
@@ -161,13 +162,13 @@ static void main_window_on_demo_task_clicked(
     (void) button;
 
     if (main_window == NULL ||
-        main_window->demo_task_callback == NULL)
+        main_window->import_evidence_callback == NULL)
     {
         return;
     }
 
-    main_window->demo_task_callback(
-        main_window->demo_task_user_data
+    main_window->import_evidence_callback(
+        main_window->import_evidence_user_data
     );
 }
 
@@ -197,6 +198,54 @@ static void main_window_on_quit_clicked(
     );
 }
 
+/**
+ * @brief Crée un bouton d'action compact avec une icône.
+ *
+ * @param icon_name Nom de l'icône symbolique GTK.
+ * @param tooltip_text Texte de l'infobulle.
+ *
+ * @return Nouveau bouton GTK.
+ */
+static GtkWidget *main_window_create_action_button(
+    const char *icon_name,
+    const char *tooltip_text
+)
+{
+    GtkWidget *button = NULL;
+
+    if (icon_name == NULL ||
+        icon_name[0] == '\0')
+    {
+        return NULL;
+    }
+
+    button =
+        gtk_button_new_from_icon_name(
+            icon_name
+        );
+
+    if (button == NULL)
+    {
+        return NULL;
+    }
+
+    gtk_widget_add_css_class(
+        button,
+        "flat"
+    );
+
+    if (tooltip_text != NULL &&
+        tooltip_text[0] != '\0')
+    {
+        gtk_widget_set_tooltip_text(
+            button,
+            tooltip_text
+        );
+    }
+
+    return button;
+}
+
 MainWindow *main_window_new(
     GtkApplication *application,
     TaskManager *task_manager
@@ -206,6 +255,7 @@ MainWindow *main_window_new(
     GtkWidget *sidebar_widget = NULL;
     GtkWidget *workspace_widget = NULL;
     GtkWidget *task_panel_widget = NULL;
+    GtkWidget *action_spacer = NULL;
 
     if (application == NULL ||
         task_manager == NULL)
@@ -252,7 +302,7 @@ MainWindow *main_window_new(
      */
     main_window->action_bar = gtk_box_new(
         GTK_ORIENTATION_HORIZONTAL,
-        8
+        4
     );
 
     gtk_widget_set_margin_start(
@@ -276,18 +326,46 @@ MainWindow *main_window_new(
     );
 
     main_window->new_investigation_button =
-        gtk_button_new_with_label(
-            "Nouvelle enquête"
+        main_window_create_action_button(
+            "document-new-symbolic",
+            "Créer une nouvelle enquête"
         );
 
     main_window->open_investigation_button =
-        gtk_button_new_with_label(
+        main_window_create_action_button(
+            "document-open-symbolic",
             "Ouvrir une enquête"
         );
 
-    main_window->demo_task_button =
-        gtk_button_new_with_label(
-            "Tâche de test"
+    main_window->import_evidence_button =
+        main_window_create_action_button(
+            "document-save-symbolic",
+            "Importer une preuve"
+        );
+
+    main_window->quit_button =
+        main_window_create_action_button(
+            "application-exit-symbolic",
+            "Quitter Labfy Investigation"
+        );
+
+    action_spacer =
+        gtk_box_new(
+            GTK_ORIENTATION_HORIZONTAL,
+            0
+        );
+
+    gtk_widget_set_hexpand(
+        action_spacer,
+        TRUE
+    );
+
+    /*
+     * Aucun import n'est autorisé sans enquête ouverte.
+     */
+    gtk_widget_set_sensitive(
+        main_window->import_evidence_button,
+        FALSE
     );
 
     main_window->quit_button =
@@ -307,7 +385,12 @@ MainWindow *main_window_new(
 
     gtk_box_append(
         GTK_BOX(main_window->action_bar),
-        main_window->demo_task_button
+        main_window->import_evidence_button
+    );
+
+    gtk_box_append(
+        GTK_BOX(main_window->action_bar),
+        action_spacer
     );
 
     gtk_box_append(
@@ -334,10 +417,10 @@ MainWindow *main_window_new(
     );
 
     g_signal_connect(
-        main_window->demo_task_button,
+        main_window->import_evidence_button,
         "clicked",
         G_CALLBACK(
-            main_window_on_demo_task_clicked
+            main_window_on_import_evidence_clicked
         ),
         main_window
     );
@@ -795,9 +878,9 @@ void main_window_set_open_investigation_callback(
     main_window->open_investigation_user_data = user_data;
 }
 
-void main_window_set_demo_task_callback(
+void main_window_set_import_evidence_callback(
     MainWindow *main_window,
-    MainWindowDemoTaskCallback callback,
+    MainWindowImportEvidenceCallback callback,
     gpointer user_data
 )
 {
@@ -806,8 +889,28 @@ void main_window_set_demo_task_callback(
         return;
     }
 
-    main_window->demo_task_callback = callback;
-    main_window->demo_task_user_data = user_data;
+    main_window->import_evidence_callback =
+        callback;
+
+    main_window->import_evidence_user_data =
+        user_data;
+}
+
+void main_window_set_import_evidence_enabled(
+    MainWindow *main_window,
+    gboolean enabled
+)
+{
+    if (main_window == NULL ||
+        main_window->import_evidence_button == NULL)
+    {
+        return;
+    }
+
+    gtk_widget_set_sensitive(
+        main_window->import_evidence_button,
+        enabled
+    );
 }
 
 void main_window_set_quit_callback(

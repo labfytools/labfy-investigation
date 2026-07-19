@@ -146,11 +146,6 @@ void sidebar_set_tree_model(
         return;
     }
 
-    if (sidebar == NULL)
-    {
-        return;
-    }
-
     investigation_tree_view_set_model(
         sidebar->tree_view,
         tree_model
