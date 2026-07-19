@@ -41,7 +41,6 @@ TEST_TRANSACTION = tests/test_transaction
 TEST_ERROR = tests/test_error
 TEST_INVESTIGATION_RECORD = tests/test_investigation_record
 TEST_EVIDENCE_RECORD := tests/test_evidence_record
-TEST_EVIDENCE_RECORD := tests/test_evidence_record
 TEST_INVESTIGATION_DAO := tests/test_investigation_dao
 TEST_EVIDENCE_DAO := tests/test_evidence_dao
 TEST_INVESTIGATION_SESSION := tests/test_investigation_session
@@ -53,6 +52,7 @@ TEST_TOOL_TASK := tests/test_tool_task
 TEST_TOOL_CATALOG := tests/test_tool_catalog
 TEST_TOOL_INITIALIZER := tests/test_tool_initializer
 TEST_FILE_HASH := tests/test_file_hash
+TEST_EVIDENCE_COPY := tests/test_evidence_copy
 
 all: $(TARGET)
 
@@ -220,6 +220,14 @@ $(TEST_FILE_HASH): \
 		-DFILE_HASH_ENABLE_TEST_HOOKS \
 		$^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_EVIDENCE_COPY): \
+	tests/test_evidence_copy.c \
+	src/core/evidence_copy.c \
+	src/core/file_hash.c
+	$(CC) $(TEST_CFLAGS) \
+		-DEVIDENCE_COPY_ENABLE_TEST_HOOKS \
+		$^ -o $@ $(TEST_LDFLAGS)
+	
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -241,7 +249,8 @@ test: \
 	$(TEST_TOOL_TASK) \
 	$(TEST_TOOL_CATALOG) \
 	$(TEST_TOOL_INITIALIZER) \
-	$(TEST_FILE_HASH)
+	$(TEST_FILE_HASH) \
+	$(TEST_EVIDENCE_COPY)	
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -264,6 +273,7 @@ test: \
 	@$(TEST_TOOL_CATALOG)
 	@$(TEST_TOOL_INITIALIZER)
 	@$(TEST_FILE_HASH)
+	@$(TEST_EVIDENCE_COPY)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -294,7 +304,8 @@ clean:
 		$(TEST_TOOL_TASK) \
 		$(TEST_TOOL_CATALOG) \
 		$(TEST_TOOL_INITIALIZER) \
-		$(TEST_FILE_HASH)
+		$(TEST_FILE_HASH) \
+		$(TEST_EVIDENCE_COPY)
 
 
 .PHONY: clean run test
