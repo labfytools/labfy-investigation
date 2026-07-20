@@ -2766,6 +2766,58 @@ static void application_on_evidence_selected(
 }
 
 /**
+ * @brief Reçoit la demande de vérification d'une preuve.
+ *
+ * Cette première étape valide uniquement le relais de l'interface.
+ * Le lancement de la tâche sera ajouté ensuite.
+ *
+ * @param evidence_identifier UUID de la preuve.
+ * @param user_data Pointeur vers Application.
+ */
+static void application_on_verify_evidence_requested(
+    const char *evidence_identifier,
+    gpointer user_data
+)
+{
+    Application *application =
+        user_data;
+
+    char *status_message =
+        NULL;
+
+    if (application == NULL ||
+        application->main_window == NULL ||
+        application->session == NULL ||
+        evidence_identifier == NULL ||
+        !g_uuid_string_is_valid(
+            evidence_identifier
+        ))
+    {
+        return;
+    }
+
+    status_message =
+        g_strdup_printf(
+            "Vérification demandée pour la preuve : %s",
+            evidence_identifier
+        );
+
+    main_window_set_status(
+        application->main_window,
+        status_message
+    );
+
+    g_message(
+        "Demande de vérification reçue pour la preuve '%s'.",
+        evidence_identifier
+    );
+
+    g_free(
+        status_message
+    );
+}
+
+/**
  * @brief Ferme proprement l'application.
  *
  * @param user_data Pointeur vers Application.
@@ -2846,6 +2898,12 @@ static void application_on_activate(
     main_window_set_evidence_selection_callback(
         application->main_window,
         application_on_evidence_selected,
+        application
+    );
+
+    main_window_set_verify_evidence_callback(
+        application->main_window,
+        application_on_verify_evidence_requested,
         application
     );
 

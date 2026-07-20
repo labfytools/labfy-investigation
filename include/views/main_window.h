@@ -54,6 +54,34 @@ typedef void (*MainWindowEvidenceSelectionCallback)(
 );
 
 /**
+ * @brief Callback appelé lorsque l'utilisateur demande une vérification.
+ *
+ * L'identifiant est emprunté et uniquement valide pendant l'appel.
+ *
+ * @param evidence_identifier UUID de la preuve.
+ * @param user_data Données privées du callback.
+ */
+typedef void (*MainWindowVerifyEvidenceCallback)(
+    const char *evidence_identifier,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de vérification d'une preuve.
+ *
+ * MainWindow relaie la demande provenant du Workspace.
+ *
+ * @param main_window Fenêtre principale.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void main_window_set_verify_evidence_callback(
+    MainWindow *main_window,
+    MainWindowVerifyEvidenceCallback callback,
+    gpointer user_data
+);
+
+/**
  * @brief Définit le callback du bouton « Nouvelle enquête ».
  *
  * La fenêtre ne crée pas directement l'enquête. Elle transmet uniquement

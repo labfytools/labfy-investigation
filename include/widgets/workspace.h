@@ -28,6 +28,20 @@ typedef struct Workspace Workspace;
 Workspace *workspace_new(void);
 
 /**
+ * @brief Callback appelé lorsque l'utilisateur demande la vérification
+ *        de la preuve affichée.
+ *
+ * L'identifiant est emprunté et uniquement valide pendant l'appel.
+ *
+ * @param evidence_identifier UUID de la preuve.
+ * @param user_data Données privées du callback.
+ */
+typedef void (*WorkspaceVerifyEvidenceCallback)(
+    const char *evidence_identifier,
+    gpointer user_data
+);
+
+/**
  * @brief Retourne le widget GTK racine de la zone de travail.
  *
  * Le widget retourné appartient au module Workspace et ne doit pas être
@@ -71,6 +85,21 @@ void workspace_set_selected_node(
 void workspace_set_selected_evidence(
     Workspace *workspace,
     const EvidenceRecord *evidence_record
+);
+
+/**
+ * @brief Définit le callback de vérification d'une preuve.
+ *
+ * Le Workspace transmet uniquement l'identifiant de la preuve affichée.
+ *
+ * @param workspace Zone de travail.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void workspace_set_verify_evidence_callback(
+    Workspace *workspace,
+    WorkspaceVerifyEvidenceCallback callback,
+    gpointer user_data
 );
 
 /**

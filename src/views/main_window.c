@@ -86,6 +86,12 @@ struct MainWindow
     gpointer
         import_evidence_user_data;
 
+    MainWindowVerifyEvidenceCallback
+        verify_evidence_callback;
+
+    gpointer
+        verify_evidence_user_data;
+
     MainWindowQuitCallback
         quit_callback;
 
@@ -244,6 +250,31 @@ static GtkWidget *main_window_create_action_button(
     }
 
     return button;
+}
+
+/**
+ * @brief Relaie la demande de vérification provenant du Workspace.
+ */
+static void main_window_on_verify_evidence_requested(
+    const char *evidence_identifier,
+    gpointer user_data
+)
+{
+    MainWindow *main_window =
+        user_data;
+
+    if (main_window == NULL ||
+        main_window->verify_evidence_callback == NULL ||
+        evidence_identifier == NULL ||
+        evidence_identifier[0] == '\0')
+    {
+        return;
+    }
+
+    main_window->verify_evidence_callback(
+        evidence_identifier,
+        main_window->verify_evidence_user_data
+    );
 }
 
 MainWindow *main_window_new(
@@ -477,6 +508,12 @@ MainWindow *main_window_new(
         main_window_free(main_window);
         return NULL;
     }
+
+    workspace_set_verify_evidence_callback(
+        main_window->workspace,
+        main_window_on_verify_evidence_requested,
+        main_window
+    );
 
     workspace_widget = workspace_get_widget(
         main_window->workspace
@@ -942,6 +979,24 @@ void main_window_set_import_evidence_enabled(
     );
 }
 
+void main_window_set_verify_evidence_callback(
+    MainWindow *main_window,
+    MainWindowVerifyEvidenceCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    main_window->verify_evidence_callback =
+        callback;
+
+    main_window->verify_evidence_user_data =
+        user_data;
+}
+
 void main_window_set_quit_callback(
     MainWindow *main_window,
     MainWindowQuitCallback callback,
@@ -1049,6 +1104,15 @@ void main_window_free(
     sidebar_free(
         main_window->sidebar
     );
+
+    if (main_window->workspace != NULL)
+    {
+        workspace_set_verify_evidence_callback(
+            main_window->workspace,
+            NULL,
+            NULL
+        );
+    }
 
     workspace_free(
         main_window->workspace

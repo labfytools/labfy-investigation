@@ -41,6 +41,15 @@ struct Workspace
     GtkWidget *evidence_internal_name_label;
     GtkWidget *evidence_identifier_label;
     GtkWidget *evidence_sha256_label;
+    GtkWidget *verify_evidence_button;
+
+    char *selected_evidence_identifier;
+
+    WorkspaceVerifyEvidenceCallback
+        verify_evidence_callback;
+
+    gpointer
+        verify_evidence_user_data;
 
     GtkWidget *node_name_label;
     GtkWidget *node_path_label;
@@ -231,6 +240,33 @@ static void workspace_show_welcome(
     gtk_stack_set_visible_child_name(
         GTK_STACK(workspace->stack),
         WORKSPACE_PAGE_WELCOME
+    );
+}
+
+/**
+ * @brief Transmet la demande de vérification de la preuve affichée.
+ */
+static void workspace_on_verify_evidence_clicked(
+    GtkButton *button,
+    gpointer user_data
+)
+{
+    Workspace *workspace =
+        user_data;
+
+    (void) button;
+
+    if (workspace == NULL ||
+        workspace->verify_evidence_callback == NULL ||
+        workspace->selected_evidence_identifier == NULL ||
+        workspace->selected_evidence_identifier[0] == '\0')
+    {
+        return;
+    }
+
+    workspace->verify_evidence_callback(
+        workspace->selected_evidence_identifier,
+        workspace->verify_evidence_user_data
     );
 }
 
@@ -534,6 +570,52 @@ Workspace *workspace_new(void)
         workspace->evidence_name_label
     );
 
+    workspace->verify_evidence_button =
+        gtk_button_new_with_label(
+            "Vérifier l'intégrité"
+        );
+
+    if (workspace->verify_evidence_button == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    gtk_widget_set_halign(
+        workspace->verify_evidence_button,
+        GTK_ALIGN_START
+    );
+
+    gtk_widget_set_tooltip_text(
+        workspace->verify_evidence_button,
+        "Recalculer le SHA-256 et le comparer à l'empreinte enregistrée"
+    );
+
+    /*
+     * Aucun bouton actif tant qu'aucune preuve n'est affichée.
+     */
+    gtk_widget_set_sensitive(
+        workspace->verify_evidence_button,
+        FALSE
+    );
+
+    g_signal_connect(
+        workspace->verify_evidence_button,
+        "clicked",
+        G_CALLBACK(
+            workspace_on_verify_evidence_clicked
+        ),
+        workspace
+    );
+
+    gtk_box_append(
+        GTK_BOX(evidence_content),
+        workspace->verify_evidence_button
+    );
+
     evidence_separator =
         gtk_separator_new(
             GTK_ORIENTATION_HORIZONTAL
@@ -723,6 +805,19 @@ void workspace_set_selected_node(
         return;
     }
 
+    g_clear_pointer(
+        &workspace->selected_evidence_identifier,
+        g_free
+    );
+
+    if (workspace->verify_evidence_button != NULL)
+    {
+        gtk_widget_set_sensitive(
+            workspace->verify_evidence_button,
+            FALSE
+        );
+    }
+
     if (node == NULL)
     {
         workspace_show_welcome(workspace);
@@ -834,6 +929,19 @@ void workspace_set_selected_evidence(
         return;
     }
 
+    g_clear_pointer(
+        &workspace->selected_evidence_identifier,
+        g_free
+    );
+
+    if (workspace->verify_evidence_button != NULL)
+    {
+        gtk_widget_set_sensitive(
+            workspace->verify_evidence_button,
+            FALSE
+        );
+    }
+
     if (evidence_record == NULL)
     {
         workspace_show_welcome(
@@ -842,6 +950,27 @@ void workspace_set_selected_evidence(
 
         return;
     }
+
+    workspace->selected_evidence_identifier =
+        g_strdup(
+            evidence_record_get_identifier(
+                evidence_record
+            )
+        );
+
+    if (workspace->selected_evidence_identifier == NULL)
+    {
+        workspace_show_welcome(
+            workspace
+        );
+
+        return;
+    }
+
+    gtk_widget_set_sensitive(
+        workspace->verify_evidence_button,
+        TRUE
+    );
 
     size_bytes =
         evidence_record_get_size_bytes(
@@ -973,12 +1102,41 @@ void workspace_set_selected_evidence(
     );
 }
 
+void workspace_set_verify_evidence_callback(
+    Workspace *workspace,
+    WorkspaceVerifyEvidenceCallback callback,
+    gpointer user_data
+)
+{
+    if (workspace == NULL)
+    {
+        return;
+    }
+
+    workspace->verify_evidence_callback =
+        callback;
+
+    workspace->verify_evidence_user_data =
+        user_data;
+}
+
 void workspace_free(Workspace *workspace)
 {
     if (workspace == NULL)
     {
         return;
     }
+
+    workspace->verify_evidence_callback =
+        NULL;
+
+    workspace->verify_evidence_user_data =
+        NULL;
+
+    g_clear_pointer(
+        &workspace->selected_evidence_identifier,
+        g_free
+    );
 
     g_free(workspace);
 }
