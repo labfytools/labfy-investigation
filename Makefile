@@ -45,6 +45,8 @@ ENTITY_RECORD_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 ENTITY_TYPE_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 ENTITY_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 EVIDENCE_ENTITY_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
+RELATION_RECORD_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
+RELATION_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 
 SRC := $(shell find src -name "*.c")
 
@@ -90,6 +92,8 @@ TEST_ENTITY_RECORD := tests/test_entity_record
 TEST_ENTITY_TYPE_DAO := tests/test_entity_type_dao
 TEST_ENTITY_DAO := tests/test_entity_dao
 TEST_EVIDENCE_ENTITY_DAO := tests/test_evidence_entity_dao
+TEST_RELATION_RECORD := tests/test_relation_record
+TEST_RELATION_DAO := tests/test_relation_dao
 
 all: $(TARGET)
 
@@ -417,6 +421,24 @@ $(TEST_EVIDENCE_ENTITY_DAO): \
 	src/database/error.c
 	$(CC) $(EVIDENCE_ENTITY_DAO_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
+$(TEST_RELATION_RECORD): \
+	tests/test_relation_record.c \
+	src/models/relation_record.c
+	$(CC) $(RELATION_RECORD_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_RELATION_DAO): \
+	tests/test_relation_dao.c \
+	src/dao/relation_dao.c \
+	src/dao/entity_dao.c \
+	src/models/relation_record.c \
+	src/models/entity_record.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(RELATION_DAO_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -455,7 +477,9 @@ test: \
 	$(TEST_ENTITY_RECORD) \
 	$(TEST_ENTITY_TYPE_DAO) \
 	$(TEST_ENTITY_DAO) \
-	$(TEST_EVIDENCE_ENTITY_DAO)
+	$(TEST_EVIDENCE_ENTITY_DAO) \
+	$(TEST_RELATION_RECORD) \
+	$(TEST_RELATION_DAO)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -495,6 +519,8 @@ test: \
 	@$(TEST_ENTITY_TYPE_DAO)
 	@$(TEST_ENTITY_DAO)
 	@$(TEST_EVIDENCE_ENTITY_DAO)
+	@$(TEST_RELATION_RECORD)
+	@$(TEST_RELATION_DAO)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -540,6 +566,8 @@ clean:
 		$(TEST_EVIDENCE_IMPORT_DIALOG) \
 		$(TEST_EVIDENCE_INTEGRITY_TASK) \
 		$(TEST_ENTITY_DAO) \
-		$(TEST_EVIDENCE_ENTITY_DAO)
+		$(TEST_EVIDENCE_ENTITY_DAO) \
+		$(TEST_RELATION_RECORD) \
+		$(TEST_RELATION_DAO)
 
 .PHONY: clean run test
