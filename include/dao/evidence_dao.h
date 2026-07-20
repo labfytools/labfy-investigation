@@ -17,6 +17,7 @@
 typedef enum
 {
     EVIDENCE_DAO_ERROR_INVALID_ARGUMENT,
+    EVIDENCE_DAO_ERROR_NOT_FOUND,
     EVIDENCE_DAO_ERROR_MEMORY,
     EVIDENCE_DAO_ERROR_PREPARE,
     EVIDENCE_DAO_ERROR_BIND,
@@ -121,6 +122,25 @@ EvidenceRecord *evidence_dao_find_by_identifier(
  */
 GPtrArray *evidence_dao_list_all(
     EvidenceDao *evidence_dao,
+    GError **error
+);
+
+/**
+ * @brief Met à jour le statut d'intégrité d'une preuve.
+ *
+ * Seule la colonne du statut d'intégrité est modifiée.
+ *
+ * @param evidence_dao DAO valide.
+ * @param identifier Identifiant UUID de la preuve.
+ * @param integrity_status Nouveau statut d'intégrité.
+ * @param error Adresse recevant une éventuelle erreur.
+ *
+ * @return TRUE si la mise à jour réussit, sinon FALSE.
+ */
+gboolean evidence_dao_update_integrity_status(
+    EvidenceDao *evidence_dao,
+    const char *identifier,
+    EvidenceIntegrityStatus integrity_status,
     GError **error
 );
 

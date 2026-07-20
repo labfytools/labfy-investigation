@@ -149,6 +149,14 @@ static const char *const evidence_dao_list_all_sql =
     "    preuves.id ASC;";
 
 /**
+ * @brief Requête de mise à jour du statut d'intégrité.
+ */
+static const char *const evidence_dao_update_integrity_status_sql =
+    "UPDATE preuves "
+    "SET integrity_status = ? "
+    "WHERE id = ?;";
+
+/**
  * @brief Enregistre une erreur littérale.
  */
 static void evidence_dao_set_error_literal(
@@ -1189,6 +1197,151 @@ cleanup:
     );
 
     return evidence_record;
+}
+
+gboolean evidence_dao_update_integrity_status(
+    EvidenceDao *evidence_dao,
+    const char *identifier,
+    EvidenceIntegrityStatus integrity_status,
+    GError **error
+)
+{
+    DatabaseStatement *statement =
+        NULL;
+
+    gboolean identifier_exists =
+        FALSE;
+
+    gboolean success =
+        FALSE;
+
+    g_return_val_if_fail(
+        error == NULL || *error == NULL,
+        FALSE
+    );
+
+    if (evidence_dao == NULL ||
+        evidence_dao->database == NULL ||
+        identifier == NULL ||
+        !g_uuid_string_is_valid(
+            identifier
+        ))
+    {
+        evidence_dao_set_error_literal(
+            error,
+            EVIDENCE_DAO_ERROR_INVALID_ARGUMENT,
+            "Le DAO ou l'identifiant de preuve est invalide."
+        );
+
+        return FALSE;
+    }
+
+    if (integrity_status <
+            EVIDENCE_INTEGRITY_STATUS_UNKNOWN ||
+        integrity_status >
+            EVIDENCE_INTEGRITY_STATUS_ERROR)
+    {
+        evidence_dao_set_error_literal(
+            error,
+            EVIDENCE_DAO_ERROR_INVALID_ARGUMENT,
+            "Le statut d'intégrité demandé est invalide."
+        );
+
+        return FALSE;
+    }
+
+    /*
+     * Cette vérification permet de distinguer une preuve absente
+     * d'une mise à jour SQLite ayant réellement échoué.
+     */
+    if (!evidence_dao_value_exists(
+            evidence_dao,
+            evidence_dao_identifier_exists_sql,
+            identifier,
+            &identifier_exists,
+            error
+        ))
+    {
+        return FALSE;
+    }
+
+    if (!identifier_exists)
+    {
+        evidence_dao_set_error_literal(
+            error,
+            EVIDENCE_DAO_ERROR_NOT_FOUND,
+            "La preuve à mettre à jour n'existe pas."
+        );
+
+        return FALSE;
+    }
+
+    statement =
+        database_statement_prepare(
+            evidence_dao->database,
+            evidence_dao_update_integrity_status_sql
+        );
+
+    if (statement == NULL)
+    {
+        evidence_dao_set_database_error(
+            evidence_dao,
+            error,
+            EVIDENCE_DAO_ERROR_PREPARE,
+            "Impossible de préparer la mise à jour "
+            "du statut d'intégrité"
+        );
+
+        goto cleanup;
+    }
+
+    if (!database_statement_bind_int64(
+            statement,
+            1,
+            (int64_t) integrity_status
+        ) ||
+        !database_statement_bind_text(
+            statement,
+            2,
+            identifier
+        ))
+    {
+        evidence_dao_set_database_error(
+            evidence_dao,
+            error,
+            EVIDENCE_DAO_ERROR_BIND,
+            "Impossible de lier les paramètres "
+            "du statut d'intégrité"
+        );
+
+        goto cleanup;
+    }
+
+    if (database_statement_step(
+            statement
+        ) != DATABASE_STATEMENT_STEP_DONE)
+    {
+        evidence_dao_set_database_error(
+            evidence_dao,
+            error,
+            EVIDENCE_DAO_ERROR_EXECUTE,
+            "Impossible de mettre à jour "
+            "le statut d'intégrité"
+        );
+
+        goto cleanup;
+    }
+
+    success =
+        TRUE;
+
+cleanup:
+
+    database_statement_finalize(
+        statement
+    );
+
+    return success;
 }
 
 gboolean evidence_dao_count(

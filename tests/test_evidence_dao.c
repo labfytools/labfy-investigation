@@ -469,6 +469,75 @@ static TestEvidenceDaoFixture test_evidence_dao_fixture_create(void)
 }
 
 /**
+ * @brief Crée une preuve destinée aux tests de statut d'intégrité.
+ */
+static EvidenceRecord *test_evidence_dao_create_integrity_record(
+    const char *identifier,
+    EvidenceIntegrityStatus integrity_status
+)
+{
+    EvidenceRecord *evidence_record =
+        NULL;
+
+    char *internal_name =
+        NULL;
+
+    char *relative_path =
+        NULL;
+
+    GError *error =
+        NULL;
+
+    assert(identifier != NULL);
+
+    internal_name =
+        g_strdup_printf(
+            "%s.bin",
+            identifier
+        );
+
+    relative_path =
+        g_strdup_printf(
+            "01_Preuves_Originales/Documents/%s.bin",
+            identifier
+        );
+
+    assert(internal_name != NULL);
+    assert(relative_path != NULL);
+
+    evidence_record =
+        evidence_record_new(
+            identifier,
+            "preuve_integrite.bin",
+            internal_name,
+            relative_path,
+            "document",
+            128,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "2026-07-20T10:00:00Z",
+            NULL,
+            NULL,
+            NULL,
+            integrity_status,
+            &error
+        );
+
+    assert(evidence_record != NULL);
+    assert(error == NULL);
+
+    g_free(
+        relative_path
+    );
+
+    g_free(
+        internal_name
+    );
+
+    return evidence_record;
+}
+
+/**
  * @brief Détruit une fixture et ses fichiers temporaires.
  */
 static void test_evidence_dao_fixture_clear(
@@ -1743,12 +1812,314 @@ static void test_evidence_dao_list_invalid_arguments(void)
     );
 }
 
+/**
+ * @brief Vérifie la mise à jour d'une preuve vers VALID.
+ */
+static void test_evidence_dao_update_integrity_valid(void)
+{
+    TestEvidenceDaoFixture fixture =
+        test_evidence_dao_fixture_create();
+
+    EvidenceRecord *inserted_record =
+        NULL;
+
+    EvidenceRecord *loaded_record =
+        NULL;
+
+    GError *error =
+        NULL;
+
+    const char *identifier =
+        "12345678-1111-4111-8111-111111111111";
+
+    inserted_record =
+        test_evidence_dao_create_integrity_record(
+            identifier,
+            EVIDENCE_INTEGRITY_STATUS_UNKNOWN
+        );
+
+    assert(
+        evidence_dao_insert(
+            fixture.evidence_dao,
+            inserted_record,
+            &error
+        )
+    );
+
+    assert(error == NULL);
+
+    assert(
+        evidence_dao_update_integrity_status(
+            fixture.evidence_dao,
+            identifier,
+            EVIDENCE_INTEGRITY_STATUS_VALID,
+            &error
+        )
+    );
+
+    assert(error == NULL);
+
+    loaded_record =
+        evidence_dao_find_by_identifier(
+            fixture.evidence_dao,
+            identifier,
+            &error
+        );
+
+    assert(loaded_record != NULL);
+    assert(error == NULL);
+
+    assert(
+        evidence_record_get_integrity_status(
+            loaded_record
+        ) == EVIDENCE_INTEGRITY_STATUS_VALID
+    );
+
+    evidence_record_free(
+        loaded_record
+    );
+
+    evidence_record_free(
+        inserted_record
+    );
+
+    test_evidence_dao_fixture_clear(
+        &fixture
+    );
+}
+
+/**
+ * @brief Vérifie la mise à jour d'une preuve vers MODIFIED.
+ */
+static void test_evidence_dao_update_integrity_modified(void)
+{
+    TestEvidenceDaoFixture fixture =
+        test_evidence_dao_fixture_create();
+
+    EvidenceRecord *inserted_record =
+        NULL;
+
+    EvidenceRecord *loaded_record =
+        NULL;
+
+    GError *error =
+        NULL;
+
+    const char *identifier =
+        "12345678-2222-4222-8222-222222222222";
+
+    inserted_record =
+        test_evidence_dao_create_integrity_record(
+            identifier,
+            EVIDENCE_INTEGRITY_STATUS_VALID
+        );
+
+    assert(
+        evidence_dao_insert(
+            fixture.evidence_dao,
+            inserted_record,
+            &error
+        )
+    );
+
+    assert(error == NULL);
+
+    assert(
+        evidence_dao_update_integrity_status(
+            fixture.evidence_dao,
+            identifier,
+            EVIDENCE_INTEGRITY_STATUS_MODIFIED,
+            &error
+        )
+    );
+
+    assert(error == NULL);
+
+    loaded_record =
+        evidence_dao_find_by_identifier(
+            fixture.evidence_dao,
+            identifier,
+            &error
+        );
+
+    assert(loaded_record != NULL);
+    assert(error == NULL);
+
+    assert(
+        evidence_record_get_integrity_status(
+            loaded_record
+        ) == EVIDENCE_INTEGRITY_STATUS_MODIFIED
+    );
+
+    evidence_record_free(
+        loaded_record
+    );
+
+    evidence_record_free(
+        inserted_record
+    );
+
+    test_evidence_dao_fixture_clear(
+        &fixture
+    );
+}
+
+/**
+ * @brief Vérifie le signalement d'une preuve inexistante.
+ */
+static void test_evidence_dao_update_integrity_missing(void)
+{
+    TestEvidenceDaoFixture fixture =
+        test_evidence_dao_fixture_create();
+
+    GError *error =
+        NULL;
+
+    assert(
+        !evidence_dao_update_integrity_status(
+            fixture.evidence_dao,
+            "12345678-3333-4333-8333-333333333333",
+            EVIDENCE_INTEGRITY_STATUS_VALID,
+            &error
+        )
+    );
+
+    assert(error != NULL);
+    assert(error->domain == EVIDENCE_DAO_ERROR);
+
+    assert(
+        error->code ==
+        (gint) EVIDENCE_DAO_ERROR_NOT_FOUND
+    );
+
+    g_clear_error(
+        &error
+    );
+
+    test_evidence_dao_fixture_clear(
+        &fixture
+    );
+}
+
+/**
+ * @brief Vérifie le refus d'un statut hors de l'énumération.
+ */
+static void test_evidence_dao_update_integrity_invalid_status(void)
+{
+    TestEvidenceDaoFixture fixture =
+        test_evidence_dao_fixture_create();
+
+    GError *error =
+        NULL;
+
+    assert(
+        !evidence_dao_update_integrity_status(
+            fixture.evidence_dao,
+            "12345678-4444-4444-8444-444444444444",
+            (EvidenceIntegrityStatus)
+                (EVIDENCE_INTEGRITY_STATUS_ERROR + 1),
+            &error
+        )
+    );
+
+    assert(error != NULL);
+    assert(error->domain == EVIDENCE_DAO_ERROR);
+
+    assert(
+        error->code ==
+        (gint) EVIDENCE_DAO_ERROR_INVALID_ARGUMENT
+    );
+
+    g_clear_error(
+        &error
+    );
+
+    test_evidence_dao_fixture_clear(
+        &fixture
+    );
+}
+
+/**
+ * @brief Vérifie le refus des arguments invalides.
+ */
+static void test_evidence_dao_update_integrity_invalid_arguments(void)
+{
+    TestEvidenceDaoFixture fixture =
+        test_evidence_dao_fixture_create();
+
+    GError *error =
+        NULL;
+
+    assert(
+        !evidence_dao_update_integrity_status(
+            NULL,
+            "12345678-5555-4555-8555-555555555555",
+            EVIDENCE_INTEGRITY_STATUS_VALID,
+            &error
+        )
+    );
+
+    assert(error != NULL);
+
+    assert(
+        error->code ==
+        (gint) EVIDENCE_DAO_ERROR_INVALID_ARGUMENT
+    );
+
+    g_clear_error(
+        &error
+    );
+
+    assert(
+        !evidence_dao_update_integrity_status(
+            fixture.evidence_dao,
+            NULL,
+            EVIDENCE_INTEGRITY_STATUS_VALID,
+            &error
+        )
+    );
+
+    assert(error != NULL);
+
+    assert(
+        error->code ==
+        (gint) EVIDENCE_DAO_ERROR_INVALID_ARGUMENT
+    );
+
+    g_clear_error(
+        &error
+    );
+
+    assert(
+        !evidence_dao_update_integrity_status(
+            fixture.evidence_dao,
+            "identifiant-invalide",
+            EVIDENCE_INTEGRITY_STATUS_VALID,
+            &error
+        )
+    );
+
+    assert(error != NULL);
+
+    assert(
+        error->code ==
+        (gint) EVIDENCE_DAO_ERROR_INVALID_ARGUMENT
+    );
+
+    g_clear_error(
+        &error
+    );
+
+    test_evidence_dao_fixture_clear(
+        &fixture
+    );
+}
+
 int main(void)
 {
     test_evidence_dao_new_null_database();
     test_evidence_dao_new_valid();
     test_evidence_dao_free_null();
-    test_evidence_dao_insert_valid_full();
     test_evidence_dao_insert_valid_full();
     test_evidence_dao_insert_optional_null();
     test_evidence_dao_insert_duplicate_sha256();
@@ -1764,6 +2135,11 @@ int main(void)
     test_evidence_dao_list_empty();
     test_evidence_dao_list_order();
     test_evidence_dao_list_invalid_arguments();
+    test_evidence_dao_update_integrity_valid();
+    test_evidence_dao_update_integrity_modified();
+    test_evidence_dao_update_integrity_missing();
+    test_evidence_dao_update_integrity_invalid_status();
+    test_evidence_dao_update_integrity_invalid_arguments();
 
     printf(
         "EvidenceDao : tests de construction valides.\n"

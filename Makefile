@@ -37,6 +37,10 @@ EVIDENCE_IMPORT_DIALOG_TEST_CFLAGS := \
 EVIDENCE_IMPORT_DIALOG_TEST_LDFLAGS := \
 	$(shell $(PKG_CONFIG) --libs gtk4)
 
+EVIDENCE_INTEGRITY_VERIFIER_TEST_CFLAGS := \
+	$(TEST_CFLAGS) \
+	-Wpedantic
+
 SRC := $(shell find src -name "*.c")
 
 OBJ := $(SRC:.c=.o)
@@ -64,6 +68,7 @@ TEST_TOOL_TASK := tests/test_tool_task
 TEST_TOOL_CATALOG := tests/test_tool_catalog
 TEST_TOOL_INITIALIZER := tests/test_tool_initializer
 TEST_FILE_HASH := tests/test_file_hash
+TEST_EVIDENCE_INTEGRITY_VERIFIER := tests/test_evidence_integrity_verifier
 TEST_EVIDENCE_COPY := tests/test_evidence_copy
 TEST_EVIDENCE_IMPORTER := tests/test_evidence_importer
 TEST_EVIDENCE_IMPORT_TASK := tests/test_evidence_import_task
@@ -74,6 +79,7 @@ TEST_EVIDENCE_LIST_ITEM := tests/test_evidence_list_item
 TEST_EVIDENCE_LIST_MODEL := tests/test_evidence_list_model
 TEST_EVIDENCE_CATEGORY_ITEM := tests/test_evidence_category_item
 TEST_EVIDENCE_CATEGORY_MODEL := tests/test_evidence_category_model
+TEST_EVIDENCE_INTEGRITY_TASK := tests/test_evidence_integrity_task
 
 all: $(TARGET)
 
@@ -254,6 +260,13 @@ $(TEST_FILE_HASH): \
 		-DFILE_HASH_ENABLE_TEST_HOOKS \
 		$^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_EVIDENCE_INTEGRITY_VERIFIER): \
+	tests/test_evidence_integrity_verifier.c \
+	src/core/evidence_integrity_verifier.c \
+	src/core/file_hash.c
+	$(CC) $(EVIDENCE_INTEGRITY_VERIFIER_TEST_CFLAGS) \
+		$^ -o $@ $(TEST_LDFLAGS)
+
 $(TEST_EVIDENCE_COPY): \
 	tests/test_evidence_copy.c \
 	src/core/evidence_copy.c \
@@ -336,6 +349,17 @@ $(TEST_EVIDENCE_CATEGORY_MODEL): \
 	src/models/evidence_record.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_EVIDENCE_INTEGRITY_TASK): \
+	tests/test_evidence_integrity_task.c \
+	src/core/evidence_integrity_task.c \
+	src/core/evidence_integrity_verifier.c \
+	src/core/file_hash.c \
+	src/core/background_task.c \
+	src/core/task_manager.c
+	$(CC) $(TEST_CFLAGS) \
+		-DFILE_HASH_ENABLE_TEST_HOOKS \
+		$^ -o $@ $(TEST_LDFLAGS)
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -364,10 +388,12 @@ test: \
 	$(TEST_TOOL_CATALOG) \
 	$(TEST_TOOL_INITIALIZER) \
 	$(TEST_FILE_HASH) \
+	$(TEST_EVIDENCE_INTEGRITY_VERIFIER) \
 	$(TEST_EVIDENCE_COPY) \
 	$(TEST_EVIDENCE_IMPORTER) \
 	$(TEST_EVIDENCE_IMPORT_TASK) \
-	$(TEST_EVIDENCE_IMPORT_DIALOG)
+	$(TEST_EVIDENCE_IMPORT_DIALOG) \
+	$(TEST_EVIDENCE_INTEGRITY_TASK)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -396,10 +422,12 @@ test: \
 	@$(TEST_TOOL_CATALOG)
 	@$(TEST_TOOL_INITIALIZER)
 	@$(TEST_FILE_HASH)
+	@$(TEST_EVIDENCE_INTEGRITY_VERIFIER)
 	@$(TEST_EVIDENCE_COPY)
 	@$(TEST_EVIDENCE_IMPORTER)
 	@$(TEST_EVIDENCE_IMPORT_TASK)
 	@$(TEST_EVIDENCE_IMPORT_DIALOG)
+	@$(TEST_EVIDENCE_INTEGRITY_TASK)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -437,10 +465,12 @@ clean:
 		$(TEST_TOOL_CATALOG) \
 		$(TEST_TOOL_INITIALIZER) \
 		$(TEST_FILE_HASH) \
+		$(TEST_EVIDENCE_INTEGRITY_VERIFIER) \
 		$(TEST_EVIDENCE_COPY) \
 		$(TEST_EVIDENCE_IMPORTER) \
 		$(TEST_EVIDENCE_IMPORT_TASK) \
-		$(TEST_EVIDENCE_IMPORT_DIALOG)
+		$(TEST_EVIDENCE_IMPORT_DIALOG) \
+		$(TEST_EVIDENCE_INTEGRITY_TASK)
 
 
 .PHONY: clean run test
