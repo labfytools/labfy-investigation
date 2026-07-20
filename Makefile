@@ -41,6 +41,7 @@ EVIDENCE_IMPORT_DIALOG_TEST_LDFLAGS := \
 EVIDENCE_INTEGRITY_VERIFIER_TEST_CFLAGS := \
 	$(TEST_CFLAGS) \
 	-Wpedantic
+ENTITY_RECORD_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 
 SRC := $(shell find src -name "*.c")
 
@@ -82,6 +83,7 @@ TEST_EVIDENCE_LIST_MODEL := tests/test_evidence_list_model
 TEST_EVIDENCE_CATEGORY_ITEM := tests/test_evidence_category_item
 TEST_EVIDENCE_CATEGORY_MODEL := tests/test_evidence_category_model
 TEST_EVIDENCE_INTEGRITY_TASK := tests/test_evidence_integrity_task
+TEST_ENTITY_RECORD := tests/test_entity_record
 
 all: $(TARGET)
 
@@ -158,7 +160,8 @@ $(TEST_INVESTIGATION_RECORD): \
 
 $(TEST_EVIDENCE_RECORD): \
 	tests/test_evidence_record.c \
-	src/models/evidence_record.c
+	src/models/evidence_record.c \
+	src/models/entity_record.c
 	$(CC) $(EVIDENCE_RECORD_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
 $(TEST_EVIDENCE_LIST_ITEM): \
@@ -367,6 +370,11 @@ $(TEST_EVIDENCE_INTEGRITY_TASK): \
 		-DFILE_HASH_ENABLE_TEST_HOOKS \
 		$^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_ENTITY_RECORD): \
+	tests/test_entity_record.c \
+	src/models/entity_record.c
+	$(CC) $(ENTITY_RECORD_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -401,7 +409,8 @@ test: \
 	$(TEST_EVIDENCE_IMPORTER) \
 	$(TEST_EVIDENCE_IMPORT_TASK) \
 	$(TEST_EVIDENCE_IMPORT_DIALOG) \
-	$(TEST_EVIDENCE_INTEGRITY_TASK)
+	$(TEST_EVIDENCE_INTEGRITY_TASK) \
+	$(TEST_ENTITY_RECORD)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -437,6 +446,7 @@ test: \
 	@$(TEST_EVIDENCE_IMPORT_TASK)
 	@$(TEST_EVIDENCE_IMPORT_DIALOG)
 	@$(TEST_EVIDENCE_INTEGRITY_TASK)
+	@$(TEST_ENTITY_RECORD)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
