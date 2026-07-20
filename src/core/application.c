@@ -27,6 +27,9 @@
 #include "models/evidence_type.h"
 #include "widgets/evidence_list_model.h"
 #include "widgets/evidence_category_model.h"
+#include "core/evidence_integrity_task.h"
+#include "core/evidence_integrity_verifier.h"
+#include "database/database.h"
 
 #include <gtk/gtk.h>
 #include <errno.h>
@@ -88,6 +91,7 @@ struct Application
     ToolInitializer *tool_initializer;
     EvidenceListModel *evidence_list_model;
     EvidenceCategoryModel *evidence_category_model;
+    char *selected_evidence_identifier;
 };
 
 /**
@@ -111,6 +115,19 @@ typedef struct
     char *file_path;
 } ApplicationEvidenceDialogContext;
 
+/**
+ * @brief Contexte conservé jusqu'à la fin d'une vérification.
+ */
+typedef struct
+{
+    Application *application;
+
+    char *investigation_root_path;
+    char *database_path;
+
+    char *evidence_identifier;
+    char *original_name;
+} ApplicationEvidenceIntegrityContext;
 
 /**
  * @brief Libère le contexte du dialogue de métadonnées.
@@ -161,6 +178,42 @@ static void application_evidence_import_context_free(
 }
 
 /**
+ * @brief Libère le contexte d'une vérification d'intégrité.
+ */
+static void application_evidence_integrity_context_free(
+    gpointer user_data
+)
+{
+    ApplicationEvidenceIntegrityContext *context =
+        user_data;
+
+    if (context == NULL)
+    {
+        return;
+    }
+
+    g_free(
+        context->original_name
+    );
+
+    g_free(
+        context->evidence_identifier
+    );
+
+    g_free(
+        context->database_path
+    );
+
+    g_free(
+        context->investigation_root_path
+    );
+
+    g_free(
+        context
+    );
+}
+
+/**
  * @brief Vérifie que l’enquête active correspond à un chemin racine.
  */
 static gboolean application_session_matches_root(
@@ -197,6 +250,41 @@ static gboolean application_session_matches_root(
         current_root_path,
         expected_root_path
     ) == 0;
+}
+
+/**
+ * @brief Mémorise l'identifiant de la preuve actuellement affichée.
+ */
+static void application_set_selected_evidence_identifier(
+    Application *application,
+    const char *evidence_identifier
+)
+{
+    char *identifier_copy =
+        NULL;
+
+    if (application == NULL)
+    {
+        return;
+    }
+
+    if (evidence_identifier != NULL &&
+        g_uuid_string_is_valid(
+            evidence_identifier
+        ))
+    {
+        identifier_copy =
+            g_strdup(
+                evidence_identifier
+            );
+    }
+
+    g_free(
+        application->selected_evidence_identifier
+    );
+
+    application->selected_evidence_identifier =
+        identifier_copy;
 }
 
 static void application_present_error(
@@ -925,6 +1013,16 @@ static gboolean application_install_session(
     {
         return FALSE;
     }
+
+    application_set_selected_evidence_identifier(
+        application,
+        NULL
+    );
+
+    main_window_set_selected_evidence(
+        application->main_window,
+        NULL
+    );
 
     /*
      * Les nouveaux objets sont entièrement valides.
@@ -2595,8 +2693,18 @@ static void application_on_evidence_selected(
     if (evidence_identifier == NULL ||
         evidence_identifier[0] == '\0')
     {
+        application_set_selected_evidence_identifier(
+            application,
+            NULL
+        );
+
         main_window_set_selected_evidence(
             application->main_window,
+            NULL
+        );
+
+        application_set_selected_evidence_identifier(
+            application,
             NULL
         );
 
@@ -2729,6 +2837,11 @@ static void application_on_evidence_selected(
         return;
     }
 
+    application_set_selected_evidence_identifier(
+        application,
+        evidence_identifier
+    );
+
     /*
      * Workspace copie immédiatement les valeurs dans ses widgets GTK.
      */
@@ -2766,6 +2879,753 @@ static void application_on_evidence_selected(
 }
 
 /**
+ * @brief Enregistre le statut d'intégrité dans l'enquête d'origine.
+ *
+ * Une connexion indépendante est utilisée afin que la bonne base soit
+ * mise à jour même si l'utilisateur a changé d'enquête entre-temps.
+ */
+static gboolean application_persist_evidence_integrity_status(
+    const ApplicationEvidenceIntegrityContext *context,
+    EvidenceIntegrityStatus integrity_status,
+    GError **error
+)
+{
+    Database *database =
+        NULL;
+
+    EvidenceDao *evidence_dao =
+        NULL;
+
+    gboolean updated =
+        FALSE;
+
+    g_return_val_if_fail(
+        error == NULL || *error == NULL,
+        FALSE
+    );
+
+    if (context == NULL ||
+        context->database_path == NULL ||
+        context->database_path[0] == '\0' ||
+        context->evidence_identifier == NULL ||
+        !g_uuid_string_is_valid(
+            context->evidence_identifier
+        ))
+    {
+        g_set_error_literal(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_EVIDENCE,
+            "Le contexte de mise à jour de l'intégrité est invalide."
+        );
+
+        return FALSE;
+    }
+
+    database =
+        database_open(
+            context->database_path
+        );
+
+    if (database == NULL)
+    {
+        g_set_error(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_EVIDENCE,
+            "Impossible d'ouvrir la base SQLite : %s",
+            context->database_path
+        );
+
+        return FALSE;
+    }
+
+    evidence_dao =
+        evidence_dao_new(
+            database,
+            error
+        );
+
+    if (evidence_dao == NULL)
+    {
+        database_close(
+            database
+        );
+
+        return FALSE;
+    }
+
+    updated =
+        evidence_dao_update_integrity_status(
+            evidence_dao,
+            context->evidence_identifier,
+            integrity_status,
+            error
+        );
+
+    evidence_dao_free(
+        evidence_dao
+    );
+
+    database_close(
+        database
+    );
+
+    return updated;
+}
+
+/**
+ * @brief Traite la fin d'une vérification d'intégrité.
+ */
+static void application_on_evidence_integrity_completed(
+    BackgroundTask *task,
+    gpointer user_data
+)
+{
+    ApplicationEvidenceIntegrityContext *context =
+        user_data;
+
+    Application *application =
+        NULL;
+
+    const EvidenceIntegrityVerificationResult *result =
+        NULL;
+
+    EvidenceIntegrityStatus integrity_status =
+        EVIDENCE_INTEGRITY_STATUS_ERROR;
+
+    BackgroundTaskState task_state;
+
+    const char *diagnostic =
+        NULL;
+
+    const char *display_name =
+        NULL;
+
+    char *status_message =
+        NULL;
+
+    GError *error =
+        NULL;
+
+    GError *refresh_error =
+        NULL;
+
+    gboolean session_matches =
+        FALSE;
+
+    gboolean evidence_was_selected =
+        FALSE;
+
+    if (task == NULL ||
+        context == NULL)
+    {
+        return;
+    }
+
+    application =
+        context->application;
+
+    if (application == NULL)
+    {
+        return;
+    }
+
+    task_state =
+        background_task_get_state(
+            task
+        );
+
+    session_matches =
+        application_session_matches_root(
+            application,
+            context->investigation_root_path
+        );
+
+    display_name =
+        context->original_name != NULL &&
+        context->original_name[0] != '\0'
+            ? context->original_name
+            : context->evidence_identifier;
+
+    if (task_state ==
+        BACKGROUND_TASK_STATE_COMPLETED)
+    {
+        result =
+            background_task_get_result(
+                task
+            );
+
+        if (result == NULL)
+        {
+            if (session_matches)
+            {
+                application_present_error(
+                    application,
+                    "Vérification incomplète",
+                    "La tâche s'est terminée sans fournir de résultat."
+                );
+            }
+
+            return;
+        }
+
+        integrity_status =
+            evidence_integrity_verification_result_get_status(
+                result
+            );
+
+        /*
+         * UNKNOWN après une vérification complète serait incohérent.
+         */
+        if (integrity_status ==
+            EVIDENCE_INTEGRITY_STATUS_UNKNOWN)
+        {
+            integrity_status =
+                EVIDENCE_INTEGRITY_STATUS_ERROR;
+        }
+
+        diagnostic =
+            evidence_integrity_verification_result_get_diagnostic(
+                result
+            );
+
+        if (!application_persist_evidence_integrity_status(
+                context,
+                integrity_status,
+                &error
+            ))
+        {
+            g_warning(
+                "Impossible d'enregistrer le statut de la preuve '%s' : %s",
+                context->evidence_identifier,
+                error != NULL
+                    ? error->message
+                    : "erreur inconnue"
+            );
+
+            if (session_matches)
+            {
+                application_present_error(
+                    application,
+                    "Statut non enregistré",
+                    error != NULL
+                        ? error->message
+                        : "Le résultat n'a pas pu être enregistré."
+                );
+            }
+
+            g_clear_error(
+                &error
+            );
+
+            return;
+        }
+
+        if (session_matches)
+        {
+            /*
+             * La reconstruction du modèle peut provoquer temporairement
+             * une sélection vide. On mémorise donc l'état avant celle-ci.
+             */
+            evidence_was_selected =
+                g_strcmp0(
+                    application->selected_evidence_identifier,
+                    context->evidence_identifier
+                ) == 0;
+
+            if (!application_refresh_evidence_models(
+                    application,
+                    &refresh_error
+                ))
+            {
+                g_warning(
+                    "Le statut a été enregistré, mais la liste "
+                    "des preuves n'a pas été actualisée : %s",
+                    refresh_error != NULL
+                        ? refresh_error->message
+                        : "erreur inconnue"
+                );
+            }
+
+            g_clear_error(
+                &refresh_error
+            );
+
+            /*
+             * On ne force pas l'affichage d'une ancienne preuve lorsque
+             * l'utilisateur en a sélectionné une autre entre-temps.
+             */
+            if (evidence_was_selected)
+            {
+                application_on_evidence_selected(
+                    context->evidence_identifier,
+                    application
+                );
+            }
+
+            switch (integrity_status)
+            {
+                case EVIDENCE_INTEGRITY_STATUS_VALID:
+                    status_message =
+                        g_strdup_printf(
+                            "Intégrité valide : %s",
+                            display_name
+                        );
+
+                    break;
+
+                case EVIDENCE_INTEGRITY_STATUS_MODIFIED:
+                    status_message =
+                        g_strdup_printf(
+                            "Alerte d'intégrité — fichier modifié : %s",
+                            display_name
+                        );
+
+                    break;
+
+                case EVIDENCE_INTEGRITY_STATUS_MISSING:
+                    status_message =
+                        g_strdup_printf(
+                            "Preuve absente du disque : %s",
+                            display_name
+                        );
+
+                    break;
+
+                case EVIDENCE_INTEGRITY_STATUS_ERROR:
+                case EVIDENCE_INTEGRITY_STATUS_UNKNOWN:
+                default:
+                    status_message =
+                        g_strdup_printf(
+                            "Erreur de vérification : %s",
+                            display_name
+                        );
+
+                    break;
+            }
+
+            main_window_set_status(
+                application->main_window,
+                status_message
+            );
+
+            if (integrity_status ==
+                    EVIDENCE_INTEGRITY_STATUS_ERROR &&
+                diagnostic != NULL &&
+                diagnostic[0] != '\0')
+            {
+                application_present_error(
+                    application,
+                    "Vérification impossible",
+                    diagnostic
+                );
+            }
+        }
+
+        g_message(
+            "Vérification de '%s' terminée avec le statut %d.",
+            context->evidence_identifier,
+            (int) integrity_status
+        );
+
+        g_free(
+            status_message
+        );
+
+        return;
+    }
+
+    if (task_state ==
+        BACKGROUND_TASK_STATE_CANCELLED)
+    {
+        if (session_matches)
+        {
+            main_window_set_status(
+                application->main_window,
+                "Vérification d'intégrité annulée."
+            );
+        }
+
+        return;
+    }
+
+    error =
+        background_task_dup_error(
+            task
+        );
+
+    g_warning(
+        "La vérification de la preuve '%s' a échoué : %s",
+        context->evidence_identifier,
+        error != NULL
+            ? error->message
+            : "erreur inconnue"
+    );
+
+    if (session_matches)
+    {
+        application_present_error(
+            application,
+            "Vérification impossible",
+            error != NULL
+                ? error->message
+                : "La vérification n'a pas pu être exécutée."
+        );
+    }
+
+    g_clear_error(
+        &error
+    );
+}
+
+/**
+ * @brief Charge la preuve et démarre sa vérification asynchrone.
+ */
+static void application_start_evidence_integrity_verification(
+    Application *application,
+    const char *evidence_identifier
+)
+{
+    const InvestigationProject *project =
+        NULL;
+
+    Database *database =
+        NULL;
+
+    EvidenceDao *evidence_dao =
+        NULL;
+
+    EvidenceRecord *evidence_record =
+        NULL;
+
+    ApplicationEvidenceIntegrityContext *context =
+        NULL;
+
+    EvidenceIntegrityTaskRequest request =
+        {0};
+
+    BackgroundTask *task =
+        NULL;
+
+    const char *root_path =
+        NULL;
+
+    const char *database_path =
+        NULL;
+
+    const char *relative_path =
+        NULL;
+
+    const char *expected_sha256 =
+        NULL;
+
+    const char *original_name =
+        NULL;
+
+    char *status_message =
+        NULL;
+
+    GError *error =
+        NULL;
+
+    if (application == NULL ||
+        application->main_window == NULL ||
+        application->session == NULL ||
+        application->task_manager == NULL ||
+        evidence_identifier == NULL ||
+        !g_uuid_string_is_valid(
+            evidence_identifier
+        ))
+    {
+        return;
+    }
+
+    project =
+        investigation_session_get_project(
+            application->session
+        );
+
+    database =
+        investigation_session_get_database(
+            application->session
+        );
+
+    if (project == NULL ||
+        database == NULL)
+    {
+        application_present_error(
+            application,
+            "Vérification impossible",
+            "La session d'enquête est invalide."
+        );
+
+        return;
+    }
+
+    root_path =
+        investigation_project_get_root_path(
+            project
+        );
+
+    database_path =
+        investigation_project_get_database_path(
+            project
+        );
+
+    if (root_path == NULL ||
+        root_path[0] == '\0' ||
+        database_path == NULL ||
+        database_path[0] == '\0')
+    {
+        application_present_error(
+            application,
+            "Vérification impossible",
+            "Les chemins de l'enquête sont invalides."
+        );
+
+        return;
+    }
+
+    evidence_dao =
+        evidence_dao_new(
+            database,
+            &error
+        );
+
+    if (evidence_dao == NULL)
+    {
+        application_present_error(
+            application,
+            "Vérification impossible",
+            error != NULL
+                ? error->message
+                : "Impossible d'accéder aux preuves."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        return;
+    }
+
+    evidence_record =
+        evidence_dao_find_by_identifier(
+            evidence_dao,
+            evidence_identifier,
+            &error
+        );
+
+    evidence_dao_free(
+        evidence_dao
+    );
+
+    evidence_dao =
+        NULL;
+
+    if (error != NULL)
+    {
+        application_present_error(
+            application,
+            "Vérification impossible",
+            error->message
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        return;
+    }
+
+    if (evidence_record == NULL)
+    {
+        application_present_error(
+            application,
+            "Preuve introuvable",
+            "La preuve n'existe plus dans la base SQLite."
+        );
+
+        return;
+    }
+
+    relative_path =
+        evidence_record_get_relative_path(
+            evidence_record
+        );
+
+    expected_sha256 =
+        evidence_record_get_sha256(
+            evidence_record
+        );
+
+    original_name =
+        evidence_record_get_original_name(
+            evidence_record
+        );
+
+    if (relative_path == NULL ||
+        relative_path[0] == '\0' ||
+        expected_sha256 == NULL ||
+        expected_sha256[0] == '\0')
+    {
+        application_present_error(
+            application,
+            "Vérification impossible",
+            "La preuve ne contient pas les données nécessaires."
+        );
+
+        evidence_record_free(
+            evidence_record
+        );
+
+        return;
+    }
+
+    context =
+        g_try_new0(
+            ApplicationEvidenceIntegrityContext,
+            1
+        );
+
+    if (context == NULL)
+    {
+        application_present_error(
+            application,
+            "Vérification impossible",
+            "Impossible d'allouer le contexte de la tâche."
+        );
+
+        evidence_record_free(
+            evidence_record
+        );
+
+        return;
+    }
+
+    context->application =
+        application;
+
+    context->investigation_root_path =
+        g_strdup(
+            root_path
+        );
+
+    context->database_path =
+        g_strdup(
+            database_path
+        );
+
+    context->evidence_identifier =
+        g_strdup(
+            evidence_identifier
+        );
+
+    context->original_name =
+        g_strdup(
+            original_name
+        );
+
+    if (context->investigation_root_path == NULL ||
+        context->database_path == NULL ||
+        context->evidence_identifier == NULL)
+    {
+        application_evidence_integrity_context_free(
+            context
+        );
+
+        evidence_record_free(
+            evidence_record
+        );
+
+        application_present_error(
+            application,
+            "Vérification impossible",
+            "Impossible de copier les paramètres de la tâche."
+        );
+
+        return;
+    }
+
+    request.investigation_root_path =
+        root_path;
+
+    request.relative_path =
+        relative_path;
+
+    request.expected_sha256 =
+        expected_sha256;
+
+    task =
+        evidence_integrity_task_start(
+            application->task_manager,
+            &request,
+            application_on_evidence_integrity_completed,
+            context,
+            application_evidence_integrity_context_free,
+            &error
+        );
+
+    if (task == NULL)
+    {
+        /*
+         * La propriété du contexte n'a pas été transférée.
+         */
+        application_evidence_integrity_context_free(
+            context
+        );
+
+        application_present_error(
+            application,
+            "Vérification impossible",
+            error != NULL
+                ? error->message
+                : "La tâche n'a pas pu être démarrée."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        evidence_record_free(
+            evidence_record
+        );
+
+        return;
+    }
+
+    /*
+     * BackgroundTask et TaskManager possèdent désormais leurs références.
+     */
+    background_task_unref(
+        task
+    );
+
+    status_message =
+        g_strdup_printf(
+            "Vérification en cours : %s",
+            original_name != NULL &&
+            original_name[0] != '\0'
+                ? original_name
+                : evidence_identifier
+        );
+
+    main_window_set_status(
+        application->main_window,
+        status_message
+    );
+
+    g_free(
+        status_message
+    );
+
+    evidence_record_free(
+        evidence_record
+    );
+}
+
+/**
  * @brief Reçoit la demande de vérification d'une preuve.
  *
  * Cette première étape valide uniquement le relais de l'interface.
@@ -2773,6 +3633,9 @@ static void application_on_evidence_selected(
  *
  * @param evidence_identifier UUID de la preuve.
  * @param user_data Pointeur vers Application.
+ */
+/**
+ * @brief Traite la demande de vérification provenant du Workspace.
  */
 static void application_on_verify_evidence_requested(
     const char *evidence_identifier,
@@ -2782,38 +3645,9 @@ static void application_on_verify_evidence_requested(
     Application *application =
         user_data;
 
-    char *status_message =
-        NULL;
-
-    if (application == NULL ||
-        application->main_window == NULL ||
-        application->session == NULL ||
-        evidence_identifier == NULL ||
-        !g_uuid_string_is_valid(
-            evidence_identifier
-        ))
-    {
-        return;
-    }
-
-    status_message =
-        g_strdup_printf(
-            "Vérification demandée pour la preuve : %s",
-            evidence_identifier
-        );
-
-    main_window_set_status(
-        application->main_window,
-        status_message
-    );
-
-    g_message(
-        "Demande de vérification reçue pour la preuve '%s'.",
+    application_start_evidence_integrity_verification(
+        application,
         evidence_identifier
-    );
-
-    g_free(
-        status_message
     );
 }
 
@@ -3146,6 +3980,11 @@ void application_free(
             application->gtk_application
         );
     }
+
+    g_clear_pointer(
+        &application->selected_evidence_identifier,
+        g_free
+    );
 
     g_free(
         application
