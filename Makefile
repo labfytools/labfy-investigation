@@ -42,6 +42,7 @@ EVIDENCE_INTEGRITY_VERIFIER_TEST_CFLAGS := \
 	$(TEST_CFLAGS) \
 	-Wpedantic
 ENTITY_RECORD_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
+ENTITY_TYPE_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 
 SRC := $(shell find src -name "*.c")
 
@@ -84,6 +85,7 @@ TEST_EVIDENCE_CATEGORY_ITEM := tests/test_evidence_category_item
 TEST_EVIDENCE_CATEGORY_MODEL := tests/test_evidence_category_model
 TEST_EVIDENCE_INTEGRITY_TASK := tests/test_evidence_integrity_task
 TEST_ENTITY_RECORD := tests/test_entity_record
+TEST_ENTITY_TYPE_DAO := tests/test_entity_type_dao
 
 all: $(TARGET)
 
@@ -375,6 +377,17 @@ $(TEST_ENTITY_RECORD): \
 	src/models/entity_record.c
 	$(CC) $(ENTITY_RECORD_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_ENTITY_TYPE_DAO): \
+	tests/test_entity_type_dao.c \
+	src/dao/entity_type_dao.c \
+	src/models/entity_type.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(ENTITY_TYPE_DAO_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -410,7 +423,8 @@ test: \
 	$(TEST_EVIDENCE_IMPORT_TASK) \
 	$(TEST_EVIDENCE_IMPORT_DIALOG) \
 	$(TEST_EVIDENCE_INTEGRITY_TASK) \
-	$(TEST_ENTITY_RECORD)
+	$(TEST_ENTITY_RECORD) \
+	$(TEST_ENTITY_TYPE_DAO)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -447,6 +461,7 @@ test: \
 	@$(TEST_EVIDENCE_IMPORT_DIALOG)
 	@$(TEST_EVIDENCE_INTEGRITY_TASK)
 	@$(TEST_ENTITY_RECORD)
+	@$(TEST_ENTITY_TYPE_DAO)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
