@@ -368,11 +368,6 @@ MainWindow *main_window_new(
         FALSE
     );
 
-    main_window->quit_button =
-        gtk_button_new_with_label(
-            "Quitter"
-        );
-    
     gtk_box_append(
         GTK_BOX(main_window->action_bar),
         main_window->new_investigation_button
@@ -978,6 +973,22 @@ void main_window_set_selected_node(
     );
 }
 
+void main_window_set_selected_evidence(
+    MainWindow *main_window,
+    const EvidenceRecord *evidence_record
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    workspace_set_selected_evidence(
+        main_window->workspace,
+        evidence_record
+    );
+}
+
 void main_window_free(
     MainWindow *main_window
 )
@@ -1015,6 +1026,17 @@ void main_window_free(
          * encore.
          */
         sidebar_set_tree_model(
+            main_window->sidebar,
+            NULL
+        );
+
+                sidebar_set_evidence_selection_callback(
+            main_window->sidebar,
+            NULL,
+            NULL
+        );
+
+        sidebar_set_evidence_model(
             main_window->sidebar,
             NULL
         );

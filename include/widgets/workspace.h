@@ -8,6 +8,7 @@
 
 
 #include "core/investigation_node.h"
+#include "models/evidence_record.h"
 
 #include <gtk/gtk.h>
 
@@ -54,6 +55,22 @@ GtkWidget *workspace_get_widget(
 void workspace_set_selected_node(
     Workspace *workspace,
     const InvestigationNode *node
+);
+
+/**
+ * @brief Affiche la fiche détaillée d'une preuve.
+ *
+ * Les valeurs sont immédiatement copiées par les widgets GTK.
+ * Le Workspace ne conserve pas le pointeur EvidenceRecord.
+ *
+ * Passer NULL restaure la page d'accueil.
+ *
+ * @param workspace Zone de travail à mettre à jour.
+ * @param evidence_record Preuve sélectionnée, ou NULL.
+ */
+void workspace_set_selected_evidence(
+    Workspace *workspace,
+    const EvidenceRecord *evidence_record
 );
 
 /**

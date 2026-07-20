@@ -9,7 +9,8 @@
 
 #define WORKSPACE_PAGE_WELCOME "welcome"
 #define WORKSPACE_PAGE_NODE_INFORMATION "node-information"
-
+#define WORKSPACE_PAGE_EVIDENCE_INFORMATION \
+    "evidence-information"
 /**
  * @struct Workspace
  * @brief Représentation interne de la zone de travail.
@@ -25,12 +26,195 @@ struct Workspace
     GtkWidget *welcome_instruction_label;
 
     GtkWidget *node_page;
+
+    GtkWidget *evidence_page;
+    GtkWidget *evidence_name_label;
+
+    GtkWidget *evidence_type_label;
+    GtkWidget *evidence_integrity_label;
+    GtkWidget *evidence_size_label;
+    GtkWidget *evidence_imported_at_label;
+    GtkWidget *evidence_collected_at_label;
+    GtkWidget *evidence_source_label;
+    GtkWidget *evidence_description_label;
+    GtkWidget *evidence_relative_path_label;
+    GtkWidget *evidence_internal_name_label;
+    GtkWidget *evidence_identifier_label;
+    GtkWidget *evidence_sha256_label;
+
     GtkWidget *node_name_label;
     GtkWidget *node_path_label;
     GtkWidget *node_type_label;
     GtkWidget *node_parent_label;
     GtkWidget *node_children_label;
 };
+
+/**
+ * @brief Ajoute une ligne de métadonnée dans la grille.
+ *
+ * @return Label GTK destiné à recevoir la valeur.
+ */
+static GtkWidget *workspace_add_evidence_field(
+    GtkGrid *grid,
+    gint row,
+    const char *title
+)
+{
+    GtkWidget *title_label = NULL;
+    GtkWidget *value_label = NULL;
+
+    if (grid == NULL ||
+        title == NULL ||
+        title[0] == '\0')
+    {
+        return NULL;
+    }
+
+    title_label =
+        gtk_label_new(
+            title
+        );
+
+    value_label =
+        gtk_label_new(
+            NULL
+        );
+
+    if (title_label == NULL ||
+        value_label == NULL)
+    {
+        g_clear_object(
+            &value_label
+        );
+
+        g_clear_object(
+            &title_label
+        );
+
+        return NULL;
+    }
+
+    gtk_label_set_xalign(
+        GTK_LABEL(title_label),
+        0.0F
+    );
+
+    gtk_widget_set_valign(
+        title_label,
+        GTK_ALIGN_START
+    );
+
+    gtk_widget_add_css_class(
+        title_label,
+        "dim-label"
+    );
+
+    gtk_label_set_xalign(
+        GTK_LABEL(value_label),
+        0.0F
+    );
+
+    gtk_label_set_wrap(
+        GTK_LABEL(value_label),
+        TRUE
+    );
+
+    gtk_label_set_wrap_mode(
+        GTK_LABEL(value_label),
+        PANGO_WRAP_WORD_CHAR
+    );
+
+    gtk_label_set_selectable(
+        GTK_LABEL(value_label),
+        TRUE
+    );
+
+    gtk_widget_set_hexpand(
+        value_label,
+        TRUE
+    );
+
+    gtk_widget_set_halign(
+        value_label,
+        GTK_ALIGN_FILL
+    );
+
+    gtk_widget_set_valign(
+        value_label,
+        GTK_ALIGN_START
+    );
+
+    gtk_grid_attach(
+        grid,
+        title_label,
+        0,
+        row,
+        1,
+        1
+    );
+
+    gtk_grid_attach(
+        grid,
+        value_label,
+        1,
+        row,
+        1,
+        1
+    );
+
+    return value_label;
+}
+
+/**
+ * @brief Définit une valeur avec un texte de remplacement.
+ */
+static void workspace_set_field_text(
+    GtkWidget *label,
+    const char *value,
+    const char *fallback
+)
+{
+    if (label == NULL)
+    {
+        return;
+    }
+
+    gtk_label_set_text(
+        GTK_LABEL(label),
+        value != NULL && value[0] != '\0'
+            ? value
+            : fallback
+    );
+}
+
+/**
+ * @brief Convertit un statut d'intégrité en texte utilisateur.
+ */
+static const char *workspace_get_integrity_status_text(
+    EvidenceIntegrityStatus integrity_status
+)
+{
+    switch (integrity_status)
+    {
+        case EVIDENCE_INTEGRITY_STATUS_UNKNOWN:
+            return "Non vérifiée";
+
+        case EVIDENCE_INTEGRITY_STATUS_VALID:
+            return "Valide";
+
+        case EVIDENCE_INTEGRITY_STATUS_MISSING:
+            return "Fichier absent";
+
+        case EVIDENCE_INTEGRITY_STATUS_MODIFIED:
+            return "Fichier modifié";
+
+        case EVIDENCE_INTEGRITY_STATUS_ERROR:
+            return "Erreur de vérification";
+
+        default:
+            return "Statut inconnu";
+    }
+}
 
 /**
  * @brief Affiche la page d'accueil.
@@ -52,6 +236,10 @@ static void workspace_show_welcome(
 
 Workspace *workspace_new(void)
 {
+    GtkWidget *evidence_content = NULL;
+    GtkWidget *evidence_separator = NULL;
+    GtkWidget *evidence_grid = NULL;
+
     Workspace *workspace = NULL;
 
     workspace = g_new0(Workspace, 1);
@@ -233,6 +421,270 @@ Workspace *workspace_new(void)
         WORKSPACE_PAGE_NODE_INFORMATION
     );
 
+        /*
+     * Page détaillée d'une preuve.
+     */
+    workspace->evidence_page =
+        gtk_scrolled_window_new();
+
+    if (workspace->evidence_page == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    gtk_widget_set_hexpand(
+        workspace->evidence_page,
+        TRUE
+    );
+
+    gtk_widget_set_vexpand(
+        workspace->evidence_page,
+        TRUE
+    );
+
+    gtk_scrolled_window_set_policy(
+        GTK_SCROLLED_WINDOW(
+            workspace->evidence_page
+        ),
+        GTK_POLICY_AUTOMATIC,
+        GTK_POLICY_AUTOMATIC
+    );
+
+    evidence_content =
+        gtk_box_new(
+            GTK_ORIENTATION_VERTICAL,
+            16
+        );
+
+    if (evidence_content == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    gtk_widget_set_margin_start(
+        evidence_content,
+        24
+    );
+
+    gtk_widget_set_margin_end(
+        evidence_content,
+        24
+    );
+
+    gtk_widget_set_margin_top(
+        evidence_content,
+        24
+    );
+
+    gtk_widget_set_margin_bottom(
+        evidence_content,
+        24
+    );
+
+    workspace->evidence_name_label =
+        gtk_label_new(
+            NULL
+        );
+
+    if (workspace->evidence_name_label == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    gtk_label_set_xalign(
+        GTK_LABEL(
+            workspace->evidence_name_label
+        ),
+        0.0F
+    );
+
+    gtk_label_set_wrap(
+        GTK_LABEL(
+            workspace->evidence_name_label
+        ),
+        TRUE
+    );
+
+    gtk_label_set_selectable(
+        GTK_LABEL(
+            workspace->evidence_name_label
+        ),
+        TRUE
+    );
+
+    gtk_widget_add_css_class(
+        workspace->evidence_name_label,
+        "title-2"
+    );
+
+    gtk_box_append(
+        GTK_BOX(evidence_content),
+        workspace->evidence_name_label
+    );
+
+    evidence_separator =
+        gtk_separator_new(
+            GTK_ORIENTATION_HORIZONTAL
+        );
+
+    gtk_box_append(
+        GTK_BOX(evidence_content),
+        evidence_separator
+    );
+
+    evidence_grid =
+        gtk_grid_new();
+
+    if (evidence_grid == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    gtk_grid_set_column_spacing(
+        GTK_GRID(evidence_grid),
+        24
+    );
+
+    gtk_grid_set_row_spacing(
+        GTK_GRID(evidence_grid),
+        12
+    );
+
+    gtk_widget_set_hexpand(
+        evidence_grid,
+        TRUE
+    );
+
+    workspace->evidence_type_label =
+        workspace_add_evidence_field(
+            GTK_GRID(evidence_grid),
+            0,
+            "Type"
+        );
+
+    workspace->evidence_integrity_label =
+        workspace_add_evidence_field(
+            GTK_GRID(evidence_grid),
+            1,
+            "Intégrité"
+        );
+
+    workspace->evidence_size_label =
+        workspace_add_evidence_field(
+            GTK_GRID(evidence_grid),
+            2,
+            "Taille"
+        );
+
+    workspace->evidence_imported_at_label =
+        workspace_add_evidence_field(
+            GTK_GRID(evidence_grid),
+            3,
+            "Importée le"
+        );
+
+    workspace->evidence_collected_at_label =
+        workspace_add_evidence_field(
+            GTK_GRID(evidence_grid),
+            4,
+            "Collectée le"
+        );
+
+    workspace->evidence_source_label =
+        workspace_add_evidence_field(
+            GTK_GRID(evidence_grid),
+            5,
+            "Source"
+        );
+
+    workspace->evidence_description_label =
+        workspace_add_evidence_field(
+            GTK_GRID(evidence_grid),
+            6,
+            "Description"
+        );
+
+    workspace->evidence_relative_path_label =
+        workspace_add_evidence_field(
+            GTK_GRID(evidence_grid),
+            7,
+            "Chemin relatif"
+        );
+
+    workspace->evidence_internal_name_label =
+        workspace_add_evidence_field(
+            GTK_GRID(evidence_grid),
+            8,
+            "Nom interne"
+        );
+
+    workspace->evidence_identifier_label =
+        workspace_add_evidence_field(
+            GTK_GRID(evidence_grid),
+            9,
+            "Identifiant"
+        );
+
+    workspace->evidence_sha256_label =
+        workspace_add_evidence_field(
+            GTK_GRID(evidence_grid),
+            10,
+            "SHA-256"
+        );
+
+    if (workspace->evidence_type_label == NULL ||
+        workspace->evidence_integrity_label == NULL ||
+        workspace->evidence_size_label == NULL ||
+        workspace->evidence_imported_at_label == NULL ||
+        workspace->evidence_collected_at_label == NULL ||
+        workspace->evidence_source_label == NULL ||
+        workspace->evidence_description_label == NULL ||
+        workspace->evidence_relative_path_label == NULL ||
+        workspace->evidence_internal_name_label == NULL ||
+        workspace->evidence_identifier_label == NULL ||
+        workspace->evidence_sha256_label == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    gtk_box_append(
+        GTK_BOX(evidence_content),
+        evidence_grid
+    );
+
+    gtk_scrolled_window_set_child(
+        GTK_SCROLLED_WINDOW(
+            workspace->evidence_page
+        ),
+        evidence_content
+    );
+
+    gtk_stack_add_named(
+        GTK_STACK(workspace->stack),
+        workspace->evidence_page,
+        WORKSPACE_PAGE_EVIDENCE_INFORMATION
+    );
+
     workspace_show_welcome(workspace);
 
     return workspace;
@@ -365,6 +817,160 @@ void workspace_set_selected_node(
 
     g_free(children_text);
     g_free(parent_text);
+}
+
+void workspace_set_selected_evidence(
+    Workspace *workspace,
+    const EvidenceRecord *evidence_record
+)
+{
+    char *human_size = NULL;
+    char *size_text = NULL;
+
+    guint64 size_bytes = 0;
+
+    if (workspace == NULL)
+    {
+        return;
+    }
+
+    if (evidence_record == NULL)
+    {
+        workspace_show_welcome(
+            workspace
+        );
+
+        return;
+    }
+
+    size_bytes =
+        evidence_record_get_size_bytes(
+            evidence_record
+        );
+
+    human_size =
+        g_format_size_full(
+            size_bytes,
+            G_FORMAT_SIZE_IEC_UNITS
+        );
+
+    size_text =
+        g_strdup_printf(
+            "%s (%" G_GUINT64_FORMAT " octets)",
+            human_size != NULL
+                ? human_size
+                : "taille inconnue",
+            size_bytes
+        );
+
+    workspace_set_field_text(
+        workspace->evidence_name_label,
+        evidence_record_get_original_name(
+            evidence_record
+        ),
+        "(sans nom)"
+    );
+
+    workspace_set_field_text(
+        workspace->evidence_type_label,
+        evidence_record_get_type_identifier(
+            evidence_record
+        ),
+        "(type inconnu)"
+    );
+
+    workspace_set_field_text(
+        workspace->evidence_integrity_label,
+        workspace_get_integrity_status_text(
+            evidence_record_get_integrity_status(
+                evidence_record
+            )
+        ),
+        "Statut inconnu"
+    );
+
+    workspace_set_field_text(
+        workspace->evidence_size_label,
+        size_text,
+        "Taille inconnue"
+    );
+
+    workspace_set_field_text(
+        workspace->evidence_imported_at_label,
+        evidence_record_get_imported_at(
+            evidence_record
+        ),
+        "(date inconnue)"
+    );
+
+    workspace_set_field_text(
+        workspace->evidence_collected_at_label,
+        evidence_record_get_collected_at(
+            evidence_record
+        ),
+        "Non renseignée"
+    );
+
+    workspace_set_field_text(
+        workspace->evidence_source_label,
+        evidence_record_get_source(
+            evidence_record
+        ),
+        "Non renseignée"
+    );
+
+    workspace_set_field_text(
+        workspace->evidence_description_label,
+        evidence_record_get_description(
+            evidence_record
+        ),
+        "Non renseignée"
+    );
+
+    workspace_set_field_text(
+        workspace->evidence_relative_path_label,
+        evidence_record_get_relative_path(
+            evidence_record
+        ),
+        "(chemin inconnu)"
+    );
+
+    workspace_set_field_text(
+        workspace->evidence_internal_name_label,
+        evidence_record_get_internal_name(
+            evidence_record
+        ),
+        "(nom interne inconnu)"
+    );
+
+    workspace_set_field_text(
+        workspace->evidence_identifier_label,
+        evidence_record_get_identifier(
+            evidence_record
+        ),
+        "(identifiant inconnu)"
+    );
+
+    workspace_set_field_text(
+        workspace->evidence_sha256_label,
+        evidence_record_get_sha256(
+            evidence_record
+        ),
+        "(empreinte inconnue)"
+    );
+
+    gtk_stack_set_visible_child_name(
+        GTK_STACK(workspace->stack),
+        WORKSPACE_PAGE_EVIDENCE_INFORMATION
+    );
+
+    g_free(
+        size_text
+    );
+
+    g_free(
+        human_size
+    );
 }
 
 void workspace_free(Workspace *workspace)

@@ -37,12 +37,6 @@
 #define APPLICATION_ID "com.labfytools.investigation"
 
 /**
- * @brief Dossier physique recevant les documents importés.
- */
-#define APPLICATION_EVIDENCE_DIRECTORY \
-    "01_Preuves_Originales/Documents"
-
-/**
  * @brief Erreurs produites lors du chargement d'une enquête.
  */
 typedef enum
@@ -59,6 +53,12 @@ typedef enum
  */
 #define APPLICATION_OPEN_ERROR \
     application_open_error_quark()
+
+/**
+ * @brief Dossier racine contenant les preuves originales.
+ */
+#define APPLICATION_EVIDENCE_ROOT_DIRECTORY \
+    "01_Preuves_Originales"
 
 /**
  * @brief Retourne le domaine d'erreur du chargement d'une enquête.
@@ -1511,6 +1511,15 @@ static void application_on_evidence_import_completed(
 
     GError *error = NULL;
 
+    GError *evidence_refresh_error =
+        NULL;
+
+    gboolean tree_refreshed =
+        FALSE;
+
+    gboolean evidence_refreshed =
+        FALSE;
+
     if (task == NULL ||
         context == NULL)
     {
@@ -1560,56 +1569,117 @@ static void application_on_evidence_import_completed(
                 evidence_record
             );
 
-    if (application_session_matches_root(
-            application,
-            context->investigation_root_path
-        ))
-    {
-        if (application_refresh_investigation_tree(
+        /*
+         * L'utilisateur peut avoir changé d'enquête pendant
+         * l'exécution asynchrone de l'import.
+         *
+         * Dans ce cas, la preuve reste correctement importée dans
+         * l'ancienne enquête, mais l'interface actuelle ne doit pas
+         * être rafraîchie avec ses données.
+         */
+        if (application_session_matches_root(
                 application,
                 context->investigation_root_path
             ))
         {
-            status_message =
-                g_strdup_printf(
-                    "Preuve importée : %s",
-                    original_name != NULL
-                        ? original_name
-                        : "(nom indisponible)"
-                );
-        }
-        else
-        {
-            /*
-             * L’import reste valide même si le rafraîchissement visuel
-             * échoue. Le fichier et la ligne SQLite ne doivent surtout
-             * pas être présentés comme un échec.
-             */
-            status_message =
-                g_strdup_printf(
-                    "Preuve importée : %s — "
-                    "arborescence non actualisée",
-                    original_name != NULL
-                        ? original_name
-                        : "(nom indisponible)"
+            tree_refreshed =
+                application_refresh_investigation_tree(
+                    application,
+                    context->investigation_root_path
                 );
 
-            g_warning(
-                "La preuve a été importée, mais l’arborescence de '%s' "
-                "n’a pas pu être reconstruite.",
-                context->investigation_root_path
+            evidence_refreshed =
+                application_refresh_evidence_models(
+                    application,
+                    &evidence_refresh_error
+                );
+
+            if (!tree_refreshed)
+            {
+                g_warning(
+                    "La preuve a été importée, mais l'arborescence de '%s' "
+                    "n'a pas pu être reconstruite.",
+                    context->investigation_root_path
+                );
+            }
+
+            if (!evidence_refreshed)
+            {
+                g_warning(
+                    "La preuve a été importée, mais la liste des preuves "
+                    "n'a pas pu être actualisée : %s",
+                    evidence_refresh_error != NULL
+                        ? evidence_refresh_error->message
+                        : "erreur inconnue"
+                );
+            }
+
+            if (tree_refreshed &&
+                evidence_refreshed)
+            {
+                status_message =
+                    g_strdup_printf(
+                        "Preuve importée : %s",
+                        original_name != NULL &&
+                        original_name[0] != '\0'
+                            ? original_name
+                            : "(nom indisponible)"
+                    );
+            }
+            else if (!tree_refreshed &&
+                     evidence_refreshed)
+            {
+                status_message =
+                    g_strdup_printf(
+                        "Preuve importée : %s — "
+                        "arborescence non actualisée",
+                        original_name != NULL &&
+                        original_name[0] != '\0'
+                            ? original_name
+                            : "(nom indisponible)"
+                    );
+            }
+            else if (tree_refreshed &&
+                     !evidence_refreshed)
+            {
+                status_message =
+                    g_strdup_printf(
+                        "Preuve importée : %s — "
+                        "liste des preuves non actualisée",
+                        original_name != NULL &&
+                        original_name[0] != '\0'
+                            ? original_name
+                            : "(nom indisponible)"
+                    );
+            }
+            else
+            {
+                status_message =
+                    g_strdup_printf(
+                        "Preuve importée : %s — "
+                        "interface non actualisée",
+                        original_name != NULL &&
+                        original_name[0] != '\0'
+                            ? original_name
+                            : "(nom indisponible)"
+                    );
+            }
+
+            main_window_set_status(
+                application->main_window,
+                status_message
+            );
+
+            g_clear_error(
+                &evidence_refresh_error
             );
         }
 
-        main_window_set_status(
-            application->main_window,
-            status_message
-        );
-    }
         g_message(
             "Preuve importée dans '%s' : %s",
             context->investigation_root_path,
-            original_name != NULL
+            original_name != NULL &&
+            original_name[0] != '\0'
                 ? original_name
                 : "(nom indisponible)"
         );
@@ -1664,6 +1734,77 @@ static void application_on_evidence_import_completed(
 }
 
 /**
+ * @brief Retourne le dossier de stockage associé à un type de preuve.
+ *
+ * La chaîne retournée est statique et ne doit pas être libérée.
+ */
+static const char *application_get_evidence_subdirectory(
+    const char *type_identifier
+)
+{
+    if (g_strcmp0(
+            type_identifier,
+            "screenshot"
+        ) == 0)
+    {
+        return "Captures_Ecran";
+    }
+
+    if (g_strcmp0(
+            type_identifier,
+            "photo"
+        ) == 0)
+    {
+        return "Photos";
+    }
+
+    if (g_strcmp0(
+            type_identifier,
+            "video"
+        ) == 0)
+    {
+        return "Videos";
+    }
+
+    if (g_strcmp0(
+            type_identifier,
+            "email"
+        ) == 0)
+    {
+        return "Emails";
+    }
+
+    if (g_strcmp0(
+            type_identifier,
+            "audio"
+        ) == 0)
+    {
+        return "Audios";
+    }
+
+    if (g_strcmp0(
+            type_identifier,
+            "archive"
+        ) == 0)
+    {
+        return "Archives";
+    }
+
+    if (g_strcmp0(
+            type_identifier,
+            "conversation"
+        ) == 0)
+    {
+        return "Conversations";
+    }
+
+    /*
+     * Documents, textes, autres types et types inconnus.
+     */
+    return "Documents";
+}
+
+/**
  * @brief Prépare et démarre l’import asynchrone d’un fichier.
  */
 static void application_start_evidence_import(
@@ -1679,6 +1820,10 @@ static void application_start_evidence_import(
 
     const char *root_path = NULL;
     const char *database_path = NULL;
+
+    const char *evidence_subdirectory = NULL;
+
+    char *relative_directory = NULL;
 
     EvidenceImportTaskRequest request =
         {0};
@@ -1748,11 +1893,33 @@ static void application_start_evidence_import(
         return;
     }
 
+    evidence_subdirectory =
+        application_get_evidence_subdirectory(
+            type_identifier
+        );
+
+    relative_directory =
+        g_build_filename(
+            APPLICATION_EVIDENCE_ROOT_DIRECTORY,
+            evidence_subdirectory,
+            NULL
+        );
+
+    if (relative_directory == NULL)
+    {
+        application_present_error(
+            application,
+            "Import impossible",
+            "Impossible de construire le chemin relatif de la preuve."
+        );
+
+        return;
+    }
+
     destination_directory =
         g_build_filename(
             root_path,
-            "01_Preuves_Originales",
-            "Documents",
+            relative_directory,
             NULL
         );
 
@@ -1762,6 +1929,10 @@ static void application_start_evidence_import(
             application,
             "Import impossible",
             "Impossible de construire le dossier de destination."
+        );
+
+        g_free(
+            relative_directory
         );
 
         return;
@@ -1859,7 +2030,7 @@ static void application_start_evidence_import(
         destination_directory;
 
     request.relative_directory =
-        APPLICATION_EVIDENCE_DIRECTORY;
+        relative_directory;
 
     request.type_identifier =
         type_identifier;
@@ -1908,6 +2079,10 @@ static void application_start_evidence_import(
             destination_directory
         );
 
+        g_free(
+            relative_directory
+        );
+
         return;
     }
 
@@ -1951,6 +2126,10 @@ static void application_start_evidence_import(
 
     g_free(
         destination_directory
+    );
+
+    g_free(
+        relative_directory
     );
 }
 
@@ -2369,6 +2548,224 @@ static void application_on_tree_node_selected(
 }
 
 /**
+ * @brief Traite la sélection d'une preuve dans la Sidebar.
+ *
+ * L'identifiant est emprunté uniquement pendant cet appel.
+ * La preuve complète est relue depuis SQLite avant d'être transmise
+ * au Workspace.
+ *
+ * @param evidence_identifier UUID de la preuve, ou NULL.
+ * @param user_data Pointeur vers Application.
+ */
+static void application_on_evidence_selected(
+    const char *evidence_identifier,
+    gpointer user_data
+)
+{
+    Application *application =
+        user_data;
+
+    Database *database =
+        NULL;
+
+    EvidenceDao *evidence_dao =
+        NULL;
+
+    EvidenceRecord *evidence_record =
+        NULL;
+
+    const char *original_name =
+        NULL;
+
+    char *status_message =
+        NULL;
+
+    GError *error =
+        NULL;
+
+    if (application == NULL ||
+        application->main_window == NULL)
+    {
+        return;
+    }
+
+    /*
+     * Une catégorie ou une sélection vide transmet NULL.
+     */
+    if (evidence_identifier == NULL ||
+        evidence_identifier[0] == '\0')
+    {
+        main_window_set_selected_evidence(
+            application->main_window,
+            NULL
+        );
+
+        return;
+    }
+
+    if (application->session == NULL)
+    {
+        main_window_set_selected_evidence(
+            application->main_window,
+            NULL
+        );
+
+        return;
+    }
+
+    database =
+        investigation_session_get_database(
+            application->session
+        );
+
+    if (database == NULL)
+    {
+        main_window_set_selected_evidence(
+            application->main_window,
+            NULL
+        );
+
+        application_present_error(
+            application,
+            "Preuve indisponible",
+            "La session ne fournit aucune connexion SQLite."
+        );
+
+        return;
+    }
+
+    evidence_dao =
+        evidence_dao_new(
+            database,
+            &error
+        );
+
+    if (evidence_dao == NULL)
+    {
+        g_warning(
+            "Impossible de créer le DAO des preuves : %s",
+            error != NULL
+                ? error->message
+                : "erreur inconnue"
+        );
+
+        main_window_set_selected_evidence(
+            application->main_window,
+            NULL
+        );
+
+        application_present_error(
+            application,
+            "Preuve indisponible",
+            error != NULL
+                ? error->message
+                : "Impossible d'accéder aux preuves enregistrées."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        return;
+    }
+
+    evidence_record =
+        evidence_dao_find_by_identifier(
+            evidence_dao,
+            evidence_identifier,
+            &error
+        );
+
+    evidence_dao_free(
+        evidence_dao
+    );
+
+    if (error != NULL)
+    {
+        g_warning(
+            "Impossible de charger la preuve '%s' : %s",
+            evidence_identifier,
+            error->message
+        );
+
+        main_window_set_selected_evidence(
+            application->main_window,
+            NULL
+        );
+
+        application_present_error(
+            application,
+            "Preuve indisponible",
+            error->message
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        return;
+    }
+
+    /*
+     * Une preuve absente retourne NULL sans erreur.
+     */
+    if (evidence_record == NULL)
+    {
+        g_warning(
+            "La preuve '%s' n'existe plus dans la base.",
+            evidence_identifier
+        );
+
+        main_window_set_selected_evidence(
+            application->main_window,
+            NULL
+        );
+
+        main_window_set_status(
+            application->main_window,
+            "La preuve sélectionnée est introuvable."
+        );
+
+        return;
+    }
+
+    /*
+     * Workspace copie immédiatement les valeurs dans ses widgets GTK.
+     */
+    main_window_set_selected_evidence(
+        application->main_window,
+        evidence_record
+    );
+
+    original_name =
+        evidence_record_get_original_name(
+            evidence_record
+        );
+
+    status_message =
+        g_strdup_printf(
+            "Preuve sélectionnée : %s",
+            original_name != NULL &&
+            original_name[0] != '\0'
+                ? original_name
+                : "(sans nom)"
+        );
+
+    main_window_set_status(
+        application->main_window,
+        status_message
+    );
+
+    g_free(
+        status_message
+    );
+
+    evidence_record_free(
+        evidence_record
+    );
+}
+
+/**
  * @brief Ferme proprement l'application.
  *
  * @param user_data Pointeur vers Application.
@@ -2443,6 +2840,12 @@ static void application_on_activate(
     main_window_set_tree_selection_callback(
         application->main_window,
         application_on_tree_node_selected,
+        application
+    );
+
+    main_window_set_evidence_selection_callback(
+        application->main_window,
+        application_on_evidence_selected,
         application
     );
 

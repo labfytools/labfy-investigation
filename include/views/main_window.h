@@ -11,6 +11,7 @@
 #include "core/investigation_node.h"
 #include "core/task_manager.h"
 #include "widgets/evidence_category_model.h"
+#include "models/evidence_record.h"
 
 #include <gtk/gtk.h>
 
@@ -185,6 +186,19 @@ void main_window_set_evidence_selection_callback(
 void main_window_set_selected_node(
     MainWindow *main_window,
     const InvestigationNode *node
+);
+
+/**
+ * @brief Affiche la fiche de la preuve sélectionnée.
+ *
+ * MainWindow ne conserve pas le EvidenceRecord.
+ *
+ * @param main_window Fenêtre principale.
+ * @param evidence_record Preuve sélectionnée, ou NULL.
+ */
+void main_window_set_selected_evidence(
+    MainWindow *main_window,
+    const EvidenceRecord *evidence_record
 );
 
 /**
