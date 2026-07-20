@@ -216,6 +216,12 @@ static void background_task_on_completed(
     GDestroyNotify completion_data_destroy =
         NULL;
 
+    BackgroundTaskRunContext *run_context =
+        NULL;
+
+    BackgroundTask *internal_task_reference =
+        NULL;
+    
     (void) source_object;
 
     if (task == NULL ||
@@ -223,6 +229,11 @@ static void background_task_on_completed(
     {
         return;
     }
+
+    run_context =
+        g_task_get_task_data(
+            G_TASK(async_result)
+        );
 
     worker_result = g_task_propagate_pointer(
         G_TASK(async_result),
@@ -326,6 +337,26 @@ static void background_task_on_completed(
 
     g_clear_error(
         &worker_error
+    );
+
+    /*
+     * L'exécution est maintenant totalement finalisée.
+     *
+     * La référence interne doit être libérée ici, et non attendre la
+     * destruction ultérieure du GTask. Le pointeur est placé à NULL pour
+     * empêcher background_task_run_context_free() de refaire un unref.
+     */
+    if (run_context != NULL)
+    {
+        internal_task_reference =
+            run_context->task;
+
+        run_context->task =
+            NULL;
+    }
+
+    background_task_unref(
+        internal_task_reference
     );
 }
 
