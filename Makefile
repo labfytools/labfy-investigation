@@ -25,6 +25,7 @@ TEST_LDFLAGS = $(shell $(PKG_CONFIG) --libs glib-2.0 gio-2.0)
 
 EVIDENCE_RECORD_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 EVIDENCE_TYPE_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
+ENTITY_TYPE_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 EVIDENCE_TYPE_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 EVIDENCE_IMPORT_DIALOG_TEST_CFLAGS := \
 	-std=c17 \
@@ -73,6 +74,7 @@ TEST_EVIDENCE_COPY := tests/test_evidence_copy
 TEST_EVIDENCE_IMPORTER := tests/test_evidence_importer
 TEST_EVIDENCE_IMPORT_TASK := tests/test_evidence_import_task
 TEST_EVIDENCE_TYPE := tests/test_evidence_type
+TEST_ENTITY_TYPE := tests/test_entity_type
 TEST_EVIDENCE_TYPE_DAO := tests/test_evidence_type_dao
 TEST_EVIDENCE_IMPORT_DIALOG := tests/test_evidence_import_dialog
 TEST_EVIDENCE_LIST_ITEM := tests/test_evidence_list_item
@@ -315,6 +317,11 @@ $(TEST_EVIDENCE_TYPE): \
 	src/models/evidence_type.c
 	$(CC) $(EVIDENCE_TYPE_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_ENTITY_TYPE): \
+	tests/test_entity_type.c \
+	src/models/entity_type.c
+	$(CC) $(ENTITY_TYPE_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 $(TEST_EVIDENCE_TYPE_DAO): \
 	tests/test_evidence_type_dao.c \
 	src/dao/evidence_type_dao.c \
@@ -376,6 +383,7 @@ test: \
 	$(TEST_EVIDENCE_CATEGORY_ITEM) \
 	$(TEST_EVIDENCE_CATEGORY_MODEL) \
 	$(TEST_EVIDENCE_TYPE) \
+	$(TEST_ENTITY_TYPE) \
 	$(TEST_INVESTIGATION_DAO) \
 	$(TEST_EVIDENCE_DAO) \
 	$(TEST_EVIDENCE_TYPE_DAO) \
@@ -410,6 +418,7 @@ test: \
 	@$(TEST_EVIDENCE_CATEGORY_MODEL)
 	@$(TEST_EVIDENCE_RECORD)
 	@$(TEST_EVIDENCE_TYPE)
+	@$(TEST_ENTITY_TYPE)
 	@$(TEST_INVESTIGATION_DAO)
 	@$(TEST_EVIDENCE_DAO)
 	@$(TEST_EVIDENCE_TYPE_DAO)
@@ -453,6 +462,7 @@ clean:
 		$(TEST_EVIDENCE_CATEGORY_ITEM) \
 		$(TEST_EVIDENCE_CATEGORY_MODEL) \
 		$(TEST_EVIDENCE_TYPE) \
+		$(TEST_ENTITY_TYPE) \
 		$(TEST_EVIDENCE_TYPE_DAO) \
 		$(TEST_INVESTIGATION_DAO) \
 		$(TEST_EVIDENCE_DAO) \
