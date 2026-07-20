@@ -24,6 +24,18 @@ TEST_CFLAGS = -std=c17 \
 TEST_LDFLAGS = $(shell $(PKG_CONFIG) --libs glib-2.0 gio-2.0)
 
 EVIDENCE_RECORD_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
+EVIDENCE_TYPE_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
+EVIDENCE_TYPE_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
+EVIDENCE_IMPORT_DIALOG_TEST_CFLAGS := \
+	-std=c17 \
+	-Wall \
+	-Wextra \
+	-Werror \
+	-Iinclude \
+	$(shell $(PKG_CONFIG) --cflags gtk4)
+
+EVIDENCE_IMPORT_DIALOG_TEST_LDFLAGS := \
+	$(shell $(PKG_CONFIG) --libs gtk4)
 
 SRC := $(shell find src -name "*.c")
 
@@ -55,6 +67,9 @@ TEST_FILE_HASH := tests/test_file_hash
 TEST_EVIDENCE_COPY := tests/test_evidence_copy
 TEST_EVIDENCE_IMPORTER := tests/test_evidence_importer
 TEST_EVIDENCE_IMPORT_TASK := tests/test_evidence_import_task
+TEST_EVIDENCE_TYPE := tests/test_evidence_type
+TEST_EVIDENCE_TYPE_DAO := tests/test_evidence_type_dao
+TEST_EVIDENCE_IMPORT_DIALOG := tests/test_evidence_import_dialog
 
 all: $(TARGET)
 
@@ -265,6 +280,30 @@ $(TEST_EVIDENCE_IMPORT_TASK): \
 		-DEVIDENCE_IMPORTER_ENABLE_TEST_HOOKS \
 		$^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
+$(TEST_EVIDENCE_TYPE): \
+	tests/test_evidence_type.c \
+	src/models/evidence_type.c
+	$(CC) $(EVIDENCE_TYPE_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_EVIDENCE_TYPE_DAO): \
+	tests/test_evidence_type_dao.c \
+	src/dao/evidence_type_dao.c \
+	src/models/evidence_type.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(EVIDENCE_TYPE_DAO_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
+$(TEST_EVIDENCE_IMPORT_DIALOG): \
+	tests/test_evidence_import_dialog.c \
+	src/views/evidence_import_dialog.c \
+	src/models/evidence_type.c
+	$(CC) $(EVIDENCE_IMPORT_DIALOG_TEST_CFLAGS) $^ \
+		-o $@ \
+		$(EVIDENCE_IMPORT_DIALOG_TEST_LDFLAGS)
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -276,8 +315,10 @@ test: \
 	$(TEST_ERROR) \
 	$(TEST_INVESTIGATION_RECORD) \
 	$(TEST_EVIDENCE_RECORD) \
+	$(TEST_EVIDENCE_TYPE) \
 	$(TEST_INVESTIGATION_DAO) \
 	$(TEST_EVIDENCE_DAO) \
+	$(TEST_EVIDENCE_TYPE_DAO) \
 	$(TEST_INVESTIGATION_SESSION) \
 	$(TEST_BACKGROUND_TASK) \
 	$(TEST_TASK_MANAGER) \
@@ -289,7 +330,8 @@ test: \
 	$(TEST_FILE_HASH) \
 	$(TEST_EVIDENCE_COPY) \
 	$(TEST_EVIDENCE_IMPORTER) \
-	$(TEST_EVIDENCE_IMPORT_TASK)
+	$(TEST_EVIDENCE_IMPORT_TASK) \
+	$(TEST_EVIDENCE_IMPORT_DIALOG)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -301,8 +343,10 @@ test: \
 	@$(TEST_ERROR)
 	@$(TEST_INVESTIGATION_RECORD)
 	@$(TEST_EVIDENCE_RECORD)
+	@$(TEST_EVIDENCE_TYPE)
 	@$(TEST_INVESTIGATION_DAO)
 	@$(TEST_EVIDENCE_DAO)
+	@$(TEST_EVIDENCE_TYPE_DAO)
 	@$(TEST_INVESTIGATION_SESSION)
 	@$(TEST_BACKGROUND_TASK)
 	@$(TEST_TASK_MANAGER)
@@ -315,6 +359,7 @@ test: \
 	@$(TEST_EVIDENCE_COPY)
 	@$(TEST_EVIDENCE_IMPORTER)
 	@$(TEST_EVIDENCE_IMPORT_TASK)
+	@$(TEST_EVIDENCE_IMPORT_DIALOG)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -335,6 +380,8 @@ clean:
 		$(TEST_ERROR) \
 		$(TEST_INVESTIGATION_RECORD) \
 		$(TEST_EVIDENCE_RECORD) \
+		$(TEST_EVIDENCE_TYPE) \
+		$(TEST_EVIDENCE_TYPE_DAO) \
 		$(TEST_INVESTIGATION_DAO) \
 		$(TEST_EVIDENCE_DAO) \
 		$(TEST_INVESTIGATION_SESSION) \
@@ -348,7 +395,8 @@ clean:
 		$(TEST_FILE_HASH) \
 		$(TEST_EVIDENCE_COPY) \
 		$(TEST_EVIDENCE_IMPORTER) \
-		$(TEST_EVIDENCE_IMPORT_TASK)
+		$(TEST_EVIDENCE_IMPORT_TASK) \
+		$(TEST_EVIDENCE_IMPORT_DIALOG)
 
 
 .PHONY: clean run test

@@ -21,6 +21,8 @@
 #include "views/file_dialog.h"
 #include "core/evidence_import_task.h"
 #include "models/evidence_record.h"
+#include "dao/evidence_type_dao.h"
+#include "views/evidence_import_dialog.h"
 
 #include <gtk/gtk.h>
 #include <errno.h>
@@ -35,12 +37,6 @@
  */
 #define APPLICATION_EVIDENCE_DIRECTORY \
     "01_Preuves_Originales/Documents"
-
-/**
- * @brief Type utilisé avant l’ajout du formulaire de métadonnées.
- */
-#define APPLICATION_DEFAULT_EVIDENCE_TYPE \
-    "document"
 
 /**
  * @brief Erreurs produites lors du chargement d'une enquête.
@@ -95,6 +91,43 @@ typedef struct
     Application *application;
     char *investigation_root_path;
 } ApplicationEvidenceImportContext;
+
+/**
+ * @brief Contexte conservé pendant le dialogue de métadonnées.
+ *
+ * Le chemin fourni par FileDialog n'est valide que pendant son callback.
+ * Il doit donc être copié avant l'ouverture du second dialogue.
+ */
+typedef struct
+{
+    Application *application;
+    char *file_path;
+} ApplicationEvidenceDialogContext;
+
+
+/**
+ * @brief Libère le contexte du dialogue de métadonnées.
+ */
+static void application_evidence_dialog_context_free(
+    gpointer user_data
+)
+{
+    ApplicationEvidenceDialogContext *context =
+        user_data;
+
+    if (context == NULL)
+    {
+        return;
+    }
+
+    g_free(
+        context->file_path
+    );
+
+    g_free(
+        context
+    );
+}
 
 /**
  * @brief Libère le contexte d’un import asynchrone.
@@ -1115,7 +1148,11 @@ static void application_on_evidence_import_completed(
  */
 static void application_start_evidence_import(
     Application *application,
-    const char *file_path
+    const char *file_path,
+    const char *type_identifier,
+    const char *collected_at,
+    const char *source,
+    const char *description
 )
 {
     const InvestigationProject *project = NULL;
@@ -1142,7 +1179,11 @@ static void application_start_evidence_import(
         application->session == NULL ||
         application->task_manager == NULL ||
         file_path == NULL ||
-        file_path[0] == '\0')
+        file_path[0] == '\0' ||
+        type_identifier == NULL ||
+        type_identifier[0] == '\0' ||
+        collected_at == NULL ||
+        collected_at[0] == '\0')
     {
         return;
     }
@@ -1301,11 +1342,16 @@ static void application_start_evidence_import(
         APPLICATION_EVIDENCE_DIRECTORY;
 
     request.type_identifier =
-        APPLICATION_DEFAULT_EVIDENCE_TYPE;
+        type_identifier;
 
-    request.collected_at = NULL;
-    request.source = NULL;
-    request.description = NULL;
+    request.collected_at =
+        collected_at;
+
+    request.source =
+        source;
+
+    request.description =
+        description;
 
     task =
         evidence_import_task_start(
@@ -1389,6 +1435,91 @@ static void application_start_evidence_import(
 }
 
 /**
+ * @brief Traite la validation ou l'annulation des métadonnées.
+ *
+ * @param result Résultat possédé par ce callback, ou NULL.
+ * @param user_data Contexte ApplicationEvidenceDialogContext.
+ */
+static void application_on_evidence_metadata_completed(
+    EvidenceImportDialogResult *result,
+    gpointer user_data
+)
+{
+    ApplicationEvidenceDialogContext *context =
+        user_data;
+
+    Application *application = NULL;
+
+    if (context == NULL)
+    {
+        evidence_import_dialog_result_free(
+            result
+        );
+
+        return;
+    }
+
+    application =
+        context->application;
+
+    if (application == NULL ||
+        application->main_window == NULL)
+    {
+        evidence_import_dialog_result_free(
+            result
+        );
+
+        application_evidence_dialog_context_free(
+            context
+        );
+
+        return;
+    }
+
+    /*
+     * Une annulation du dialogue ne doit lancer aucune tâche.
+     */
+    if (result == NULL)
+    {
+        main_window_set_status(
+            application->main_window,
+            "Import de preuve annulé."
+        );
+
+        application_evidence_dialog_context_free(
+            context
+        );
+
+        return;
+    }
+
+    application_start_evidence_import(
+        application,
+        context->file_path,
+        evidence_import_dialog_result_get_type_identifier(
+            result
+        ),
+        evidence_import_dialog_result_get_collected_at(
+            result
+        ),
+        evidence_import_dialog_result_get_source(
+            result
+        ),
+        evidence_import_dialog_result_get_description(
+            result
+        )
+    );
+
+    evidence_import_dialog_result_free(
+        result
+    );
+
+    application_evidence_dialog_context_free(
+        context
+    );
+}
+
+/**
  * @brief Traite le fichier de preuve sélectionné.
  *
  * @param file_path Chemin local sélectionné, ou NULL.
@@ -1452,9 +1583,174 @@ static void application_on_evidence_file_selected(
         return;
     }
     
-    application_start_evidence_import(
-        application,
-        file_path
+    Database *database = NULL;
+    EvidenceTypeDao *evidence_type_dao = NULL;
+    GPtrArray *evidence_types = NULL;
+
+    ApplicationEvidenceDialogContext *dialog_context =
+        NULL;
+
+    GError *dialog_error = NULL;
+
+    database =
+        investigation_session_get_database(
+            application->session
+        );
+
+    if (database == NULL)
+    {
+        application_present_error(
+            application,
+            "Import impossible",
+            "La session ne fournit aucune connexion SQLite."
+        );
+
+        return;
+    }
+
+    evidence_type_dao =
+        evidence_type_dao_new(
+            database,
+            &dialog_error
+        );
+
+    if (evidence_type_dao == NULL)
+    {
+        application_present_error(
+            application,
+            "Types de preuve indisponibles",
+            dialog_error != NULL
+            ? dialog_error->message
+            : "Impossible de créer le DAO des types de preuve."
+        );
+
+        g_clear_error(
+            &dialog_error
+        );
+
+        return;
+    }
+
+    evidence_types =
+        evidence_type_dao_list_all(
+            evidence_type_dao,
+            &dialog_error
+        );
+
+    evidence_type_dao_free(
+        evidence_type_dao
+    );
+
+    if (evidence_types == NULL)
+    {
+        application_present_error(
+            application,
+            "Types de preuve indisponibles",
+            dialog_error != NULL
+            ? dialog_error->message
+            : "Impossible de lire les types de preuve."
+        );
+
+        g_clear_error(
+            &dialog_error
+        );
+
+        return;
+    }
+
+    if (evidence_types->len == 0)
+    {
+        application_present_error(
+            application,
+            "Types de preuve indisponibles",
+            "Aucun type de preuve n'est enregistré dans la base."
+        );
+
+        g_ptr_array_unref(
+            evidence_types
+        );
+
+        return;
+    }
+
+    dialog_context =
+        g_try_new0(
+            ApplicationEvidenceDialogContext,
+            1
+        );
+
+    if (dialog_context == NULL)
+    {
+        application_present_error(
+            application,
+            "Import impossible",
+            "Impossible d'allouer le contexte du dialogue."
+        );
+
+        g_ptr_array_unref(
+            evidence_types
+        );
+
+        return;
+    }
+
+    dialog_context->application =
+        application;
+
+    dialog_context->file_path =
+        g_strdup(
+            file_path
+        );
+
+    if (dialog_context->file_path == NULL)
+    {
+        application_present_error(
+            application,
+            "Import impossible",
+            "Impossible de conserver le chemin du fichier."
+        );
+
+        application_evidence_dialog_context_free(
+            dialog_context
+        );
+
+        g_ptr_array_unref(
+            evidence_types
+        );
+
+        return;
+    }
+
+    if (!evidence_import_dialog_present(
+        main_window_get_window(
+            application->main_window
+        ),
+        dialog_context->file_path,
+        evidence_types,
+        application_on_evidence_metadata_completed,
+        dialog_context,
+        &dialog_error
+    ))
+    {
+        application_present_error(
+            application,
+            "Dialogue d'import impossible",
+            dialog_error != NULL
+            ? dialog_error->message
+            : "Le dialogue de métadonnées n'a pas pu être ouvert."
+        );
+
+        g_clear_error(
+            &dialog_error
+        );
+
+        application_evidence_dialog_context_free(
+            dialog_context
+        );
+    }
+
+    g_ptr_array_unref(
+        evidence_types
     );
 }
 

@@ -1,6 +1,12 @@
 # Build
-enquete-gui
+labfy-investigation
 *.o
+
+# Executables de tests
+/tests/test_*
+
+# Conserver les sources des tests
+!/tests/test_*.c
 
 # SQLite temporaires
 *.sqlite-shm
