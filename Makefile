@@ -70,6 +70,10 @@ TEST_EVIDENCE_IMPORT_TASK := tests/test_evidence_import_task
 TEST_EVIDENCE_TYPE := tests/test_evidence_type
 TEST_EVIDENCE_TYPE_DAO := tests/test_evidence_type_dao
 TEST_EVIDENCE_IMPORT_DIALOG := tests/test_evidence_import_dialog
+TEST_EVIDENCE_LIST_ITEM := tests/test_evidence_list_item
+TEST_EVIDENCE_LIST_MODEL := tests/test_evidence_list_model
+TEST_EVIDENCE_CATEGORY_ITEM := tests/test_evidence_category_item
+TEST_EVIDENCE_CATEGORY_MODEL := tests/test_evidence_category_model
 
 all: $(TARGET)
 
@@ -148,6 +152,19 @@ $(TEST_EVIDENCE_RECORD): \
 	tests/test_evidence_record.c \
 	src/models/evidence_record.c
 	$(CC) $(EVIDENCE_RECORD_TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_EVIDENCE_LIST_ITEM): \
+	tests/test_evidence_list_item.c \
+	src/widgets/evidence_list_item.c \
+	src/models/evidence_record.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_EVIDENCE_LIST_MODEL): \
+	tests/test_evidence_list_model.c \
+	src/widgets/evidence_list_model.c \
+	src/widgets/evidence_list_item.c \
+	src/models/evidence_record.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
 $(TEST_INVESTIGATION_DAO): \
 	tests/test_investigation_dao.c \
@@ -304,6 +321,21 @@ $(TEST_EVIDENCE_IMPORT_DIALOG): \
 		-o $@ \
 		$(EVIDENCE_IMPORT_DIALOG_TEST_LDFLAGS)
 
+$(TEST_EVIDENCE_CATEGORY_ITEM): \
+	tests/test_evidence_category_item.c \
+	src/widgets/evidence_category_item.c \
+	src/widgets/evidence_list_item.c \
+	src/models/evidence_record.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_EVIDENCE_CATEGORY_MODEL): \
+	tests/test_evidence_category_model.c \
+	src/widgets/evidence_category_model.c \
+	src/widgets/evidence_category_item.c \
+	src/widgets/evidence_list_item.c \
+	src/models/evidence_record.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -315,6 +347,10 @@ test: \
 	$(TEST_ERROR) \
 	$(TEST_INVESTIGATION_RECORD) \
 	$(TEST_EVIDENCE_RECORD) \
+	$(TEST_EVIDENCE_LIST_ITEM) \
+	$(TEST_EVIDENCE_LIST_MODEL) \
+	$(TEST_EVIDENCE_CATEGORY_ITEM) \
+	$(TEST_EVIDENCE_CATEGORY_MODEL) \
 	$(TEST_EVIDENCE_TYPE) \
 	$(TEST_INVESTIGATION_DAO) \
 	$(TEST_EVIDENCE_DAO) \
@@ -342,6 +378,10 @@ test: \
 	@$(TEST_TRANSACTION)
 	@$(TEST_ERROR)
 	@$(TEST_INVESTIGATION_RECORD)
+	@$(TEST_EVIDENCE_LIST_ITEM)
+	@$(TEST_EVIDENCE_LIST_MODEL)
+	@$(TEST_EVIDENCE_CATEGORY_ITEM)
+	@$(TEST_EVIDENCE_CATEGORY_MODEL)
 	@$(TEST_EVIDENCE_RECORD)
 	@$(TEST_EVIDENCE_TYPE)
 	@$(TEST_INVESTIGATION_DAO)
@@ -380,6 +420,10 @@ clean:
 		$(TEST_ERROR) \
 		$(TEST_INVESTIGATION_RECORD) \
 		$(TEST_EVIDENCE_RECORD) \
+		$(TEST_EVIDENCE_LIST_ITEM) \
+		$(TEST_EVIDENCE_LIST_MODEL) \
+		$(TEST_EVIDENCE_CATEGORY_ITEM) \
+		$(TEST_EVIDENCE_CATEGORY_MODEL) \
 		$(TEST_EVIDENCE_TYPE) \
 		$(TEST_EVIDENCE_TYPE_DAO) \
 		$(TEST_INVESTIGATION_DAO) \

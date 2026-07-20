@@ -10,6 +10,7 @@
 #include "widgets/investigation_tree_view.h"
 #include "core/investigation_node.h"
 #include "core/task_manager.h"
+#include "widgets/evidence_category_model.h"
 
 #include <gtk/gtk.h>
 
@@ -34,6 +35,20 @@ typedef void (*MainWindowNewInvestigationCallback)(
  * @param user_data Données utilisateur associées au callback.
  */
 typedef void (*MainWindowImportEvidenceCallback)(
+    gpointer user_data
+);
+
+/**
+ * @brief Callback appelé lorsqu'une preuve est sélectionnée.
+ *
+ * L'identifiant est emprunté et uniquement valide pendant l'appel.
+ * Une sélection vide ou une catégorie transmet NULL.
+ *
+ * @param evidence_identifier UUID de la preuve, ou NULL.
+ * @param user_data Données privées fournies par l'appelant.
+ */
+typedef void (*MainWindowEvidenceSelectionCallback)(
+    const char *evidence_identifier,
     gpointer user_data
 );
 
@@ -101,6 +116,22 @@ void main_window_set_tree_model(
 );
 
 /**
+ * @brief Transmet le modèle des catégories de preuves à la Sidebar.
+ *
+ * MainWindow ne devient pas propriétaire du modèle.
+ * Le modèle doit rester valide pendant son affichage.
+ *
+ * Passer NULL vide l'onglet Preuves.
+ *
+ * @param main_window Fenêtre principale.
+ * @param evidence_category_model Modèle de catégories, ou NULL.
+ */
+void main_window_set_evidence_model(
+    MainWindow *main_window,
+    EvidenceCategoryModel *evidence_category_model
+);
+
+/**
  * @brief Met à jour l'identité de l'enquête affichée.
  *
  * La fonction met à jour :
@@ -125,6 +156,21 @@ void main_window_set_investigation(
 void main_window_set_tree_selection_callback(
     MainWindow *main_window,
     InvestigationTreeViewSelectionCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de sélection d'une preuve.
+ *
+ * MainWindow transmet uniquement le callback à la Sidebar.
+ *
+ * @param main_window Fenêtre principale.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void main_window_set_evidence_selection_callback(
+    MainWindow *main_window,
+    MainWindowEvidenceSelectionCallback callback,
     gpointer user_data
 );
 

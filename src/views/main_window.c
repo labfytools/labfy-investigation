@@ -14,7 +14,7 @@
 /**
  * @brief Largeur initiale de la fenêtre principale.
  */
-#define MAIN_WINDOW_DEFAULT_WIDTH 1000
+#define MAIN_WINDOW_DEFAULT_WIDTH 1100
 
 /**
  * @brief Hauteur initiale de la fenêtre principale.
@@ -24,7 +24,7 @@
 /**
  * @brief Position initiale de la séparation horizontale.
  */
-#define MAIN_WINDOW_SIDEBAR_POSITION 250
+#define MAIN_WINDOW_SIDEBAR_POSITION 320
 
 /**
  * @brief Position initiale de la séparation verticale.
@@ -716,6 +716,22 @@ void main_window_set_tree_model(
     );
 }
 
+void main_window_set_evidence_model(
+    MainWindow *main_window,
+    EvidenceCategoryModel *evidence_category_model
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    sidebar_set_evidence_model(
+        main_window->sidebar,
+        evidence_category_model
+    );
+}
+
 void main_window_set_investigation(
     MainWindow *main_window,
     const char *investigation_name,
@@ -842,6 +858,24 @@ void main_window_set_tree_selection_callback(
     }
 
     sidebar_set_selection_callback(
+        main_window->sidebar,
+        callback,
+        user_data
+    );
+}
+
+void main_window_set_evidence_selection_callback(
+    MainWindow *main_window,
+    MainWindowEvidenceSelectionCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    sidebar_set_evidence_selection_callback(
         main_window->sidebar,
         callback,
         user_data

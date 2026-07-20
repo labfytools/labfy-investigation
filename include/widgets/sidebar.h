@@ -8,6 +8,7 @@
 
 #include "core/investigation_tree_model.h"
 #include "widgets/investigation_tree_view.h"
+#include "widgets/evidence_category_model.h"
 
 #include <gtk/gtk.h>
 
@@ -18,6 +19,20 @@
  * Les autres modules manipulent uniquement un pointeur vers Sidebar.
  */
 typedef struct Sidebar Sidebar;
+
+/**
+ * @brief Callback appelé lorsqu'une preuve est sélectionnée.
+ *
+ * L'identifiant est emprunté et uniquement valide pendant l'appel.
+ * Une sélection vide ou une catégorie transmet NULL.
+ *
+ * @param evidence_identifier UUID de la preuve, ou NULL.
+ * @param user_data Données privées fournies par l'appelant.
+ */
+typedef void (*SidebarEvidenceSelectionCallback)(
+    const char *evidence_identifier,
+    gpointer user_data
+);
 
 /**
  * @brief Crée un nouveau panneau de navigation latéral.
@@ -68,6 +83,33 @@ void sidebar_set_tree_model(
 void sidebar_set_selection_callback(
     Sidebar *sidebar,
     InvestigationTreeViewSelectionCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Installe le modèle des catégories de preuves.
+ *
+ * La Sidebar ne devient pas propriétaire du modèle.
+ * Passer NULL rétablit l'état vide.
+ *
+ * @param sidebar Barre latérale à actualiser.
+ * @param evidence_category_model Modèle de catégories, ou NULL.
+ */
+void sidebar_set_evidence_model(
+    Sidebar *sidebar,
+    EvidenceCategoryModel *evidence_category_model
+);
+
+/**
+ * @brief Définit le callback de sélection d'une preuve.
+ *
+ * @param sidebar Barre latérale à configurer.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void sidebar_set_evidence_selection_callback(
+    Sidebar *sidebar,
+    SidebarEvidenceSelectionCallback callback,
     gpointer user_data
 );
 

@@ -23,6 +23,10 @@
 #include "models/evidence_record.h"
 #include "dao/evidence_type_dao.h"
 #include "views/evidence_import_dialog.h"
+#include "dao/evidence_dao.h"
+#include "models/evidence_type.h"
+#include "widgets/evidence_list_model.h"
+#include "widgets/evidence_category_model.h"
 
 #include <gtk/gtk.h>
 #include <errno.h>
@@ -46,7 +50,8 @@ typedef enum
     APPLICATION_OPEN_ERROR_INVALID_ARGUMENT,
     APPLICATION_OPEN_ERROR_INVALID_PROJECT,
     APPLICATION_OPEN_ERROR_TREE_BUILD,
-    APPLICATION_OPEN_ERROR_INSTALL
+    APPLICATION_OPEN_ERROR_INSTALL,
+    APPLICATION_OPEN_ERROR_EVIDENCE
 } ApplicationOpenError;
 
 /**
@@ -81,10 +86,12 @@ struct Application
     InvestigationTreeModel *tree_model;
     TaskManager *task_manager;
     ToolInitializer *tool_initializer;
+    EvidenceListModel *evidence_list_model;
+    EvidenceCategoryModel *evidence_category_model;
 };
 
 /**
- * @brief Contexte conservé jusqu’à la fin d’un import.
+ * @brief Contexte ApplicationOpenErrorconservé jusqu’à la fin d’un import.
  */
 typedef struct
 {
@@ -391,6 +398,469 @@ static void application_present_error(
 );
 
 /**
+ * @brief Charge les preuves de la session et construit leurs modèles GTK.
+ *
+ * Les nouveaux modèles sont entièrement préparés avant de remplacer
+ * ceux actuellement affichés.
+ *
+ * En cas d'échec, les anciens modèles restent la propriété de
+ * l'application et ne sont pas modifiés.
+ */
+static gboolean application_refresh_evidence_models(
+    Application *application,
+    GError **error
+)
+{
+    Database *database = NULL;
+
+    EvidenceDao *evidence_dao = NULL;
+    EvidenceTypeDao *evidence_type_dao = NULL;
+
+    GPtrArray *evidence_records = NULL;
+    GPtrArray *evidence_types = NULL;
+
+    GHashTable *type_labels = NULL;
+
+    EvidenceListModel *new_evidence_list_model =
+        NULL;
+
+    EvidenceCategoryModel *new_evidence_category_model =
+        NULL;
+
+    GError *local_error = NULL;
+
+    guint type_index = 0;
+
+    gboolean refreshed = FALSE;
+
+    g_return_val_if_fail(
+        error == NULL || *error == NULL,
+        FALSE
+    );
+
+    if (application == NULL ||
+        application->main_window == NULL ||
+        application->session == NULL)
+    {
+        g_set_error_literal(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_EVIDENCE,
+            "L'application ou la session d'enquête est invalide."
+        );
+
+        return FALSE;
+    }
+
+    database =
+        investigation_session_get_database(
+            application->session
+        );
+
+    if (database == NULL)
+    {
+        g_set_error_literal(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_EVIDENCE,
+            "La session ne fournit aucune connexion SQLite."
+        );
+
+        return FALSE;
+    }
+
+    evidence_dao =
+        evidence_dao_new(
+            database,
+            &local_error
+        );
+
+    if (evidence_dao == NULL)
+    {
+        if (local_error != NULL)
+        {
+            if (error != NULL)
+            {
+                g_propagate_prefixed_error(
+                    error,
+                    local_error,
+                    "Impossible de créer le DAO des preuves : "
+                );
+
+                local_error = NULL;
+            }
+            else
+            {
+                g_clear_error(
+                    &local_error
+                );
+            }
+        }
+        else
+        {
+            g_set_error_literal(
+                error,
+                APPLICATION_OPEN_ERROR,
+                APPLICATION_OPEN_ERROR_EVIDENCE,
+                "Impossible de créer le DAO des preuves."
+            );
+        }
+
+        goto cleanup;
+    }
+
+    evidence_records =
+        evidence_dao_list_all(
+            evidence_dao,
+            &local_error
+        );
+
+    if (evidence_records == NULL)
+    {
+        if (local_error != NULL)
+        {
+            if (error != NULL)
+            {
+                g_propagate_prefixed_error(
+                    error,
+                    local_error,
+                    "Impossible de charger les preuves : "
+                );
+
+                local_error = NULL;
+            }
+            else
+            {
+                g_clear_error(
+                    &local_error
+                );
+            }
+        }
+        else
+        {
+            g_set_error_literal(
+                error,
+                APPLICATION_OPEN_ERROR,
+                APPLICATION_OPEN_ERROR_EVIDENCE,
+                "Impossible de charger les preuves."
+            );
+        }
+
+        goto cleanup;
+    }
+
+    evidence_type_dao =
+        evidence_type_dao_new(
+            database,
+            &local_error
+        );
+
+    if (evidence_type_dao == NULL)
+    {
+        if (local_error != NULL)
+        {
+            if (error != NULL)
+            {
+                g_propagate_prefixed_error(
+                    error,
+                    local_error,
+                    "Impossible de créer le DAO des types de preuve : "
+                );
+
+                local_error = NULL;
+            }
+            else
+            {
+                g_clear_error(
+                    &local_error
+                );
+            }
+        }
+        else
+        {
+            g_set_error_literal(
+                error,
+                APPLICATION_OPEN_ERROR,
+                APPLICATION_OPEN_ERROR_EVIDENCE,
+                "Impossible de créer le DAO des types de preuve."
+            );
+        }
+
+        goto cleanup;
+    }
+
+    evidence_types =
+        evidence_type_dao_list_all(
+            evidence_type_dao,
+            &local_error
+        );
+
+    if (evidence_types == NULL)
+    {
+        if (local_error != NULL)
+        {
+            if (error != NULL)
+            {
+                g_propagate_prefixed_error(
+                    error,
+                    local_error,
+                    "Impossible de charger les types de preuve : "
+                );
+
+                local_error = NULL;
+            }
+            else
+            {
+                g_clear_error(
+                    &local_error
+                );
+            }
+        }
+        else
+        {
+            g_set_error_literal(
+                error,
+                APPLICATION_OPEN_ERROR,
+                APPLICATION_OPEN_ERROR_EVIDENCE,
+                "Impossible de charger les types de preuve."
+            );
+        }
+
+        goto cleanup;
+    }
+
+    type_labels =
+        g_hash_table_new_full(
+            g_str_hash,
+            g_str_equal,
+            g_free,
+            g_free
+        );
+
+    if (type_labels == NULL)
+    {
+        g_set_error_literal(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_EVIDENCE,
+            "Impossible d'allouer la table des libellés."
+        );
+
+        goto cleanup;
+    }
+
+    for (type_index = 0;
+         type_index < evidence_types->len;
+         type_index++)
+    {
+        const EvidenceType *evidence_type =
+            NULL;
+
+        const char *type_code = NULL;
+        const char *type_label = NULL;
+
+        evidence_type =
+            g_ptr_array_index(
+                evidence_types,
+                type_index
+            );
+
+        if (evidence_type == NULL)
+        {
+            continue;
+        }
+
+        type_code =
+            evidence_type_get_code(
+                evidence_type
+            );
+
+        type_label =
+            evidence_type_get_label(
+                evidence_type
+            );
+
+        if (type_code == NULL ||
+            type_code[0] == '\0' ||
+            type_label == NULL ||
+            type_label[0] == '\0')
+        {
+            continue;
+        }
+
+        g_hash_table_replace(
+            type_labels,
+            g_strdup(
+                type_code
+            ),
+            g_strdup(
+                type_label
+            )
+        );
+    }
+
+    new_evidence_list_model =
+        evidence_list_model_new();
+
+    new_evidence_category_model =
+        evidence_category_model_new();
+
+    if (new_evidence_list_model == NULL ||
+        new_evidence_category_model == NULL)
+    {
+        g_set_error_literal(
+            error,
+            APPLICATION_OPEN_ERROR,
+            APPLICATION_OPEN_ERROR_EVIDENCE,
+            "Impossible d'allouer les modèles d'affichage des preuves."
+        );
+
+        goto cleanup;
+    }
+
+    if (!evidence_list_model_replace(
+            new_evidence_list_model,
+            evidence_records,
+            &local_error
+        ))
+    {
+        if (local_error != NULL)
+        {
+            if (error != NULL)
+            {
+                g_propagate_prefixed_error(
+                    error,
+                    local_error,
+                    "Impossible de préparer la liste des preuves : "
+                );
+
+                local_error = NULL;
+            }
+            else
+            {
+                g_clear_error(
+                    &local_error
+                );
+            }
+        }
+
+        goto cleanup;
+    }
+
+    if (!evidence_category_model_replace(
+            new_evidence_category_model,
+            evidence_list_model_get_list_model(
+                new_evidence_list_model
+            ),
+            type_labels,
+            &local_error
+        ))
+    {
+        if (local_error != NULL)
+        {
+            if (error != NULL)
+            {
+                g_propagate_prefixed_error(
+                    error,
+                    local_error,
+                    "Impossible de regrouper les preuves : "
+                );
+
+                local_error = NULL;
+            }
+            else
+            {
+                g_clear_error(
+                    &local_error
+                );
+            }
+        }
+
+        goto cleanup;
+    }
+
+    /*
+     * La vue doit être détachée avant la libération de son ancien modèle.
+     */
+    main_window_set_evidence_model(
+        application->main_window,
+        NULL
+    );
+
+    evidence_category_model_free(
+        application->evidence_category_model
+    );
+
+    evidence_list_model_free(
+        application->evidence_list_model
+    );
+
+    application->evidence_list_model =
+        new_evidence_list_model;
+
+    application->evidence_category_model =
+        new_evidence_category_model;
+
+    new_evidence_list_model =
+        NULL;
+
+    new_evidence_category_model =
+        NULL;
+
+    main_window_set_evidence_model(
+        application->main_window,
+        application->evidence_category_model
+    );
+
+    refreshed = TRUE;
+
+cleanup:
+
+    g_clear_error(
+        &local_error
+    );
+
+    evidence_category_model_free(
+        new_evidence_category_model
+    );
+
+    evidence_list_model_free(
+        new_evidence_list_model
+    );
+
+    if (type_labels != NULL)
+    {
+        g_hash_table_unref(
+            type_labels
+        );
+    }
+
+    if (evidence_types != NULL)
+    {
+        g_ptr_array_unref(
+            evidence_types
+        );
+    }
+
+    if (evidence_records != NULL)
+    {
+        g_ptr_array_unref(
+            evidence_records
+        );
+    }
+
+    evidence_type_dao_free(
+        evidence_type_dao
+    );
+
+    evidence_dao_free(
+        evidence_dao
+    );
+
+    return refreshed;
+}
+
+/**
  * @brief Installe une nouvelle session et son arbre dans l'application.
  *
  * En cas de succès, Application devient propriétaire de new_session
@@ -415,6 +885,8 @@ static gboolean application_install_session(
 
     const char *root_path = NULL;
     const char *investigation_name = NULL;
+
+    GError *evidence_error = NULL;
 
     if (application == NULL ||
         application->main_window == NULL ||
@@ -484,6 +956,54 @@ static gboolean application_install_session(
         application->main_window,
         TRUE
     );
+
+    /*
+     * L'ancienne liste ne doit jamais rester affichée après
+     * un changement d'enquête.
+     */
+    main_window_set_evidence_model(
+        application->main_window,
+        NULL
+    );
+
+    evidence_category_model_free(
+        application->evidence_category_model
+    );
+
+    evidence_list_model_free(
+        application->evidence_list_model
+    );
+
+    application->evidence_category_model =
+        NULL;
+
+    application->evidence_list_model =
+        NULL;
+
+    if (!application_refresh_evidence_models(
+            application,
+            &evidence_error
+        ))
+    {
+        g_warning(
+            "Impossible de charger les preuves de l'enquête : %s",
+            evidence_error != NULL
+                ? evidence_error->message
+                : "erreur inconnue"
+        );
+
+        application_present_error(
+            application,
+            "Preuves indisponibles",
+            evidence_error != NULL
+                ? evidence_error->message
+                : "Les preuves enregistrées n'ont pas pu être chargées."
+        );
+
+        g_clear_error(
+            &evidence_error
+        );
+    }
 
     return TRUE;
 }
@@ -2121,6 +2641,22 @@ void application_free(
 
     investigation_session_close(
         application->session
+    );
+
+    if (application->main_window != NULL)
+    {
+        main_window_set_evidence_model(
+            application->main_window,
+            NULL
+        );
+    }
+
+    evidence_category_model_free(
+        application->evidence_category_model
+    );
+
+    evidence_list_model_free(
+        application->evidence_list_model
     );
 
     /*
