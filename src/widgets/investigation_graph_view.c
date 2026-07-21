@@ -23,6 +23,12 @@
 #define INVESTIGATION_GRAPH_VIEW_ARROW_LENGTH 9.0
 #define INVESTIGATION_GRAPH_VIEW_ARROW_HALF_WIDTH 5.0
 
+#define INVESTIGATION_GRAPH_VIEW_MIN_ZOOM 0.25
+#define INVESTIGATION_GRAPH_VIEW_MAX_ZOOM 3.0
+#define INVESTIGATION_GRAPH_VIEW_SCROLL_ZOOM_SPEED 0.08
+#define INVESTIGATION_GRAPH_VIEW_MIN_SCROLL_FACTOR 0.50
+#define INVESTIGATION_GRAPH_VIEW_MAX_SCROLL_FACTOR 1.50
+
 /**
  * @brief Position privée d'une entité dans la vue.
  */
@@ -42,8 +48,576 @@ struct InvestigationGraphView
 {
     GtkWidget *drawing_area;
 
+    GtkGesture *zoom_gesture;
+    GtkGesture *drag_gesture;
+
+    GtkEventController *scroll_controller;
+    GtkEventController *motion_controller;
+
     const InvestigationGraphModel *graph_model;
+
+    double zoom;
+    double offset_x;
+    double offset_y;
+
+    double zoom_gesture_start_zoom;
+    double zoom_gesture_start_offset_x;
+    double zoom_gesture_start_offset_y;
+    double zoom_gesture_anchor_x;
+    double zoom_gesture_anchor_y;
+
+    double pointer_x;
+    double pointer_y;
+
+    double drag_start_x;
+    double drag_start_y;
+
+    double drag_origin_offset_x;
+    double drag_origin_offset_y;
+
+    gboolean pointer_position_valid;
+    gboolean dragging;
 };
+
+/**
+ * @brief Borne un facteur de zoom aux limites autorisées.
+ */
+static double investigation_graph_view_clamp_zoom(
+    double zoom
+)
+{
+    if (zoom < INVESTIGATION_GRAPH_VIEW_MIN_ZOOM)
+    {
+        return INVESTIGATION_GRAPH_VIEW_MIN_ZOOM;
+    }
+
+    if (zoom > INVESTIGATION_GRAPH_VIEW_MAX_ZOOM)
+    {
+        return INVESTIGATION_GRAPH_VIEW_MAX_ZOOM;
+    }
+
+    return zoom;
+}
+
+/**
+ * @brief Applique un zoom en conservant un point d'écran immobile.
+ */
+static void investigation_graph_view_zoom_at_point(
+    InvestigationGraphView *graph_view,
+    double requested_zoom,
+    double anchor_x,
+    double anchor_y
+)
+{
+    double previous_zoom =
+        0.0;
+
+    double logical_x =
+        0.0;
+
+    double logical_y =
+        0.0;
+
+    double new_zoom =
+        0.0;
+
+    if (graph_view == NULL ||
+        graph_view->drawing_area == NULL)
+    {
+        return;
+    }
+
+    previous_zoom =
+        graph_view->zoom;
+
+    if (previous_zoom <= 0.0)
+    {
+        previous_zoom =
+            1.0;
+    }
+
+    new_zoom =
+        investigation_graph_view_clamp_zoom(
+            requested_zoom
+        );
+
+    logical_x =
+        (
+            anchor_x -
+            graph_view->offset_x
+        ) /
+        previous_zoom;
+
+    logical_y =
+        (
+            anchor_y -
+            graph_view->offset_y
+        ) /
+        previous_zoom;
+
+    graph_view->zoom =
+        new_zoom;
+
+    graph_view->offset_x =
+        anchor_x -
+        (logical_x * new_zoom);
+
+    graph_view->offset_y =
+        anchor_y -
+        (logical_y * new_zoom);
+
+    gtk_widget_queue_draw(
+        graph_view->drawing_area
+    );
+}
+
+/**
+ * @brief Mémorise la dernière position connue du pointeur.
+ */
+static void investigation_graph_view_on_pointer_motion(
+    GtkEventControllerMotion *controller,
+    double x,
+    double y,
+    gpointer user_data
+)
+{
+    InvestigationGraphView *graph_view =
+        user_data;
+
+    (void) controller;
+
+    if (graph_view == NULL)
+    {
+        return;
+    }
+
+    graph_view->pointer_x =
+        x;
+
+    graph_view->pointer_y =
+        y;
+
+    graph_view->pointer_position_valid =
+        TRUE;
+}
+
+/**
+ * @brief Oublie la position du pointeur lorsqu'il quitte le canvas.
+ */
+static void investigation_graph_view_on_pointer_leave(
+    GtkEventControllerMotion *controller,
+    gpointer user_data
+)
+{
+    InvestigationGraphView *graph_view =
+        user_data;
+
+    (void) controller;
+
+    if (graph_view == NULL)
+    {
+        return;
+    }
+
+    graph_view->pointer_position_valid =
+        FALSE;
+}
+
+/**
+ * @brief Mémorise l'état initial d'un pincement.
+ */
+static void investigation_graph_view_on_zoom_begin(
+    GtkGesture *gesture,
+    GdkEventSequence *sequence,
+    gpointer user_data
+)
+{
+    InvestigationGraphView *graph_view =
+        user_data;
+
+    double anchor_x =
+        0.0;
+
+    double anchor_y =
+        0.0;
+
+    gboolean center_available =
+        FALSE;
+
+    (void) sequence;
+
+    if (graph_view == NULL ||
+        graph_view->drawing_area == NULL)
+    {
+        return;
+    }
+
+    center_available =
+        gtk_gesture_get_bounding_box_center(
+            gesture,
+            &anchor_x,
+            &anchor_y
+        );
+
+    if (!center_available)
+    {
+        anchor_x =
+            (double) gtk_widget_get_width(
+                graph_view->drawing_area
+            ) /
+            2.0;
+
+        anchor_y =
+            (double) gtk_widget_get_height(
+                graph_view->drawing_area
+            ) /
+            2.0;
+    }
+
+    graph_view->zoom_gesture_start_zoom =
+        graph_view->zoom;
+
+    graph_view->zoom_gesture_start_offset_x =
+        graph_view->offset_x;
+
+    graph_view->zoom_gesture_start_offset_y =
+        graph_view->offset_y;
+
+    graph_view->zoom_gesture_anchor_x =
+        anchor_x;
+
+    graph_view->zoom_gesture_anchor_y =
+        anchor_y;
+}
+
+/**
+ * @brief Applique le facteur cumulé transmis par GtkGestureZoom.
+ */
+static void investigation_graph_view_on_scale_changed(
+    GtkGestureZoom *gesture,
+    double scale,
+    gpointer user_data
+)
+{
+    InvestigationGraphView *graph_view =
+        user_data;
+
+    double start_zoom =
+        0.0;
+
+    double new_zoom =
+        0.0;
+
+    double logical_x =
+        0.0;
+
+    double logical_y =
+        0.0;
+
+    (void) gesture;
+
+    if (graph_view == NULL ||
+        graph_view->drawing_area == NULL ||
+        scale <= 0.0)
+    {
+        return;
+    }
+
+    start_zoom =
+        graph_view->zoom_gesture_start_zoom;
+
+    if (start_zoom <= 0.0)
+    {
+        start_zoom =
+            1.0;
+    }
+
+    new_zoom =
+        investigation_graph_view_clamp_zoom(
+            start_zoom * scale
+        );
+
+    logical_x =
+        (
+            graph_view->zoom_gesture_anchor_x -
+            graph_view->zoom_gesture_start_offset_x
+        ) /
+        start_zoom;
+
+    logical_y =
+        (
+            graph_view->zoom_gesture_anchor_y -
+            graph_view->zoom_gesture_start_offset_y
+        ) /
+        start_zoom;
+
+    graph_view->zoom =
+        new_zoom;
+
+    graph_view->offset_x =
+        graph_view->zoom_gesture_anchor_x -
+        (logical_x * new_zoom);
+
+    graph_view->offset_y =
+        graph_view->zoom_gesture_anchor_y -
+        (logical_y * new_zoom);
+
+    gtk_widget_queue_draw(
+        graph_view->drawing_area
+    );
+}
+
+/**
+ * @brief Gère Ctrl + défilement comme solution de zoom de secours.
+ */
+static gboolean investigation_graph_view_on_scroll(
+    GtkEventControllerScroll *controller,
+    double delta_x,
+    double delta_y,
+    gpointer user_data
+)
+{
+    InvestigationGraphView *graph_view =
+        user_data;
+
+    GdkModifierType modifier_state =
+        0;
+
+    double anchor_x =
+        0.0;
+
+    double anchor_y =
+        0.0;
+
+    double zoom_factor =
+        1.0;
+
+    (void) delta_x;
+
+    if (graph_view == NULL ||
+        graph_view->drawing_area == NULL ||
+        delta_y == 0.0)
+    {
+        return FALSE;
+    }
+
+    modifier_state =
+        gtk_event_controller_get_current_event_state(
+            GTK_EVENT_CONTROLLER(
+                controller
+            )
+        );
+
+    if ((modifier_state & GDK_CONTROL_MASK) == 0)
+    {
+        return FALSE;
+    }
+
+    if (graph_view->pointer_position_valid)
+    {
+        anchor_x =
+            graph_view->pointer_x;
+
+        anchor_y =
+            graph_view->pointer_y;
+    }
+    else
+    {
+        anchor_x =
+            (double) gtk_widget_get_width(
+                graph_view->drawing_area
+            ) /
+            2.0;
+
+        anchor_y =
+            (double) gtk_widget_get_height(
+                graph_view->drawing_area
+            ) /
+            2.0;
+    }
+
+    zoom_factor =
+        1.0 -
+        (
+            delta_y *
+            INVESTIGATION_GRAPH_VIEW_SCROLL_ZOOM_SPEED
+        );
+
+    if (zoom_factor <
+        INVESTIGATION_GRAPH_VIEW_MIN_SCROLL_FACTOR)
+    {
+        zoom_factor =
+            INVESTIGATION_GRAPH_VIEW_MIN_SCROLL_FACTOR;
+    }
+
+    if (zoom_factor >
+        INVESTIGATION_GRAPH_VIEW_MAX_SCROLL_FACTOR)
+    {
+        zoom_factor =
+            INVESTIGATION_GRAPH_VIEW_MAX_SCROLL_FACTOR;
+    }
+
+    investigation_graph_view_zoom_at_point(
+        graph_view,
+        graph_view->zoom * zoom_factor,
+        anchor_x,
+        anchor_y
+    );
+
+    return TRUE;
+}
+
+/**
+ * @brief Commence le déplacement de l'ensemble du canvas.
+ */
+static void investigation_graph_view_on_drag_begin(
+    GtkGestureDrag *gesture,
+    double start_x,
+    double start_y,
+    gpointer user_data
+)
+{
+    InvestigationGraphView *graph_view =
+        user_data;
+
+    GdkModifierType modifier_state =
+        0;
+
+    if (graph_view == NULL ||
+        graph_view->drawing_area == NULL)
+    {
+        return;
+    }
+
+    modifier_state =
+        gtk_event_controller_get_current_event_state(
+            GTK_EVENT_CONTROLLER(
+                gesture
+            )
+        );
+
+    if ((modifier_state & GDK_SHIFT_MASK) == 0)
+    {
+        graph_view->dragging =
+            FALSE;
+
+        gtk_gesture_set_state(
+            GTK_GESTURE(
+                gesture
+            ),
+            GTK_EVENT_SEQUENCE_DENIED
+        );
+
+        return;
+    }
+
+    gtk_gesture_set_state(
+        GTK_GESTURE(
+            gesture
+        ),
+        GTK_EVENT_SEQUENCE_CLAIMED
+    );
+
+    graph_view->drag_start_x =
+        start_x;
+
+    graph_view->drag_start_y =
+        start_y;
+
+    graph_view->drag_origin_offset_x =
+        graph_view->offset_x;
+
+    graph_view->drag_origin_offset_y =
+        graph_view->offset_y;
+
+    graph_view->dragging =
+        TRUE;
+
+    gtk_widget_set_cursor_from_name(
+        graph_view->drawing_area,
+        "grabbing"
+    );
+}
+
+/**
+ * @brief Déplace le canvas selon le décalage cumulé du geste.
+ */
+static void investigation_graph_view_on_drag_update(
+    GtkGestureDrag *gesture,
+    double offset_x,
+    double offset_y,
+    gpointer user_data
+)
+{
+    InvestigationGraphView *graph_view =
+        user_data;
+
+    (void) gesture;
+
+    if (graph_view == NULL ||
+        graph_view->drawing_area == NULL ||
+        !graph_view->dragging)
+    {
+        return;
+    }
+
+    graph_view->offset_x =
+        graph_view->drag_origin_offset_x +
+        offset_x;
+
+    graph_view->offset_y =
+        graph_view->drag_origin_offset_y +
+        offset_y;
+
+    gtk_widget_queue_draw(
+        graph_view->drawing_area
+    );
+}
+
+/**
+ * @brief Termine le déplacement du canvas.
+ */
+static void investigation_graph_view_on_drag_end(
+    GtkGestureDrag *gesture,
+    double offset_x,
+    double offset_y,
+    gpointer user_data
+)
+{
+    InvestigationGraphView *graph_view =
+        user_data;
+
+    (void) gesture;
+
+    if (graph_view == NULL ||
+        graph_view->drawing_area == NULL)
+    {
+        return;
+    }
+
+    if (graph_view->dragging)
+    {
+        graph_view->offset_x =
+            graph_view->drag_origin_offset_x +
+            offset_x;
+
+        graph_view->offset_y =
+            graph_view->drag_origin_offset_y +
+            offset_y;
+    }
+
+    graph_view->dragging =
+        FALSE;
+
+    gtk_widget_set_cursor_from_name(
+        graph_view->drawing_area,
+        "default"
+    );
+
+    gtk_widget_queue_draw(
+        graph_view->drawing_area
+    );
+}
 
 /**
  * @brief Retourne le texte principal d'une entité.
@@ -1442,6 +2016,26 @@ static void investigation_graph_view_draw(
     }
 
     /*
+     * Les coordonnées de disposition restent exprimées dans l'espace logique
+     * du graphe. Cairo applique ensuite la navigation de la vue.
+     */
+    cairo_save(
+        cairo_context
+    );
+
+    cairo_translate(
+        cairo_context,
+        graph_view->offset_x,
+        graph_view->offset_y
+    );
+
+    cairo_scale(
+        cairo_context,
+        graph_view->zoom,
+        graph_view->zoom
+    );
+
+    /*
      * Les relations sont dessinées en premier afin que les nœuds restent
      * lisibles au premier plan.
      */
@@ -1469,6 +2063,10 @@ static void investigation_graph_view_draw(
             node_layout->y
         );
     }
+
+    cairo_restore(
+        cairo_context
+    );
 
     goto cleanup;
 
@@ -1586,6 +2184,173 @@ InvestigationGraphView *investigation_graph_view_new(void)
         NULL
     );
 
+    graph_view->zoom_gesture =
+        gtk_gesture_zoom_new();
+
+    graph_view->drag_gesture =
+        gtk_gesture_drag_new();
+
+    graph_view->scroll_controller =
+        gtk_event_controller_scroll_new(
+            GTK_EVENT_CONTROLLER_SCROLL_VERTICAL
+        );
+
+    graph_view->motion_controller =
+        gtk_event_controller_motion_new();
+
+    if (graph_view->zoom_gesture == NULL ||
+        graph_view->drag_gesture == NULL ||
+        graph_view->scroll_controller == NULL ||
+        graph_view->motion_controller == NULL)
+    {
+        investigation_graph_view_free(
+            graph_view
+        );
+
+        return NULL;
+    }
+
+    g_signal_connect(
+        graph_view->zoom_gesture,
+        "begin",
+        G_CALLBACK(
+            investigation_graph_view_on_zoom_begin
+        ),
+        graph_view
+    );
+
+    g_signal_connect(
+        graph_view->zoom_gesture,
+        "scale-changed",
+        G_CALLBACK(
+            investigation_graph_view_on_scale_changed
+        ),
+        graph_view
+    );
+
+    gtk_gesture_single_set_button(
+        GTK_GESTURE_SINGLE(
+            graph_view->drag_gesture
+        ),
+        GDK_BUTTON_PRIMARY
+    );
+
+    g_signal_connect(
+        graph_view->drag_gesture,
+        "drag-begin",
+        G_CALLBACK(
+            investigation_graph_view_on_drag_begin
+        ),
+        graph_view
+    );
+
+    g_signal_connect(
+        graph_view->drag_gesture,
+        "drag-update",
+        G_CALLBACK(
+            investigation_graph_view_on_drag_update
+        ),
+        graph_view
+    );
+
+    g_signal_connect(
+        graph_view->drag_gesture,
+        "drag-end",
+        G_CALLBACK(
+            investigation_graph_view_on_drag_end
+        ),
+        graph_view
+    );
+
+    g_signal_connect(
+        graph_view->scroll_controller,
+        "scroll",
+        G_CALLBACK(
+            investigation_graph_view_on_scroll
+        ),
+        graph_view
+    );
+
+    g_signal_connect(
+        graph_view->motion_controller,
+        "enter",
+        G_CALLBACK(
+            investigation_graph_view_on_pointer_motion
+        ),
+        graph_view
+    );
+
+    g_signal_connect(
+        graph_view->motion_controller,
+        "motion",
+        G_CALLBACK(
+            investigation_graph_view_on_pointer_motion
+        ),
+        graph_view
+    );
+
+    g_signal_connect(
+        graph_view->motion_controller,
+        "leave",
+        G_CALLBACK(
+            investigation_graph_view_on_pointer_leave
+        ),
+        graph_view
+    );
+
+    gtk_widget_add_controller(
+        graph_view->drawing_area,
+        GTK_EVENT_CONTROLLER(
+            graph_view->zoom_gesture
+        )
+    );
+
+    gtk_widget_add_controller(
+        graph_view->drawing_area,
+        GTK_EVENT_CONTROLLER(
+            graph_view->drag_gesture
+        )
+    );
+
+    gtk_widget_add_controller(
+        graph_view->drawing_area,
+        graph_view->scroll_controller
+    );
+
+    gtk_widget_add_controller(
+        graph_view->drawing_area,
+        graph_view->motion_controller
+    );
+
+    graph_view->zoom =
+        1.0;
+
+    graph_view->offset_x =
+        0.0;
+
+    graph_view->offset_y =
+        0.0;
+
+    graph_view->drag_start_x =
+        0.0;
+
+    graph_view->drag_start_y =
+        0.0;
+
+    graph_view->drag_origin_offset_x =
+        0.0;
+
+    graph_view->drag_origin_offset_y =
+        0.0;
+
+    graph_view->dragging =
+        FALSE;
+
+    gtk_widget_set_cursor_from_name(
+        graph_view->drawing_area,
+        "default"
+    );
+
     return graph_view;
 }
 
@@ -1614,8 +2379,8 @@ void investigation_graph_view_set_graph(
     graph_view->graph_model =
         graph_model;
 
-    gtk_widget_queue_draw(
-        graph_view->drawing_area
+    investigation_graph_view_reset_view(
+        graph_view
     );
 }
 
@@ -1631,9 +2396,70 @@ void investigation_graph_view_clear(
     graph_view->graph_model =
         NULL;
 
-    gtk_widget_queue_draw(
-        graph_view->drawing_area
+    investigation_graph_view_reset_view(
+        graph_view
     );
+}
+
+void investigation_graph_view_reset_view(
+    InvestigationGraphView *graph_view
+)
+{
+    if (graph_view == NULL)
+    {
+        return;
+    }
+
+    graph_view->zoom =
+        1.0;
+
+    graph_view->offset_x =
+        0.0;
+
+    graph_view->offset_y =
+        0.0;
+
+    graph_view->drag_start_x =
+        0.0;
+
+    graph_view->drag_start_y =
+        0.0;
+
+    graph_view->drag_origin_offset_x =
+        0.0;
+
+    graph_view->drag_origin_offset_y =
+        0.0;
+
+    graph_view->zoom_gesture_start_zoom =
+        1.0;
+
+    graph_view->zoom_gesture_start_offset_x =
+        0.0;
+
+    graph_view->zoom_gesture_start_offset_y =
+        0.0;
+
+    graph_view->zoom_gesture_anchor_x =
+        0.0;
+
+    graph_view->zoom_gesture_anchor_y =
+        0.0;
+
+    graph_view->dragging =
+        FALSE;
+
+    if (graph_view->drawing_area != NULL)
+    {
+        gtk_widget_set_cursor_from_name(
+            graph_view->drawing_area,
+            "default"
+        );
+
+        gtk_widget_queue_draw(
+            graph_view->drawing_area
+        );
+    }
 }
 
 void investigation_graph_view_free(
@@ -1658,6 +2484,74 @@ void investigation_graph_view_free(
             NULL,
             NULL
         );
+
+        if (graph_view->zoom_gesture != NULL)
+        {
+            g_signal_handlers_disconnect_by_data(
+                graph_view->zoom_gesture,
+                graph_view
+            );
+
+            gtk_widget_remove_controller(
+                graph_view->drawing_area,
+                GTK_EVENT_CONTROLLER(
+                    graph_view->zoom_gesture
+                )
+            );
+
+            graph_view->zoom_gesture =
+                NULL;
+        }
+
+        if (graph_view->drag_gesture != NULL)
+        {
+            g_signal_handlers_disconnect_by_data(
+                graph_view->drag_gesture,
+                graph_view
+            );
+
+            gtk_widget_remove_controller(
+                graph_view->drawing_area,
+                GTK_EVENT_CONTROLLER(
+                    graph_view->drag_gesture
+                )
+            );
+
+            graph_view->drag_gesture =
+                NULL;
+        }
+
+        if (graph_view->scroll_controller != NULL)
+        {
+            g_signal_handlers_disconnect_by_data(
+                graph_view->scroll_controller,
+                graph_view
+            );
+
+            gtk_widget_remove_controller(
+                graph_view->drawing_area,
+                graph_view->scroll_controller
+            );
+
+            graph_view->scroll_controller =
+                NULL;
+        }
+
+        if (graph_view->motion_controller != NULL)
+        {
+            g_signal_handlers_disconnect_by_data(
+                graph_view->motion_controller,
+                graph_view
+            );
+
+            gtk_widget_remove_controller(
+                graph_view->drawing_area,
+                graph_view->motion_controller
+            );
+
+            graph_view->motion_controller =
+                NULL;
+        }
     }
 
     graph_view->drawing_area =
@@ -1667,3 +2561,4 @@ void investigation_graph_view_free(
         graph_view
     );
 }
+

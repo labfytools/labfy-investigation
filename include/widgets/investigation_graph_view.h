@@ -68,6 +68,17 @@ void investigation_graph_view_clear(
 );
 
 /**
+ * @brief Réinitialise le zoom et la position du canvas.
+ *
+ * Le graphe emprunté reste associé à la vue.
+ *
+ * @param graph_view Vue graphique à recentrer.
+ */
+void investigation_graph_view_reset_view(
+    InvestigationGraphView *graph_view
+);
+
+/**
  * @brief Libère la structure d'encapsulation de la vue.
  *
  * Cette fonction accepte NULL et ne libère jamais le graphe emprunté.
