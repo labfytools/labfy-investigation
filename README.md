@@ -335,7 +335,7 @@ tool_catalog_*
 
 ## Outils OSINT externes
 
-Le ticket historique **#40** reste ouvert comme inventaire évolutif des outils OSINT potentiels.
+Le ticket historique **#42** reste ouvert comme inventaire évolutif des outils OSINT potentiels.
 
 Les outils ne sont pas intégrés en masse. Lorsqu’un besoin concret apparaît :
 
