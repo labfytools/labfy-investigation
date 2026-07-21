@@ -5,7 +5,7 @@
 
 #include "widgets/workspace.h"
 
-#include "models/investigation_graph_model.h"
+#include "widgets/investigation_graph_view.h"
 
 #include <glib.h>
 
@@ -15,6 +15,8 @@
     "evidence-information"
 #define WORKSPACE_PAGE_GRAPH_STATE \
     "graph-state"
+#define WORKSPACE_PAGE_GRAPH_VIEW \
+    "graph-view"
 
 /**
  * @brief État métier représenté par la page du graphe.
@@ -42,6 +44,8 @@ struct Workspace
     GtkWidget *graph_spinner;
     GtkWidget *graph_title_label;
     GtkWidget *graph_details_label;
+
+    InvestigationGraphView *graph_view;
 
     GtkWidget *node_page;
 
@@ -249,8 +253,8 @@ static const char *workspace_get_integrity_status_text(
 /**
  * @brief Affiche l'état principal courant du Workspace.
  *
- * Sans enquête, la page d'accueil est utilisée. Lorsqu'un chargement, un
- * graphe ou une erreur existe, la page d'état du graphe est affichée.
+ * Sans enquête, la page d'accueil est utilisée. Le chargement et les erreurs
+ * utilisent la page d'état. Un graphe prêt utilise la vue graphique.
  */
 static void workspace_show_default(
     Workspace *workspace
@@ -261,21 +265,34 @@ static void workspace_show_default(
         return;
     }
 
-    if (workspace->graph_state ==
-        WORKSPACE_GRAPH_STATE_EMPTY)
+    switch (workspace->graph_state)
     {
-        gtk_stack_set_visible_child_name(
-            GTK_STACK(workspace->stack),
-            WORKSPACE_PAGE_WELCOME
-        );
+        case WORKSPACE_GRAPH_STATE_EMPTY:
+            gtk_stack_set_visible_child_name(
+                GTK_STACK(workspace->stack),
+                WORKSPACE_PAGE_WELCOME
+            );
 
-        return;
+            return;
+
+        case WORKSPACE_GRAPH_STATE_READY:
+            gtk_stack_set_visible_child_name(
+                GTK_STACK(workspace->stack),
+                WORKSPACE_PAGE_GRAPH_VIEW
+            );
+
+            return;
+
+        case WORKSPACE_GRAPH_STATE_LOADING:
+        case WORKSPACE_GRAPH_STATE_ERROR:
+        default:
+            gtk_stack_set_visible_child_name(
+                GTK_STACK(workspace->stack),
+                WORKSPACE_PAGE_GRAPH_STATE
+            );
+
+            return;
     }
-
-    gtk_stack_set_visible_child_name(
-        GTK_STACK(workspace->stack),
-        WORKSPACE_PAGE_GRAPH_STATE
-    );
 }
 
 /**
@@ -776,8 +793,7 @@ Workspace *workspace_new(void)
     );
 
     /*
-     * Page temporaire de chargement et de résumé du graphe.
-     * Le futur canvas interactif remplacera cette représentation.
+     * Page d'état utilisée pendant le chargement ou en cas d'erreur.
      */
     workspace->graph_state_page =
         gtk_box_new(
@@ -877,6 +893,29 @@ Workspace *workspace_new(void)
         GTK_STACK(workspace->stack),
         workspace->graph_state_page,
         WORKSPACE_PAGE_GRAPH_STATE
+    );
+
+    /*
+     * Vue graphique en lecture seule.
+     */
+    workspace->graph_view =
+        investigation_graph_view_new();
+
+    if (workspace->graph_view == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    gtk_stack_add_named(
+        GTK_STACK(workspace->stack),
+        investigation_graph_view_get_widget(
+            workspace->graph_view
+        ),
+        WORKSPACE_PAGE_GRAPH_VIEW
     );
 
     workspace->graph_model =
@@ -1244,6 +1283,10 @@ void workspace_set_graph_loading(
         );
     }
 
+    investigation_graph_view_clear(
+        workspace->graph_view
+    );
+
     workspace->graph_model =
         NULL;
 
@@ -1285,9 +1328,6 @@ void workspace_set_graph(
     const InvestigationGraphModel *graph_model
 )
 {
-    char *summary_text =
-        NULL;
-
     if (workspace == NULL)
     {
         return;
@@ -1318,6 +1358,11 @@ void workspace_set_graph(
     workspace->graph_model =
         graph_model;
 
+    investigation_graph_view_set_graph(
+        workspace->graph_view,
+        graph_model
+    );
+
     workspace->graph_state =
         WORKSPACE_GRAPH_STATE_READY;
 
@@ -1336,32 +1381,14 @@ void workspace_set_graph(
         GTK_LABEL(
             workspace->graph_title_label
         ),
-        "Graphe chargé"
+        ""
     );
-
-    summary_text =
-        g_strdup_printf(
-            "%" G_GUINT64_FORMAT " entité(s)\n"
-            "%" G_GUINT64_FORMAT " relation(s)",
-            investigation_graph_model_get_entity_count(
-                graph_model
-            ),
-            investigation_graph_model_get_relation_count(
-                graph_model
-            )
-        );
 
     gtk_label_set_text(
         GTK_LABEL(
             workspace->graph_details_label
         ),
-        summary_text != NULL
-            ? summary_text
-            : "Résumé indisponible"
-    );
-
-    g_free(
-        summary_text
+        ""
     );
 
     workspace_show_default(
@@ -1391,6 +1418,10 @@ void workspace_set_graph_error(
             FALSE
         );
     }
+
+    investigation_graph_view_clear(
+        workspace->graph_view
+    );
 
     workspace->graph_model =
         NULL;
@@ -1453,6 +1484,10 @@ void workspace_clear_graph(
         );
     }
 
+    investigation_graph_view_clear(
+        workspace->graph_view
+    );
+
     workspace->graph_model =
         NULL;
 
@@ -1513,6 +1548,17 @@ void workspace_free(Workspace *workspace)
     {
         return;
     }
+
+    investigation_graph_view_clear(
+        workspace->graph_view
+    );
+
+    investigation_graph_view_free(
+        workspace->graph_view
+    );
+
+    workspace->graph_view =
+        NULL;
 
     workspace->graph_model =
         NULL;
