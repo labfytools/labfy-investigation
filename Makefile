@@ -49,6 +49,7 @@ RELATION_SERVICE_TEST_CFLAGS := \
 	$(TEST_CFLAGS) \
 	-Wpedantic \
 	-DRELATION_SERVICE_ENABLE_TEST_HOOKS
+INVESTIGATION_GRAPH_MODEL_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 
 SRC := $(shell find src -name "*.c")
 
@@ -98,6 +99,7 @@ TEST_RELATION_RECORD := tests/test_relation_record
 TEST_RELATION_DAO := tests/test_relation_dao
 TEST_RELATION_EVIDENCE_DAO := tests/test_relation_evidence_dao
 TEST_RELATION_SERVICE := tests/test_relation_service
+TEST_INVESTIGATION_GRAPH_MODEL := tests/test_investigation_graph_model
 
 all: $(TARGET)
 
@@ -477,6 +479,14 @@ $(TEST_RELATION_SERVICE): \
 	$(CC) $(RELATION_SERVICE_TEST_CFLAGS) $^ -o $@ \
 		$(TEST_LDFLAGS) -lsqlite3
 
+$(TEST_INVESTIGATION_GRAPH_MODEL): \
+	tests/test_investigation_graph_model.c \
+	src/models/investigation_graph_model.c \
+	src/models/entity_record.c \
+	src/models/relation_record.c
+	$(CC) $(INVESTIGATION_GRAPH_MODEL_TEST_CFLAGS) $^ -o $@ \
+		$(TEST_LDFLAGS)
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -519,7 +529,8 @@ test: \
 	$(TEST_RELATION_RECORD) \
 	$(TEST_RELATION_DAO) \
 	$(TEST_RELATION_EVIDENCE_DAO) \
-	$(TEST_RELATION_SERVICE)
+	$(TEST_RELATION_SERVICE) \
+	$(TEST_INVESTIGATION_GRAPH_MODEL)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -563,6 +574,7 @@ test: \
 	@$(TEST_RELATION_DAO)
 	@$(TEST_RELATION_EVIDENCE_DAO)
 	@$(TEST_RELATION_SERVICE)
+	@$(TEST_INVESTIGATION_GRAPH_MODEL)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -612,6 +624,7 @@ clean:
 		$(TEST_RELATION_RECORD) \
 		$(TEST_RELATION_DAO) \
 		$(TEST_RELATION_EVIDENCE_DAO) \
-		$(TEST_RELATION_SERVICE)
+		$(TEST_RELATION_SERVICE) \
+		$(TEST_INVESTIGATION_GRAPH_MODEL)
 
 .PHONY: clean run test
