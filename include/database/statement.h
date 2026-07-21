@@ -120,6 +120,26 @@ bool database_statement_column_int64(
 );
 
 /**
+ * @brief Lit un nombre à virgule flottante depuis une colonne.
+ *
+ * Les indices de colonnes SQLite commencent à 0.
+ *
+ * La colonne doit être de type SQLITE_FLOAT ou SQLITE_INTEGER.
+ * Une colonne entière est convertie en double par SQLite.
+ *
+ * @param statement Requête positionnée sur une ligne.
+ * @param column_index Indice de la colonne.
+ * @param value Destination de la valeur.
+ *
+ * @return true si le nombre a pu être lu, sinon false.
+ */
+bool database_statement_column_double(
+    DatabaseStatement *statement,
+    int column_index,
+    double *value
+);
+
+/**
  * @brief Copie le contenu texte d'une colonne.
  *
  * Les indices de colonnes SQLite commencent à 0.
@@ -171,6 +191,21 @@ bool database_statement_bind_int64(
     DatabaseStatement *statement,
     int index,
     int64_t value
+);
+
+/**
+ * @brief Lie un nombre à virgule flottante à un paramètre SQL.
+ *
+ * @param statement Requête préparée.
+ * @param index     Indice du paramètre.
+ * @param value     Valeur à lier.
+ *
+ * @return true en cas de succès, sinon false.
+ */
+bool database_statement_bind_double(
+    DatabaseStatement *statement,
+    int index,
+    double value
 );
 
 /**

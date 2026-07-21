@@ -192,3 +192,14 @@ bool schema_install_v2(
         "la migration SQLite V2"
     );
 }
+
+bool schema_ensure_current(
+    Database *database
+)
+{
+    return schema_execute_file(
+        database,
+        "database/schema_current.sql",
+        "les extensions du schéma SQLite courant"
+    );
+}

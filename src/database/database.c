@@ -668,6 +668,65 @@ rollback:
     return false;
 }
 
+/**
+ * @brief Garantit atomiquement la présence des extensions du schéma courant.
+ */
+static bool database_ensure_current_schema(
+    Database *database
+)
+{
+    bool transaction_started = false;
+
+    if (database == NULL)
+    {
+        return false;
+    }
+
+    if (!database_transaction_begin(
+            database
+        ))
+    {
+        return false;
+    }
+
+    transaction_started = true;
+
+    if (!schema_ensure_current(
+            database
+        ))
+    {
+        goto rollback;
+    }
+
+    if (!database_transaction_commit(
+            database
+        ))
+    {
+        goto rollback;
+    }
+
+    transaction_started = false;
+
+    return true;
+
+rollback:
+
+    if (transaction_started)
+    {
+        if (!database_transaction_rollback(
+                database
+            ))
+        {
+            g_warning(
+                "Impossible d’annuler l’installation des extensions "
+                "du schéma SQLite courant."
+            );
+        }
+    }
+
+    return false;
+}
+
 Database *database_open(
     const char *database_path
 )
@@ -807,6 +866,13 @@ bool database_migrate_to_latest(
         }
     }
 
+    if (!database_ensure_current_schema(
+            database
+        ))
+    {
+        return false;
+    }
+
     database->schema_version =
         schema_version;
 
@@ -891,6 +957,13 @@ bool database_initialize(
      * dans la transaction initiale.
      */
     if (!schema_install_v2(
+            database
+        ))
+    {
+        goto rollback;
+    }
+
+    if (!schema_ensure_current(
             database
         ))
     {

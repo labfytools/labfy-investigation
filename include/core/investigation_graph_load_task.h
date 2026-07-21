@@ -6,6 +6,7 @@
 #ifndef LABFY_INVESTIGATION_INVESTIGATION_GRAPH_LOAD_TASK_H
 #define LABFY_INVESTIGATION_INVESTIGATION_GRAPH_LOAD_TASK_H
 
+#include "models/investigation_graph_layout.h"
 #include "models/investigation_graph_model.h"
 
 #include <glib.h>
@@ -73,6 +74,10 @@ typedef enum
  * tâche.
  *
  * En cas de succès, graph_model appartient au destinataire du callback.
+ *
+ * La disposition associée peut être récupérée pendant le callback avec
+ * investigation_graph_load_task_take_layout(). Elle devient alors la
+ * propriété du code appelant.
  *
  * En cas d'échec, error est empruntée et valable uniquement pendant le
  * callback.
@@ -169,6 +174,23 @@ void investigation_graph_load_task_cancel(
  */
 gboolean investigation_graph_load_task_is_running(
     const InvestigationGraphLoadTask *load_task
+);
+
+/**
+ * @brief Transfère la disposition chargée au code appelant.
+ *
+ * Cette fonction doit être appelée après une fin de chargement réussie,
+ * normalement depuis InvestigationGraphLoadTaskCallback.
+ *
+ * La tâche cesse de posséder la disposition retournée.
+ * Un second appel retourne NULL.
+ *
+ * @param load_task Tâche terminée.
+ *
+ * @return Disposition transférée, ou NULL.
+ */
+InvestigationGraphLayout *investigation_graph_load_task_take_layout(
+    InvestigationGraphLoadTask *load_task
 );
 
 G_END_DECLS

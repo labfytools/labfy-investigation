@@ -77,6 +77,12 @@ struct Workspace
     gpointer
         verify_evidence_user_data;
 
+    WorkspaceGraphNodeMovedCallback
+        graph_node_moved_callback;
+
+    gpointer
+        graph_node_moved_user_data;
+
     GtkWidget *node_name_label;
     GtkWidget *node_path_label;
     GtkWidget *node_type_label;
@@ -84,6 +90,8 @@ struct Workspace
     GtkWidget *node_children_label;
 
     const InvestigationGraphModel *graph_model;
+    const InvestigationGraphLayout *graph_layout;
+
     WorkspaceGraphState graph_state;
 };
 
@@ -252,6 +260,35 @@ static const char *workspace_get_integrity_status_text(
         default:
             return "Statut inconnu";
     }
+}
+
+/**
+ * @brief Transmet la sélection du graphe au volet de détails.
+ */
+static void workspace_on_graph_node_moved(
+    const char *entity_identifier,
+    double x,
+    double y,
+    gpointer user_data
+)
+{
+    Workspace *workspace =
+        user_data;
+
+    if (workspace == NULL ||
+        workspace->graph_node_moved_callback == NULL ||
+        entity_identifier == NULL ||
+        entity_identifier[0] == '\0')
+    {
+        return;
+    }
+
+    workspace->graph_node_moved_callback(
+        entity_identifier,
+        x,
+        y,
+        workspace->graph_node_moved_user_data
+    );
 }
 
 /**
@@ -990,6 +1027,12 @@ Workspace *workspace_new(void)
         workspace
     );
 
+    investigation_graph_view_set_node_moved_callback(
+        workspace->graph_view,
+        workspace_on_graph_node_moved,
+        workspace
+    );
+
     entity_details_panel_set_close_callback(
         workspace->entity_details_panel,
         workspace_on_entity_details_closed,
@@ -1031,6 +1074,9 @@ Workspace *workspace_new(void)
     );
 
     workspace->graph_model =
+        NULL;
+
+    workspace->graph_layout =
         NULL;
 
     workspace->graph_state =
@@ -1406,6 +1452,9 @@ void workspace_set_graph_loading(
     workspace->graph_model =
         NULL;
 
+    workspace->graph_layout =
+        NULL;
+
     workspace->graph_state =
         WORKSPACE_GRAPH_STATE_LOADING;
 
@@ -1441,7 +1490,8 @@ void workspace_set_graph_loading(
 
 void workspace_set_graph(
     Workspace *workspace,
-    const InvestigationGraphModel *graph_model
+    const InvestigationGraphModel *graph_model,
+    const InvestigationGraphLayout *graph_layout
 )
 {
     if (workspace == NULL)
@@ -1475,8 +1525,20 @@ void workspace_set_graph(
         workspace->entity_details_panel
     );
 
+    investigation_graph_view_clear(
+        workspace->graph_view
+    );
+
     workspace->graph_model =
         graph_model;
+
+    workspace->graph_layout =
+        graph_layout;
+
+    investigation_graph_view_set_layout(
+        workspace->graph_view,
+        graph_layout
+    );
 
     investigation_graph_view_set_graph(
         workspace->graph_view,
@@ -1550,6 +1612,9 @@ void workspace_set_graph_error(
     workspace->graph_model =
         NULL;
 
+    workspace->graph_layout =
+        NULL;
+
     workspace->graph_state =
         WORKSPACE_GRAPH_STATE_ERROR;
 
@@ -1619,6 +1684,9 @@ void workspace_clear_graph(
     workspace->graph_model =
         NULL;
 
+    workspace->graph_layout =
+        NULL;
+
     workspace->graph_state =
         WORKSPACE_GRAPH_STATE_EMPTY;
 
@@ -1670,6 +1738,24 @@ void workspace_set_verify_evidence_callback(
         user_data;
 }
 
+void workspace_set_graph_node_moved_callback(
+    Workspace *workspace,
+    WorkspaceGraphNodeMovedCallback callback,
+    gpointer user_data
+)
+{
+    if (workspace == NULL)
+    {
+        return;
+    }
+
+    workspace->graph_node_moved_callback =
+        callback;
+
+    workspace->graph_node_moved_user_data =
+        user_data;
+}
+
 void workspace_free(Workspace *workspace)
 {
     if (workspace == NULL)
@@ -1678,6 +1764,12 @@ void workspace_free(Workspace *workspace)
     }
 
     investigation_graph_view_set_selection_callback(
+        workspace->graph_view,
+        NULL,
+        NULL
+    );
+
+    investigation_graph_view_set_node_moved_callback(
         workspace->graph_view,
         NULL,
         NULL
@@ -1714,10 +1806,19 @@ void workspace_free(Workspace *workspace)
     workspace->graph_model =
         NULL;
 
+    workspace->graph_layout =
+        NULL;
+
     workspace->verify_evidence_callback =
         NULL;
 
     workspace->verify_evidence_user_data =
+        NULL;
+
+    workspace->graph_node_moved_callback =
+        NULL;
+
+    workspace->graph_node_moved_user_data =
         NULL;
 
     g_clear_pointer(

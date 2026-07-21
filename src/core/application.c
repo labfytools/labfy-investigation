@@ -10,6 +10,7 @@
 #include "core/investigation_session.h"
 #include "core/investigation_tree_model.h"
 #include "core/investigation_graph_load_task.h"
+#include "models/investigation_graph_layout.h"
 #include "models/investigation_graph_model.h"
 #include "models/investigation_record.h"
 #include "core/investigation_tree_builder.h"
@@ -24,6 +25,7 @@
 #include "core/evidence_import_task.h"
 #include "models/evidence_record.h"
 #include "dao/evidence_type_dao.h"
+#include "dao/graph_node_position_dao.h"
 #include "views/evidence_import_dialog.h"
 #include "dao/evidence_dao.h"
 #include "models/evidence_type.h"
@@ -96,6 +98,7 @@ struct Application
 
     InvestigationGraphLoadTask *graph_load_task;
     InvestigationGraphModel *graph_model;
+    InvestigationGraphLayout *graph_layout;
     guint64 graph_load_generation;
 
     char *selected_evidence_identifier;
@@ -291,6 +294,9 @@ static void application_clear_graph(
     InvestigationGraphModel *graph_model =
         NULL;
 
+    InvestigationGraphLayout *graph_layout =
+        NULL;
+
     if (application == NULL)
     {
         return;
@@ -306,11 +312,21 @@ static void application_clear_graph(
     graph_model =
         application->graph_model;
 
+    graph_layout =
+        application->graph_layout;
+
     application->graph_model =
+        NULL;
+
+    application->graph_layout =
         NULL;
 
     investigation_graph_model_free(
         graph_model
+    );
+
+    investigation_graph_layout_free(
+        graph_layout
     );
 }
 
@@ -332,6 +348,9 @@ static void application_on_graph_loaded(
     Application *application =
         NULL;
 
+    InvestigationGraphLayout *graph_layout =
+        NULL;
+
     char *status_message =
         NULL;
 
@@ -343,6 +362,11 @@ static void application_on_graph_loaded(
         application =
             context->application;
     }
+
+    graph_layout =
+        investigation_graph_load_task_take_layout(
+            load_task
+        );
 
     if (application != NULL)
     {
@@ -363,6 +387,10 @@ static void application_on_graph_loaded(
             graph_model
         );
 
+        investigation_graph_layout_free(
+            graph_layout
+        );
+
         investigation_graph_load_task_free(
             load_task
         );
@@ -377,6 +405,10 @@ static void application_on_graph_loaded(
     {
         investigation_graph_model_free(
             graph_model
+        );
+
+        investigation_graph_layout_free(
+            graph_layout
         );
 
         main_window_set_graph_error(
@@ -396,11 +428,21 @@ static void application_on_graph_loaded(
         return;
     }
 
-    if (graph_model == NULL)
+    if (graph_model == NULL ||
+        graph_layout == NULL)
     {
+        investigation_graph_model_free(
+            graph_model
+        );
+
+        investigation_graph_layout_free(
+            graph_layout
+        );
+
         main_window_set_graph_error(
             application->main_window,
-            "Le chargement s'est terminé sans fournir de graphe."
+            "Le chargement s'est terminé sans fournir "
+            "un graphe et une disposition valides."
         );
 
         main_window_set_status(
@@ -426,21 +468,28 @@ static void application_on_graph_loaded(
     application->graph_model =
         graph_model;
 
+    application->graph_layout =
+        graph_layout;
+
     main_window_set_graph(
         application->main_window,
-        application->graph_model
+        application->graph_model,
+        application->graph_layout
     );
 
     status_message =
         g_strdup_printf(
             "Graphe chargé : %" G_GUINT64_FORMAT
             " entité(s), %" G_GUINT64_FORMAT
-            " relation(s).",
+            " relation(s), %u position(s) restaurée(s).",
             investigation_graph_model_get_entity_count(
                 application->graph_model
             ),
             investigation_graph_model_get_relation_count(
                 application->graph_model
+            ),
+            investigation_graph_layout_get_count(
+                application->graph_layout
             )
         );
 
@@ -4053,6 +4102,186 @@ static void application_on_verify_evidence_requested(
  *
  * @param user_data Pointeur vers Application.
  */
+/**
+ * @brief Enregistre la nouvelle position logique d'un nœud.
+ *
+ * Le modèle en mémoire est mis à jour avant l'UPSERT SQLite. En cas d'échec
+ * SQLite, le déplacement reste visible pendant la session, mais un message
+ * explicite indique qu'il ne survivra pas à la réouverture de l'enquête.
+ */
+static void application_on_graph_node_moved(
+    const char *entity_identifier,
+    double x,
+    double y,
+    gpointer user_data
+)
+{
+    Application *application =
+        user_data;
+
+    Database *database =
+        NULL;
+
+    GraphNodePositionDao *position_dao =
+        NULL;
+
+    GError *error =
+        NULL;
+
+    if (application == NULL ||
+        application->main_window == NULL ||
+        application->session == NULL ||
+        application->graph_layout == NULL ||
+        entity_identifier == NULL ||
+        !g_uuid_string_is_valid(
+            entity_identifier
+        ))
+    {
+        return;
+    }
+
+    if (!investigation_graph_layout_set_position(
+            application->graph_layout,
+            entity_identifier,
+            x,
+            y,
+            &error
+        ))
+    {
+        g_warning(
+            "Impossible de mettre à jour la position du nœud '%s' : %s",
+            entity_identifier,
+            error != NULL
+                ? error->message
+                : "erreur inconnue"
+        );
+
+        application_present_error(
+            application,
+            "Position invalide",
+            error != NULL
+                ? error->message
+                : "La position du nœud ne peut pas être conservée."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        return;
+    }
+
+    database =
+        investigation_session_get_database(
+            application->session
+        );
+
+    if (database == NULL)
+    {
+        main_window_set_status(
+            application->main_window,
+            "Nœud déplacé, mais position non enregistrée."
+        );
+
+        application_present_error(
+            application,
+            "Enregistrement impossible",
+            "La session ne fournit aucune connexion SQLite."
+        );
+
+        return;
+    }
+
+    position_dao =
+        graph_node_position_dao_new(
+            database,
+            &error
+        );
+
+    if (position_dao == NULL)
+    {
+        g_warning(
+            "Impossible de créer le DAO des positions : %s",
+            error != NULL
+                ? error->message
+                : "erreur inconnue"
+        );
+
+        main_window_set_status(
+            application->main_window,
+            "Nœud déplacé, mais position non enregistrée."
+        );
+
+        application_present_error(
+            application,
+            "Enregistrement impossible",
+            error != NULL
+                ? error->message
+                : "Impossible d'accéder aux positions du graphe."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        return;
+    }
+
+    if (!graph_node_position_dao_upsert(
+            position_dao,
+            entity_identifier,
+            x,
+            y,
+            &error
+        ))
+    {
+        g_warning(
+            "Impossible d'enregistrer la position du nœud '%s' : %s",
+            entity_identifier,
+            error != NULL
+                ? error->message
+                : "erreur inconnue"
+        );
+
+        main_window_set_status(
+            application->main_window,
+            "Nœud déplacé, mais position non enregistrée."
+        );
+
+        application_present_error(
+            application,
+            "Enregistrement impossible",
+            error != NULL
+                ? error->message
+                : "La position du nœud n'a pas pu être enregistrée."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        graph_node_position_dao_free(
+            position_dao
+        );
+
+        return;
+    }
+
+    graph_node_position_dao_free(
+        position_dao
+    );
+
+    main_window_set_status(
+        application->main_window,
+        "Position du nœud enregistrée."
+    );
+}
+
+/**
+ * @brief Ferme proprement l'application.
+ *
+ * @param user_data Pointeur vers Application.
+ */
 static void application_on_quit_requested(
     gpointer user_data
 )
@@ -4135,6 +4364,12 @@ static void application_on_activate(
     main_window_set_verify_evidence_callback(
         application->main_window,
         application_on_verify_evidence_requested,
+        application
+    );
+
+    main_window_set_graph_node_moved_callback(
+        application->main_window,
+        application_on_graph_node_moved,
         application
     );
 

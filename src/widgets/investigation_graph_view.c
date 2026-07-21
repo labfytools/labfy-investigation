@@ -6,6 +6,7 @@
 #include "widgets/investigation_graph_view.h"
 
 #include "models/entity_record.h"
+#include "models/investigation_graph_layout.h"
 #include "models/investigation_graph_model.h"
 #include "models/relation_record.h"
 
@@ -57,6 +58,7 @@ struct InvestigationGraphView
     GtkEventController *motion_controller;
 
     const InvestigationGraphModel *graph_model;
+    const InvestigationGraphLayout *graph_layout;
 
     GPtrArray *node_layouts;
     GHashTable *node_layouts_by_identifier;
@@ -91,6 +93,9 @@ struct InvestigationGraphView
 
     InvestigationGraphViewSelectionCallback selection_callback;
     gpointer selection_user_data;
+
+    InvestigationGraphViewNodeMovedCallback node_moved_callback;
+    gpointer node_moved_user_data;
 
     double node_drag_pointer_offset_x;
     double node_drag_pointer_offset_y;
@@ -1043,6 +1048,44 @@ static void investigation_graph_view_on_drag_update(
 }
 
 /**
+ * @brief Prévient l'appelant qu'un nœud a été déplacé.
+ */
+static void investigation_graph_view_notify_node_moved(
+    InvestigationGraphView *graph_view,
+    const InvestigationGraphNodeLayout *node_layout
+)
+{
+    const char *entity_identifier =
+        NULL;
+
+    if (graph_view == NULL ||
+        node_layout == NULL ||
+        node_layout->entity_record == NULL ||
+        graph_view->node_moved_callback == NULL)
+    {
+        return;
+    }
+
+    entity_identifier =
+        entity_record_get_identifier(
+            node_layout->entity_record
+        );
+
+    if (entity_identifier == NULL ||
+        entity_identifier[0] == '\0')
+    {
+        return;
+    }
+
+    graph_view->node_moved_callback(
+        entity_identifier,
+        node_layout->x,
+        node_layout->y,
+        graph_view->node_moved_user_data
+    );
+}
+
+/**
  * @brief Termine le déplacement actif.
  */
 static void investigation_graph_view_on_drag_end(
@@ -1067,6 +1110,12 @@ static void investigation_graph_view_on_drag_end(
     double logical_y =
         0.0;
 
+    InvestigationGraphNodeLayout *moved_node =
+        NULL;
+
+    gboolean node_was_moved =
+        FALSE;
+
     (void) gesture;
 
     if (graph_view == NULL ||
@@ -1088,6 +1137,19 @@ static void investigation_graph_view_on_drag_end(
     else if (graph_view->node_dragging &&
              graph_view->dragged_node != NULL)
     {
+        moved_node =
+            graph_view->dragged_node;
+
+        node_was_moved =
+            (
+                (offset_x * offset_x) +
+                (offset_y * offset_y)
+            ) >
+            (
+                INVESTIGATION_GRAPH_VIEW_CLICK_TOLERANCE *
+                INVESTIGATION_GRAPH_VIEW_CLICK_TOLERANCE
+            );
+
         pointer_x =
             graph_view->drag_start_x +
             offset_x;
@@ -1117,6 +1179,15 @@ static void investigation_graph_view_on_drag_end(
     investigation_graph_view_cancel_drag(
         graph_view
     );
+
+    if (node_was_moved &&
+        moved_node != NULL)
+    {
+        investigation_graph_view_notify_node_moved(
+            graph_view,
+            moved_node
+        );
+    }
 
     gtk_widget_queue_draw(
         graph_view->drawing_area
@@ -1276,7 +1347,9 @@ static GPtrArray *investigation_graph_view_list_active_entities(
  */
 static GPtrArray *investigation_graph_view_create_layout(
     const GPtrArray *active_entities,
-    int width
+    const InvestigationGraphLayout *graph_layout,
+    int width,
+    gboolean apply_persisted_positions
 )
 {
     GPtrArray *node_layouts =
@@ -1361,6 +1434,15 @@ static GPtrArray *investigation_graph_view_create_layout(
             return NULL;
         }
 
+        const char *entity_identifier =
+            NULL;
+
+        double persisted_x =
+            0.0;
+
+        double persisted_y =
+            0.0;
+
         node_layout->entity_record =
             g_ptr_array_index(
                 active_entities,
@@ -1376,6 +1458,29 @@ static GPtrArray *investigation_graph_view_create_layout(
             ((double) row *
              (INVESTIGATION_GRAPH_VIEW_NODE_HEIGHT +
               INVESTIGATION_GRAPH_VIEW_VERTICAL_GAP));
+
+        entity_identifier =
+            entity_record_get_identifier(
+                node_layout->entity_record
+            );
+
+        if (apply_persisted_positions &&
+            graph_layout != NULL &&
+            entity_identifier != NULL &&
+            entity_identifier[0] != '\0' &&
+            investigation_graph_layout_get_position(
+                graph_layout,
+                entity_identifier,
+                &persisted_x,
+                &persisted_y
+            ))
+        {
+            node_layout->x =
+                persisted_x;
+
+            node_layout->y =
+                persisted_y;
+        }
 
         g_ptr_array_add(
             node_layouts,
@@ -1540,6 +1645,7 @@ static void investigation_graph_view_set_layout_error(
 static gboolean investigation_graph_view_build_layout(
     InvestigationGraphView *graph_view,
     int width,
+    gboolean apply_persisted_positions,
     GError **error
 )
 {
@@ -1597,7 +1703,9 @@ static gboolean investigation_graph_view_build_layout(
     node_layouts =
         investigation_graph_view_create_layout(
             active_entities,
-            width
+            graph_view->graph_layout,
+            width,
+            apply_persisted_positions
         );
 
     if (node_layouts == NULL)
@@ -3146,6 +3254,73 @@ GtkWidget *investigation_graph_view_get_widget(
     return graph_view->drawing_area;
 }
 
+/**
+ * @brief Reconstruit la disposition privée du graphe affiché.
+ *
+ * Le zoom et le déplacement global du canvas sont conservés.
+ */
+static void investigation_graph_view_rebuild_current_layout(
+    InvestigationGraphView *graph_view,
+    gboolean apply_persisted_positions
+)
+{
+    GError *error =
+        NULL;
+
+    int width =
+        640;
+
+    if (graph_view == NULL ||
+        graph_view->graph_model == NULL)
+    {
+        return;
+    }
+
+    investigation_graph_view_clear_layout(
+        graph_view
+    );
+
+    if (graph_view->drawing_area != NULL)
+    {
+        width =
+            gtk_widget_get_width(
+                graph_view->drawing_area
+            );
+
+        if (width <= 0)
+        {
+            width =
+                640;
+        }
+    }
+
+    if (!investigation_graph_view_build_layout(
+            graph_view,
+            width,
+            apply_persisted_positions,
+            &error
+        ))
+    {
+        graph_view->layout_error_message =
+            g_strdup(
+                error != NULL
+                    ? error->message
+                    : "Impossible de reconstruire la disposition du graphe."
+            );
+    }
+
+    g_clear_error(
+        &error
+    );
+
+    if (graph_view->drawing_area != NULL)
+    {
+        gtk_widget_queue_draw(
+            graph_view->drawing_area
+        );
+    }
+}
+
 void investigation_graph_view_set_graph(
     InvestigationGraphView *graph_view,
     const InvestigationGraphModel *graph_model
@@ -3195,6 +3370,7 @@ void investigation_graph_view_set_graph(
     if (!investigation_graph_view_build_layout(
             graph_view,
             width,
+            TRUE,
             &error
         ))
     {
@@ -3215,6 +3391,25 @@ void investigation_graph_view_set_graph(
     );
 }
 
+void investigation_graph_view_set_layout(
+    InvestigationGraphView *graph_view,
+    const InvestigationGraphLayout *graph_layout
+)
+{
+    if (graph_view == NULL)
+    {
+        return;
+    }
+
+    graph_view->graph_layout =
+        graph_layout;
+
+    investigation_graph_view_rebuild_current_layout(
+        graph_view,
+        TRUE
+    );
+}
+
 void investigation_graph_view_clear(
     InvestigationGraphView *graph_view
 )
@@ -3229,6 +3424,9 @@ void investigation_graph_view_clear(
     );
 
     graph_view->graph_model =
+        NULL;
+
+    graph_view->graph_layout =
         NULL;
 
     investigation_graph_view_reset_view(
@@ -3251,6 +3449,24 @@ void investigation_graph_view_set_selection_callback(
         callback;
 
     graph_view->selection_user_data =
+        user_data;
+}
+
+void investigation_graph_view_set_node_moved_callback(
+    InvestigationGraphView *graph_view,
+    InvestigationGraphViewNodeMovedCallback callback,
+    gpointer user_data
+)
+{
+    if (graph_view == NULL)
+    {
+        return;
+    }
+
+    graph_view->node_moved_callback =
+        callback;
+
+    graph_view->node_moved_user_data =
         user_data;
 }
 
@@ -3377,6 +3593,7 @@ void investigation_graph_view_reset_layout(
         if (!investigation_graph_view_build_layout(
                 graph_view,
                 width,
+                FALSE,
                 &error
             ))
         {
@@ -3416,11 +3633,20 @@ void investigation_graph_view_free(
     graph_view->selection_user_data =
         NULL;
 
+    graph_view->node_moved_callback =
+        NULL;
+
+    graph_view->node_moved_user_data =
+        NULL;
+
     investigation_graph_view_clear_layout(
         graph_view
     );
 
     graph_view->graph_model =
+        NULL;
+
+    graph_view->graph_layout =
         NULL;
 
     if (graph_view->drawing_area != NULL)

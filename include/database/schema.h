@@ -54,4 +54,23 @@ bool schema_install_v2(
     Database *database
 );
 
+/**
+ * @brief Garantit la présence des extensions du schéma courant V2.
+ *
+ * La connexion doit être valide et une transaction doit déjà être active.
+ *
+ * Cette fonction applique uniquement des opérations idempotentes destinées
+ * aux nouvelles bases comme aux bases V2 déjà existantes.
+ *
+ * Elle ne modifie pas la version enregistrée dans metadata.
+ * Elle ne réalise ni COMMIT ni ROLLBACK.
+ *
+ * @param database Connexion Database ouverte.
+ *
+ * @return true si les extensions sont présentes, sinon false.
+ */
+bool schema_ensure_current(
+    Database *database
+);
+
 #endif

@@ -21,6 +21,11 @@ typedef struct EntityRecord EntityRecord;
 typedef struct InvestigationGraphModel InvestigationGraphModel;
 
 /**
+ * @brief Représentation opaque de la disposition persistée du graphe.
+ */
+typedef struct InvestigationGraphLayout InvestigationGraphLayout;
+
+/**
  * @brief Représentation opaque de la vue graphique.
  */
 typedef struct InvestigationGraphView InvestigationGraphView;
@@ -35,6 +40,25 @@ typedef struct InvestigationGraphView InvestigationGraphView;
  */
 typedef void (*InvestigationGraphViewSelectionCallback)(
     const EntityRecord *entity_record,
+    gpointer user_data
+);
+
+/**
+ * @brief Callback appelé après le déplacement effectif d'un nœud.
+ *
+ * Les coordonnées sont exprimées dans l'espace logique du graphe.
+ * entity_identifier est emprunté au modèle et reste valable uniquement
+ * pendant l'appel.
+ *
+ * @param entity_identifier UUID de l'entité déplacée.
+ * @param x Coordonnée horizontale logique du coin supérieur gauche.
+ * @param y Coordonnée verticale logique du coin supérieur gauche.
+ * @param user_data Données empruntées fournies par l'appelant.
+ */
+typedef void (*InvestigationGraphViewNodeMovedCallback)(
+    const char *entity_identifier,
+    double x,
+    double y,
     gpointer user_data
 );
 
@@ -75,6 +99,25 @@ void investigation_graph_view_set_graph(
 );
 
 /**
+ * @brief Associe une disposition persistée à la vue.
+ *
+ * La disposition est empruntée et doit rester valide pendant son utilisation.
+ *
+ * Lorsqu'un graphe est déjà affiché, la disposition privée de ses nœuds est
+ * reconstruite. Une position persistée remplace la position automatique
+ * uniquement lorsqu'elle existe pour l'entité concernée.
+ *
+ * Passer NULL rétablit le placement automatique.
+ *
+ * @param graph_view Vue graphique à mettre à jour.
+ * @param graph_layout Disposition persistée empruntée, ou NULL.
+ */
+void investigation_graph_view_set_layout(
+    InvestigationGraphView *graph_view,
+    const InvestigationGraphLayout *graph_layout
+);
+
+/**
  * @brief Détache le graphe actuellement affiché.
  *
  * Le graphe précédemment emprunté n'est pas libéré.
@@ -97,6 +140,24 @@ void investigation_graph_view_clear(
 void investigation_graph_view_set_selection_callback(
     InvestigationGraphView *graph_view,
     InvestigationGraphViewSelectionCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de fin de déplacement d'un nœud.
+ *
+ * Le callback et user_data sont empruntés par la vue.
+ *
+ * Le callback n'est appelé ni pendant le déplacement du canvas, ni pour
+ * un simple clic, ni pendant une reconstruction de la disposition.
+ *
+ * @param graph_view Vue graphique.
+ * @param callback Callback à appeler, ou NULL.
+ * @param user_data Données empruntées du callback.
+ */
+void investigation_graph_view_set_node_moved_callback(
+    InvestigationGraphView *graph_view,
+    InvestigationGraphViewNodeMovedCallback callback,
     gpointer user_data
 );
 

@@ -21,6 +21,11 @@
 typedef struct InvestigationGraphModel InvestigationGraphModel;
 
 /**
+ * @brief Représentation opaque de la disposition du graphe.
+ */
+typedef struct InvestigationGraphLayout InvestigationGraphLayout;
+
+/**
  * @brief Représentation opaque de la fenêtre principale.
  */
 typedef struct MainWindow MainWindow;
@@ -72,6 +77,21 @@ typedef void (*MainWindowVerifyEvidenceCallback)(
 );
 
 /**
+ * @brief Callback appelé après le déplacement effectif d'un nœud.
+ *
+ * @param entity_identifier UUID de l'entité déplacée.
+ * @param x Coordonnée horizontale logique.
+ * @param y Coordonnée verticale logique.
+ * @param user_data Données privées du callback.
+ */
+typedef void (*MainWindowGraphNodeMovedCallback)(
+    const char *entity_identifier,
+    double x,
+    double y,
+    gpointer user_data
+);
+
+/**
  * @brief Définit le callback de vérification d'une preuve.
  *
  * MainWindow relaie la demande provenant du Workspace.
@@ -83,6 +103,21 @@ typedef void (*MainWindowVerifyEvidenceCallback)(
 void main_window_set_verify_evidence_callback(
     MainWindow *main_window,
     MainWindowVerifyEvidenceCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de fin de déplacement d'un nœud.
+ *
+ * MainWindow relaie uniquement l'événement provenant du Workspace.
+ *
+ * @param main_window Fenêtre principale.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void main_window_set_graph_node_moved_callback(
+    MainWindow *main_window,
+    MainWindowGraphNodeMovedCallback callback,
     gpointer user_data
 );
 
@@ -247,16 +282,20 @@ void main_window_set_graph_loading(
 );
 
 /**
- * @brief Affiche le graphe chargé dans le Workspace.
+ * @brief Affiche le graphe chargé et sa disposition dans le Workspace.
  *
- * MainWindow et Workspace empruntent graph_model.
+ * MainWindow et Workspace empruntent graph_model et graph_layout.
+ *
+ * Passer NULL pour graph_layout conserve le placement automatique.
  *
  * @param main_window Fenêtre principale.
  * @param graph_model Graphe emprunté, ou NULL.
+ * @param graph_layout Disposition empruntée, ou NULL.
  */
 void main_window_set_graph(
     MainWindow *main_window,
-    const InvestigationGraphModel *graph_model
+    const InvestigationGraphModel *graph_model,
+    const InvestigationGraphLayout *graph_layout
 );
 
 /**

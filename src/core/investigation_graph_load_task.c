@@ -8,7 +8,10 @@
 #include "core/background_task.h"
 #include "core/investigation_graph_loader.h"
 
+#include "dao/graph_node_position_dao.h"
 #include "database/database.h"
+#include "models/graph_node_position.h"
+#include "models/investigation_graph_layout.h"
 
 #include <gio/gio.h>
 #include <glib.h>
@@ -35,6 +38,7 @@ typedef struct
 typedef struct
 {
     InvestigationGraphModel *graph_model;
+    InvestigationGraphLayout *graph_layout;
 } InvestigationGraphLoadResult;
 
 /**
@@ -60,6 +64,8 @@ struct InvestigationGraphLoadTask
     InvestigationGraphLoadTaskCallback callback;
     gpointer user_data;
     GDestroyNotify user_data_destroy;
+
+    InvestigationGraphLayout *completed_layout;
 
     gboolean running;
     gboolean disposed;
@@ -484,7 +490,14 @@ static void investigation_graph_load_result_free(
         load_result->graph_model
     );
 
+    investigation_graph_layout_free(
+        load_result->graph_layout
+    );
+
     load_result->graph_model =
+        NULL;
+
+    load_result->graph_layout =
         NULL;
 
     g_free(
@@ -572,6 +585,13 @@ static void investigation_graph_load_task_destroy(
             user_data
         );
     }
+
+    investigation_graph_layout_free(
+        load_task->completed_layout
+    );
+
+    load_task->completed_layout =
+        NULL;
 
     g_free(
         load_task->database_path
@@ -685,7 +705,16 @@ static gboolean investigation_graph_load_task_worker(
     InvestigationGraphLoader *graph_loader =
         NULL;
 
+    GraphNodePositionDao *position_dao =
+        NULL;
+
+    GPtrArray *positions =
+        NULL;
+
     InvestigationGraphModel *graph_model =
+        NULL;
+
+    InvestigationGraphLayout *graph_layout =
         NULL;
 
     InvestigationGraphLoadResult *load_result =
@@ -693,6 +722,9 @@ static gboolean investigation_graph_load_task_worker(
 
     GError *component_error =
         NULL;
+
+    guint position_index =
+        0;
 
     if (background_task == NULL ||
         cancellable == NULL ||
@@ -833,6 +865,128 @@ static gboolean investigation_graph_load_task_worker(
         goto failure;
     }
 
+    background_task_report_progress(
+        background_task,
+        0.65,
+        "Chargement des positions du graphe"
+    );
+
+    position_dao =
+        graph_node_position_dao_new(
+            database,
+            &component_error
+        );
+
+    if (position_dao == NULL)
+    {
+        investigation_graph_load_task_set_nested_error(
+            error,
+            INVESTIGATION_GRAPH_LOAD_TASK_ERROR_LOAD,
+            "Impossible de préparer le chargement des positions",
+            component_error
+        );
+
+        goto failure;
+    }
+
+    g_clear_error(
+        &component_error
+    );
+
+    positions =
+        graph_node_position_dao_list_all(
+            position_dao,
+            &component_error
+        );
+
+    if (positions == NULL)
+    {
+        investigation_graph_load_task_set_nested_error(
+            error,
+            INVESTIGATION_GRAPH_LOAD_TASK_ERROR_LOAD,
+            "Impossible de charger les positions du graphe",
+            component_error
+        );
+
+        goto failure;
+    }
+
+    g_clear_error(
+        &component_error
+    );
+
+    graph_layout =
+        investigation_graph_layout_new();
+
+    if (graph_layout == NULL)
+    {
+        investigation_graph_load_task_set_error_literal(
+            error,
+            INVESTIGATION_GRAPH_LOAD_TASK_ERROR_MEMORY,
+            "Impossible d'allouer la disposition du graphe."
+        );
+
+        goto failure;
+    }
+
+    for (position_index = 0;
+         position_index < positions->len;
+         position_index++)
+    {
+        const GraphNodePosition *position =
+            g_ptr_array_index(
+                positions,
+                position_index
+            );
+
+        if (position == NULL)
+        {
+            continue;
+        }
+
+        if (!investigation_graph_layout_set_position(
+                graph_layout,
+                graph_node_position_get_entity_identifier(
+                    position
+                ),
+                graph_node_position_get_x(
+                    position
+                ),
+                graph_node_position_get_y(
+                    position
+                ),
+                &component_error
+            ))
+        {
+            investigation_graph_load_task_set_nested_error(
+                error,
+                INVESTIGATION_GRAPH_LOAD_TASK_ERROR_LOAD,
+                "Impossible de construire la disposition du graphe",
+                component_error
+            );
+
+            goto failure;
+        }
+
+        g_clear_error(
+            &component_error
+        );
+    }
+
+    g_ptr_array_unref(
+        positions
+    );
+
+    positions =
+        NULL;
+
+    graph_node_position_dao_free(
+        position_dao
+    );
+
+    position_dao =
+        NULL;
+
     investigation_graph_loader_free(
         graph_loader
     );
@@ -875,7 +1029,13 @@ static gboolean investigation_graph_load_task_worker(
     load_result->graph_model =
         graph_model;
 
+    load_result->graph_layout =
+        graph_layout;
+
     graph_model =
+        NULL;
+
+    graph_layout =
         NULL;
 
     if (investigation_graph_load_task_check_cancelled(
@@ -909,6 +1069,21 @@ failure:
 
     investigation_graph_model_free(
         graph_model
+    );
+
+    investigation_graph_layout_free(
+        graph_layout
+    );
+
+    if (positions != NULL)
+    {
+        g_ptr_array_unref(
+            positions
+        );
+    }
+
+    graph_node_position_dao_free(
+        position_dao
     );
 
     investigation_graph_loader_free(
@@ -1015,6 +1190,9 @@ static void investigation_graph_load_task_on_completed(
     InvestigationGraphModel *graph_model =
         NULL;
 
+    InvestigationGraphLayout *graph_layout =
+        NULL;
+
     GError *callback_error =
         NULL;
 
@@ -1085,12 +1263,19 @@ static void investigation_graph_load_task_on_completed(
                 );
 
             if (load_result != NULL &&
-                load_result->graph_model != NULL)
+                load_result->graph_model != NULL &&
+                load_result->graph_layout != NULL)
             {
                 graph_model =
                     load_result->graph_model;
 
+                graph_layout =
+                    load_result->graph_layout;
+
                 load_result->graph_model =
+                    NULL;
+
+                load_result->graph_layout =
                     NULL;
             }
             else
@@ -1109,6 +1294,27 @@ static void investigation_graph_load_task_on_completed(
                 investigation_graph_load_task_create_callback_error(
                     background_task
                 );
+        }
+
+        if (graph_layout != NULL)
+        {
+            g_mutex_lock(
+                &load_task->mutex
+            );
+
+            investigation_graph_layout_free(
+                load_task->completed_layout
+            );
+
+            load_task->completed_layout =
+                graph_layout;
+
+            graph_layout =
+                NULL;
+
+            g_mutex_unlock(
+                &load_task->mutex
+            );
         }
 
         callback(
@@ -1448,6 +1654,13 @@ gboolean investigation_graph_load_task_start(
         goto start_failure_locked;
     }
 
+    investigation_graph_layout_free(
+        load_task->completed_layout
+    );
+
+    load_task->completed_layout =
+        NULL;
+
     load_task->background_task =
         background_task;
 
@@ -1609,4 +1822,33 @@ gboolean investigation_graph_load_task_is_running(
     );
 
     return running;
+}
+
+InvestigationGraphLayout *investigation_graph_load_task_take_layout(
+    InvestigationGraphLoadTask *load_task
+)
+{
+    InvestigationGraphLayout *graph_layout =
+        NULL;
+
+    if (load_task == NULL)
+    {
+        return NULL;
+    }
+
+    g_mutex_lock(
+        &load_task->mutex
+    );
+
+    graph_layout =
+        load_task->completed_layout;
+
+    load_task->completed_layout =
+        NULL;
+
+    g_mutex_unlock(
+        &load_task->mutex
+    );
+
+    return graph_layout;
 }

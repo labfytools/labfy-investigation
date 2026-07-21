@@ -92,6 +92,12 @@ struct MainWindow
     gpointer
         verify_evidence_user_data;
 
+    MainWindowGraphNodeMovedCallback
+        graph_node_moved_callback;
+
+    gpointer
+        graph_node_moved_user_data;
+
     MainWindowQuitCallback
         quit_callback;
 
@@ -250,6 +256,35 @@ static GtkWidget *main_window_create_action_button(
     }
 
     return button;
+}
+
+/**
+ * @brief Relaie la demande de vérification provenant du Workspace.
+ */
+static void main_window_on_graph_node_moved(
+    const char *entity_identifier,
+    double x,
+    double y,
+    gpointer user_data
+)
+{
+    MainWindow *main_window =
+        user_data;
+
+    if (main_window == NULL ||
+        main_window->graph_node_moved_callback == NULL ||
+        entity_identifier == NULL ||
+        entity_identifier[0] == '\0')
+    {
+        return;
+    }
+
+    main_window->graph_node_moved_callback(
+        entity_identifier,
+        x,
+        y,
+        main_window->graph_node_moved_user_data
+    );
 }
 
 /**
@@ -512,6 +547,12 @@ MainWindow *main_window_new(
     workspace_set_verify_evidence_callback(
         main_window->workspace,
         main_window_on_verify_evidence_requested,
+        main_window
+    );
+
+    workspace_set_graph_node_moved_callback(
+        main_window->workspace,
+        main_window_on_graph_node_moved,
         main_window
     );
 
@@ -870,7 +911,8 @@ void main_window_set_graph_loading(
 
 void main_window_set_graph(
     MainWindow *main_window,
-    const InvestigationGraphModel *graph_model
+    const InvestigationGraphModel *graph_model,
+    const InvestigationGraphLayout *graph_layout
 )
 {
     if (main_window == NULL)
@@ -880,7 +922,8 @@ void main_window_set_graph(
 
     workspace_set_graph(
         main_window->workspace,
-        graph_model
+        graph_model,
+        graph_layout
     );
 }
 
@@ -1058,6 +1101,24 @@ void main_window_set_verify_evidence_callback(
         user_data;
 }
 
+void main_window_set_graph_node_moved_callback(
+    MainWindow *main_window,
+    MainWindowGraphNodeMovedCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    main_window->graph_node_moved_callback =
+        callback;
+
+    main_window->graph_node_moved_user_data =
+        user_data;
+}
+
 void main_window_set_quit_callback(
     MainWindow *main_window,
     MainWindowQuitCallback callback,
@@ -1173,6 +1234,18 @@ void main_window_free(
             NULL,
             NULL
         );
+
+        workspace_set_graph_node_moved_callback(
+            main_window->workspace,
+            NULL,
+            NULL
+        );
+
+        main_window->graph_node_moved_callback =
+            NULL;
+
+        main_window->graph_node_moved_user_data =
+            NULL;
 
         main_window_clear_graph(
             main_window

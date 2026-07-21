@@ -17,6 +17,11 @@
 typedef struct InvestigationGraphModel InvestigationGraphModel;
 
 /**
+ * @brief Représentation opaque de la disposition du graphe.
+ */
+typedef struct InvestigationGraphLayout InvestigationGraphLayout;
+
+/**
  * @brief Représentation opaque de la zone de travail.
  */
 typedef struct Workspace Workspace;
@@ -29,6 +34,23 @@ typedef struct Workspace Workspace;
  */
 typedef void (*WorkspaceVerifyEvidenceCallback)(
     const char *evidence_identifier,
+    gpointer user_data
+);
+
+/**
+ * @brief Callback appelé après le déplacement effectif d'un nœud.
+ *
+ * Les coordonnées sont exprimées dans l'espace logique du graphe.
+ *
+ * @param entity_identifier UUID de l'entité déplacée.
+ * @param x Coordonnée horizontale logique.
+ * @param y Coordonnée verticale logique.
+ * @param user_data Données empruntées fournies par l'appelant.
+ */
+typedef void (*WorkspaceGraphNodeMovedCallback)(
+    const char *entity_identifier,
+    double x,
+    double y,
     gpointer user_data
 );
 
@@ -98,6 +120,21 @@ void workspace_set_verify_evidence_callback(
 );
 
 /**
+ * @brief Définit le callback de fin de déplacement d'un nœud.
+ *
+ * Le Workspace relaie uniquement l'événement provenant de la vue graphique.
+ *
+ * @param workspace Zone de travail.
+ * @param callback Callback facultatif.
+ * @param user_data Données empruntées transmises au callback.
+ */
+void workspace_set_graph_node_moved_callback(
+    Workspace *workspace,
+    WorkspaceGraphNodeMovedCallback callback,
+    gpointer user_data
+);
+
+/**
  * @brief Affiche l'état de chargement du graphe.
  *
  * L'ancien graphe emprunté est détaché.
@@ -109,17 +146,21 @@ void workspace_set_graph_loading(
 );
 
 /**
- * @brief Affiche le résumé du graphe chargé.
+ * @brief Affiche le graphe chargé avec sa disposition persistée.
  *
- * Le Workspace emprunte graph_model et ne le libère jamais.
- * Passer NULL équivaut à workspace_clear_graph().
+ * Le Workspace emprunte graph_model et graph_layout et ne les libère jamais.
+ *
+ * Passer NULL pour graph_model équivaut à workspace_clear_graph().
+ * Passer NULL pour graph_layout conserve le placement automatique.
  *
  * @param workspace Zone de travail.
  * @param graph_model Graphe emprunté.
+ * @param graph_layout Disposition empruntée, ou NULL.
  */
 void workspace_set_graph(
     Workspace *workspace,
-    const InvestigationGraphModel *graph_model
+    const InvestigationGraphModel *graph_model,
+    const InvestigationGraphLayout *graph_layout
 );
 
 /**

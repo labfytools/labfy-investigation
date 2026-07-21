@@ -516,6 +516,9 @@ $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	src/core/investigation_graph_loader.c \
 	src/core/background_task.c \
 	src/dao/entity_dao.c \
+	src/models/investigation_graph_layout.c \
+	src/models/graph_node_position.c \
+	src/dao/graph_node_position_dao.c \
 	src/dao/relation_dao.c \
 	src/models/investigation_graph_model.c \
 	src/models/entity_record.c \

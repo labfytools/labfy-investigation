@@ -238,6 +238,79 @@ bool database_statement_bind_int64(
     return true;
 }
 
+bool database_statement_bind_double(
+    DatabaseStatement *statement,
+    int index,
+    double value
+)
+{
+    sqlite3 *database_handle =
+        NULL;
+
+    const char *error_message =
+        NULL;
+
+    int result =
+        SQLITE_ERROR;
+
+    if (statement == NULL)
+    {
+        return false;
+    }
+
+    if (statement->handle == NULL ||
+        index <= 0)
+    {
+        database_set_error(
+            statement->database,
+            DATABASE_ERROR_INVALID_ARGUMENT,
+            "Paramètres invalides pour la liaison d'un nombre réel."
+        );
+
+        return false;
+    }
+
+    result =
+        sqlite3_bind_double(
+            statement->handle,
+            index,
+            value
+        );
+
+    if (result != SQLITE_OK)
+    {
+        database_handle =
+            database_get_handle(
+                statement->database
+            );
+
+        error_message =
+            database_handle != NULL
+                ? sqlite3_errmsg(database_handle)
+                : sqlite3_errstr(result);
+
+        database_set_error(
+            statement->database,
+            DATABASE_ERROR_SQLITE,
+            error_message
+        );
+
+        g_warning(
+            "Impossible de lier le paramètre réel %d : %s",
+            index,
+            error_message
+        );
+
+        return false;
+    }
+
+    database_clear_error_internal(
+        statement->database
+    );
+
+    return true;
+}
+
 bool database_statement_bind_null(
     DatabaseStatement *statement,
     int index
@@ -473,6 +546,57 @@ bool database_statement_column_is_null(
             statement->handle,
             column_index
         ) == SQLITE_NULL;
+
+    return true;
+}
+
+bool database_statement_column_double(
+    DatabaseStatement *statement,
+    int column_index,
+    double *value
+)
+{
+    int column_count =
+        0;
+
+    int column_type =
+        SQLITE_NULL;
+
+    if (statement == NULL ||
+        statement->handle == NULL ||
+        value == NULL)
+    {
+        return false;
+    }
+
+    column_count =
+        sqlite3_column_count(
+            statement->handle
+        );
+
+    if (column_index < 0 ||
+        column_index >= column_count)
+    {
+        return false;
+    }
+
+    column_type =
+        sqlite3_column_type(
+            statement->handle,
+            column_index
+        );
+
+    if (column_type != SQLITE_FLOAT &&
+        column_type != SQLITE_INTEGER)
+    {
+        return false;
+    }
+
+    *value =
+        sqlite3_column_double(
+            statement->handle,
+            column_index
+        );
 
     return true;
 }
