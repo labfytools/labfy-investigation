@@ -158,4 +158,3 @@ void workspace_free(
 );
 
 #endif
-

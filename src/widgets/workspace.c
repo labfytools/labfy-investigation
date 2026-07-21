@@ -5,6 +5,7 @@
 
 #include "widgets/workspace.h"
 
+#include "widgets/entity_details_panel.h"
 #include "widgets/investigation_graph_view.h"
 
 #include <glib.h>
@@ -45,7 +46,10 @@ struct Workspace
     GtkWidget *graph_title_label;
     GtkWidget *graph_details_label;
 
+    GtkWidget *graph_view_page;
+
     InvestigationGraphView *graph_view;
+    EntityDetailsPanel *entity_details_panel;
 
     GtkWidget *node_page;
 
@@ -248,6 +252,50 @@ static const char *workspace_get_integrity_status_text(
         default:
             return "Statut inconnu";
     }
+}
+
+/**
+ * @brief Transmet la sélection du graphe au volet de détails.
+ */
+static void workspace_on_graph_entity_selected(
+    const EntityRecord *entity_record,
+    gpointer user_data
+)
+{
+    Workspace *workspace =
+        user_data;
+
+    if (workspace == NULL ||
+        workspace->entity_details_panel == NULL)
+    {
+        return;
+    }
+
+    entity_details_panel_set_entity(
+        workspace->entity_details_panel,
+        entity_record
+    );
+}
+
+/**
+ * @brief Désélectionne le nœud lorsque le volet est fermé manuellement.
+ */
+static void workspace_on_entity_details_closed(
+    gpointer user_data
+)
+{
+    Workspace *workspace =
+        user_data;
+
+    if (workspace == NULL ||
+        workspace->graph_view == NULL)
+    {
+        return;
+    }
+
+    investigation_graph_view_clear_selection(
+        workspace->graph_view
+    );
 }
 
 /**
@@ -896,12 +944,12 @@ Workspace *workspace_new(void)
     );
 
     /*
-     * Vue graphique en lecture seule.
+     * Page graphique : canvas principal et volet de détails superposé.
      */
-    workspace->graph_view =
-        investigation_graph_view_new();
+    workspace->graph_view_page =
+        gtk_overlay_new();
 
-    if (workspace->graph_view == NULL)
+    if (workspace->graph_view_page == NULL)
     {
         workspace_free(
             workspace
@@ -910,11 +958,75 @@ Workspace *workspace_new(void)
         return NULL;
     }
 
-    gtk_stack_add_named(
-        GTK_STACK(workspace->stack),
+    gtk_widget_set_hexpand(
+        workspace->graph_view_page,
+        TRUE
+    );
+
+    gtk_widget_set_vexpand(
+        workspace->graph_view_page,
+        TRUE
+    );
+
+    workspace->graph_view =
+        investigation_graph_view_new();
+
+    workspace->entity_details_panel =
+        entity_details_panel_new();
+
+    if (workspace->graph_view == NULL ||
+        workspace->entity_details_panel == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    investigation_graph_view_set_selection_callback(
+        workspace->graph_view,
+        workspace_on_graph_entity_selected,
+        workspace
+    );
+
+    entity_details_panel_set_close_callback(
+        workspace->entity_details_panel,
+        workspace_on_entity_details_closed,
+        workspace
+    );
+
+    gtk_overlay_set_child(
+        GTK_OVERLAY(
+            workspace->graph_view_page
+        ),
         investigation_graph_view_get_widget(
             workspace->graph_view
+        )
+    );
+
+    gtk_overlay_add_overlay(
+        GTK_OVERLAY(
+            workspace->graph_view_page
         ),
+        entity_details_panel_get_widget(
+            workspace->entity_details_panel
+        )
+    );
+
+    gtk_overlay_set_clip_overlay(
+        GTK_OVERLAY(
+            workspace->graph_view_page
+        ),
+        entity_details_panel_get_widget(
+            workspace->entity_details_panel
+        ),
+        TRUE
+    );
+
+    gtk_stack_add_named(
+        GTK_STACK(workspace->stack),
+        workspace->graph_view_page,
         WORKSPACE_PAGE_GRAPH_VIEW
     );
 
@@ -1283,6 +1395,10 @@ void workspace_set_graph_loading(
         );
     }
 
+    entity_details_panel_clear(
+        workspace->entity_details_panel
+    );
+
     investigation_graph_view_clear(
         workspace->graph_view
     );
@@ -1355,6 +1471,10 @@ void workspace_set_graph(
         );
     }
 
+    entity_details_panel_clear(
+        workspace->entity_details_panel
+    );
+
     workspace->graph_model =
         graph_model;
 
@@ -1418,6 +1538,10 @@ void workspace_set_graph_error(
             FALSE
         );
     }
+
+    entity_details_panel_clear(
+        workspace->entity_details_panel
+    );
 
     investigation_graph_view_clear(
         workspace->graph_view
@@ -1484,6 +1608,10 @@ void workspace_clear_graph(
         );
     }
 
+    entity_details_panel_clear(
+        workspace->entity_details_panel
+    );
+
     investigation_graph_view_clear(
         workspace->graph_view
     );
@@ -1549,6 +1677,22 @@ void workspace_free(Workspace *workspace)
         return;
     }
 
+    investigation_graph_view_set_selection_callback(
+        workspace->graph_view,
+        NULL,
+        NULL
+    );
+
+    entity_details_panel_set_close_callback(
+        workspace->entity_details_panel,
+        NULL,
+        NULL
+    );
+
+    entity_details_panel_clear(
+        workspace->entity_details_panel
+    );
+
     investigation_graph_view_clear(
         workspace->graph_view
     );
@@ -1557,7 +1701,14 @@ void workspace_free(Workspace *workspace)
         workspace->graph_view
     );
 
+    entity_details_panel_free(
+        workspace->entity_details_panel
+    );
+
     workspace->graph_view =
+        NULL;
+
+    workspace->entity_details_panel =
         NULL;
 
     workspace->graph_model =
@@ -1576,4 +1727,3 @@ void workspace_free(Workspace *workspace)
 
     g_free(workspace);
 }
-

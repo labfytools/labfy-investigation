@@ -28,6 +28,7 @@
 #define INVESTIGATION_GRAPH_VIEW_SCROLL_ZOOM_SPEED 0.08
 #define INVESTIGATION_GRAPH_VIEW_MIN_SCROLL_FACTOR 0.50
 #define INVESTIGATION_GRAPH_VIEW_MAX_SCROLL_FACTOR 1.50
+#define INVESTIGATION_GRAPH_VIEW_CLICK_TOLERANCE 4.0
 
 /**
  * @brief Position privée d'une entité dans la vue.
@@ -50,11 +51,20 @@ struct InvestigationGraphView
 
     GtkGesture *zoom_gesture;
     GtkGesture *drag_gesture;
+    GtkGesture *click_gesture;
 
     GtkEventController *scroll_controller;
     GtkEventController *motion_controller;
 
     const InvestigationGraphModel *graph_model;
+
+    GPtrArray *node_layouts;
+    GHashTable *node_layouts_by_identifier;
+
+    GPtrArray *relations;
+    GHashTable *relation_pair_counts;
+
+    char *layout_error_message;
 
     double zoom;
     double offset_x;
@@ -75,8 +85,20 @@ struct InvestigationGraphView
     double drag_origin_offset_x;
     double drag_origin_offset_y;
 
+    InvestigationGraphNodeLayout *dragged_node;
+    InvestigationGraphNodeLayout *selected_node;
+    InvestigationGraphNodeLayout *click_candidate_node;
+
+    InvestigationGraphViewSelectionCallback selection_callback;
+    gpointer selection_user_data;
+
+    double node_drag_pointer_offset_x;
+    double node_drag_pointer_offset_y;
+
     gboolean pointer_position_valid;
     gboolean dragging;
+    gboolean node_dragging;
+    gboolean click_suppressed;
 };
 
 /**
@@ -468,7 +490,326 @@ static gboolean investigation_graph_view_on_scroll(
 }
 
 /**
- * @brief Commence le déplacement de l'ensemble du canvas.
+ * @brief Convertit une position écran en coordonnées logiques du graphe.
+ */
+static gboolean investigation_graph_view_screen_to_logical(
+    const InvestigationGraphView *graph_view,
+    double screen_x,
+    double screen_y,
+    double *logical_x,
+    double *logical_y
+)
+{
+    if (graph_view == NULL ||
+        logical_x == NULL ||
+        logical_y == NULL ||
+        graph_view->zoom <= 0.0)
+    {
+        return FALSE;
+    }
+
+    *logical_x =
+        (
+            screen_x -
+            graph_view->offset_x
+        ) /
+        graph_view->zoom;
+
+    *logical_y =
+        (
+            screen_y -
+            graph_view->offset_y
+        ) /
+        graph_view->zoom;
+
+    return TRUE;
+}
+
+/**
+ * @brief Recherche le nœud situé sous une position logique.
+ *
+ * La recherche est effectuée depuis la fin du tableau afin de privilégier
+ * les nœuds dessinés au premier plan.
+ */
+static InvestigationGraphNodeLayout *
+investigation_graph_view_find_node_at(
+    InvestigationGraphView *graph_view,
+    double logical_x,
+    double logical_y
+)
+{
+    guint layout_position =
+        0;
+
+    if (graph_view == NULL ||
+        graph_view->node_layouts == NULL)
+    {
+        return NULL;
+    }
+
+    layout_position =
+        graph_view->node_layouts->len;
+
+    while (layout_position > 0)
+    {
+        InvestigationGraphNodeLayout *node_layout =
+            NULL;
+
+        layout_position--;
+
+        node_layout =
+            g_ptr_array_index(
+                graph_view->node_layouts,
+                layout_position
+            );
+
+        if (node_layout == NULL)
+        {
+            continue;
+        }
+
+        if (logical_x >= node_layout->x &&
+            logical_x <=
+                node_layout->x +
+                INVESTIGATION_GRAPH_VIEW_NODE_WIDTH &&
+            logical_y >= node_layout->y &&
+            logical_y <=
+                node_layout->y +
+                INVESTIGATION_GRAPH_VIEW_NODE_HEIGHT)
+        {
+            return node_layout;
+        }
+    }
+
+    return NULL;
+}
+
+/**
+ * @brief Modifie la sélection et prévient l'appelant si elle change.
+ */
+static void investigation_graph_view_set_selected_node(
+    InvestigationGraphView *graph_view,
+    InvestigationGraphNodeLayout *node_layout
+)
+{
+    const EntityRecord *entity_record =
+        NULL;
+
+    if (graph_view == NULL ||
+        graph_view->selected_node == node_layout)
+    {
+        return;
+    }
+
+    graph_view->selected_node =
+        node_layout;
+
+    if (node_layout != NULL)
+    {
+        entity_record =
+            node_layout->entity_record;
+    }
+
+    if (graph_view->drawing_area != NULL)
+    {
+        gtk_widget_queue_draw(
+            graph_view->drawing_area
+        );
+    }
+
+    if (graph_view->selection_callback != NULL)
+    {
+        graph_view->selection_callback(
+            entity_record,
+            graph_view->selection_user_data
+        );
+    }
+}
+
+/**
+ * @brief Mémorise le nœud présent sous le début d'un clic.
+ */
+static void investigation_graph_view_on_click_pressed(
+    GtkGestureClick *gesture,
+    int press_count,
+    double x,
+    double y,
+    gpointer user_data
+)
+{
+    InvestigationGraphView *graph_view =
+        user_data;
+
+    GdkModifierType modifier_state =
+        0;
+
+    double logical_x =
+        0.0;
+
+    double logical_y =
+        0.0;
+
+    if (graph_view == NULL ||
+        press_count != 1)
+    {
+        return;
+    }
+
+    graph_view->click_suppressed =
+        FALSE;
+
+    graph_view->click_candidate_node =
+        NULL;
+
+    modifier_state =
+        gtk_event_controller_get_current_event_state(
+            GTK_EVENT_CONTROLLER(
+                gesture
+            )
+        );
+
+    if ((modifier_state & GDK_SHIFT_MASK) != 0)
+    {
+        return;
+    }
+
+    if (!investigation_graph_view_screen_to_logical(
+            graph_view,
+            x,
+            y,
+            &logical_x,
+            &logical_y
+        ))
+    {
+        return;
+    }
+
+    graph_view->click_candidate_node =
+        investigation_graph_view_find_node_at(
+            graph_view,
+            logical_x,
+            logical_y
+        );
+}
+
+/**
+ * @brief Sélectionne le nœud cliqué ou désélectionne dans le vide.
+ */
+static void investigation_graph_view_on_click_released(
+    GtkGestureClick *gesture,
+    int press_count,
+    double x,
+    double y,
+    gpointer user_data
+)
+{
+    InvestigationGraphView *graph_view =
+        user_data;
+
+    GdkModifierType modifier_state =
+        0;
+
+    InvestigationGraphNodeLayout *released_node =
+        NULL;
+
+    double logical_x =
+        0.0;
+
+    double logical_y =
+        0.0;
+
+    if (graph_view == NULL ||
+        press_count != 1)
+    {
+        return;
+    }
+
+    modifier_state =
+        gtk_event_controller_get_current_event_state(
+            GTK_EVENT_CONTROLLER(
+                gesture
+            )
+        );
+
+    if (graph_view->click_suppressed ||
+        (modifier_state & GDK_SHIFT_MASK) != 0)
+    {
+        graph_view->click_suppressed =
+            FALSE;
+
+        graph_view->click_candidate_node =
+            NULL;
+
+        return;
+    }
+
+    if (investigation_graph_view_screen_to_logical(
+            graph_view,
+            x,
+            y,
+            &logical_x,
+            &logical_y
+        ))
+    {
+        released_node =
+            investigation_graph_view_find_node_at(
+                graph_view,
+                logical_x,
+                logical_y
+            );
+    }
+
+    if (released_node ==
+        graph_view->click_candidate_node)
+    {
+        investigation_graph_view_set_selected_node(
+            graph_view,
+            released_node
+        );
+    }
+
+    graph_view->click_candidate_node =
+        NULL;
+}
+
+/**
+ * @brief Annule les états de déplacement sans modifier les positions.
+ */
+static void investigation_graph_view_cancel_drag(
+    InvestigationGraphView *graph_view
+)
+{
+    if (graph_view == NULL)
+    {
+        return;
+    }
+
+    graph_view->dragged_node =
+        NULL;
+
+    graph_view->node_drag_pointer_offset_x =
+        0.0;
+
+    graph_view->node_drag_pointer_offset_y =
+        0.0;
+
+    graph_view->dragging =
+        FALSE;
+
+    graph_view->node_dragging =
+        FALSE;
+
+    if (graph_view->drawing_area != NULL)
+    {
+        gtk_widget_set_cursor_from_name(
+            graph_view->drawing_area,
+            "default"
+        );
+    }
+}
+
+/**
+ * @brief Commence un déplacement du canvas ou d'un nœud.
  */
 static void investigation_graph_view_on_drag_begin(
     GtkGestureDrag *gesture,
@@ -483,11 +824,24 @@ static void investigation_graph_view_on_drag_begin(
     GdkModifierType modifier_state =
         0;
 
+    double logical_x =
+        0.0;
+
+    double logical_y =
+        0.0;
+
+    InvestigationGraphNodeLayout *node_layout =
+        NULL;
+
     if (graph_view == NULL ||
         graph_view->drawing_area == NULL)
     {
         return;
     }
+
+    investigation_graph_view_cancel_drag(
+        graph_view
+    );
 
     modifier_state =
         gtk_event_controller_get_current_event_state(
@@ -496,20 +850,80 @@ static void investigation_graph_view_on_drag_begin(
             )
         );
 
-    if ((modifier_state & GDK_SHIFT_MASK) == 0)
+    graph_view->drag_start_x =
+        start_x;
+
+    graph_view->drag_start_y =
+        start_y;
+
+    if ((modifier_state & GDK_SHIFT_MASK) != 0)
     {
+        graph_view->click_suppressed =
+            TRUE;
+
+        graph_view->click_candidate_node =
+            NULL;
+
+        graph_view->drag_origin_offset_x =
+            graph_view->offset_x;
+
+        graph_view->drag_origin_offset_y =
+            graph_view->offset_y;
+
         graph_view->dragging =
-            FALSE;
+            TRUE;
 
         gtk_gesture_set_state(
             GTK_GESTURE(
                 gesture
             ),
-            GTK_EVENT_SEQUENCE_DENIED
+            GTK_EVENT_SEQUENCE_CLAIMED
+        );
+
+        gtk_widget_set_cursor_from_name(
+            graph_view->drawing_area,
+            "grabbing"
         );
 
         return;
     }
+
+    if (!investigation_graph_view_screen_to_logical(
+            graph_view,
+            start_x,
+            start_y,
+            &logical_x,
+            &logical_y
+        ))
+    {
+        return;
+    }
+
+    node_layout =
+        investigation_graph_view_find_node_at(
+            graph_view,
+            logical_x,
+            logical_y
+        );
+
+    if (node_layout == NULL)
+    {
+        return;
+    }
+
+    graph_view->dragged_node =
+        node_layout;
+
+    graph_view->node_drag_pointer_offset_x =
+        logical_x -
+        node_layout->x;
+
+    graph_view->node_drag_pointer_offset_y =
+        logical_y -
+        node_layout->y;
+
+    graph_view->node_dragging =
+        TRUE;
 
     gtk_gesture_set_state(
         GTK_GESTURE(
@@ -518,21 +932,6 @@ static void investigation_graph_view_on_drag_begin(
         GTK_EVENT_SEQUENCE_CLAIMED
     );
 
-    graph_view->drag_start_x =
-        start_x;
-
-    graph_view->drag_start_y =
-        start_y;
-
-    graph_view->drag_origin_offset_x =
-        graph_view->offset_x;
-
-    graph_view->drag_origin_offset_y =
-        graph_view->offset_y;
-
-    graph_view->dragging =
-        TRUE;
-
     gtk_widget_set_cursor_from_name(
         graph_view->drawing_area,
         "grabbing"
@@ -540,7 +939,7 @@ static void investigation_graph_view_on_drag_begin(
 }
 
 /**
- * @brief Déplace le canvas selon le décalage cumulé du geste.
+ * @brief Met à jour le déplacement actif.
  */
 static void investigation_graph_view_on_drag_update(
     GtkGestureDrag *gesture,
@@ -552,22 +951,91 @@ static void investigation_graph_view_on_drag_update(
     InvestigationGraphView *graph_view =
         user_data;
 
+    double pointer_x =
+        0.0;
+
+    double pointer_y =
+        0.0;
+
+    double logical_x =
+        0.0;
+
+    double logical_y =
+        0.0;
+
     (void) gesture;
 
     if (graph_view == NULL ||
-        graph_view->drawing_area == NULL ||
-        !graph_view->dragging)
+        graph_view->drawing_area == NULL)
     {
         return;
     }
 
-    graph_view->offset_x =
-        graph_view->drag_origin_offset_x +
+    if (
+        (offset_x * offset_x) +
+        (offset_y * offset_y) >
+        (
+            INVESTIGATION_GRAPH_VIEW_CLICK_TOLERANCE *
+            INVESTIGATION_GRAPH_VIEW_CLICK_TOLERANCE
+        )
+    )
+    {
+        graph_view->click_suppressed =
+            TRUE;
+
+        graph_view->click_candidate_node =
+            NULL;
+    }
+
+    if (graph_view->dragging)
+    {
+        graph_view->offset_x =
+            graph_view->drag_origin_offset_x +
+            offset_x;
+
+        graph_view->offset_y =
+            graph_view->drag_origin_offset_y +
+            offset_y;
+
+        gtk_widget_queue_draw(
+            graph_view->drawing_area
+        );
+
+        return;
+    }
+
+    if (!graph_view->node_dragging ||
+        graph_view->dragged_node == NULL)
+    {
+        return;
+    }
+
+    pointer_x =
+        graph_view->drag_start_x +
         offset_x;
 
-    graph_view->offset_y =
-        graph_view->drag_origin_offset_y +
+    pointer_y =
+        graph_view->drag_start_y +
         offset_y;
+
+    if (!investigation_graph_view_screen_to_logical(
+            graph_view,
+            pointer_x,
+            pointer_y,
+            &logical_x,
+            &logical_y
+        ))
+    {
+        return;
+    }
+
+    graph_view->dragged_node->x =
+        logical_x -
+        graph_view->node_drag_pointer_offset_x;
+
+    graph_view->dragged_node->y =
+        logical_y -
+        graph_view->node_drag_pointer_offset_y;
 
     gtk_widget_queue_draw(
         graph_view->drawing_area
@@ -575,7 +1043,7 @@ static void investigation_graph_view_on_drag_update(
 }
 
 /**
- * @brief Termine le déplacement du canvas.
+ * @brief Termine le déplacement actif.
  */
 static void investigation_graph_view_on_drag_end(
     GtkGestureDrag *gesture,
@@ -586,6 +1054,18 @@ static void investigation_graph_view_on_drag_end(
 {
     InvestigationGraphView *graph_view =
         user_data;
+
+    double pointer_x =
+        0.0;
+
+    double pointer_y =
+        0.0;
+
+    double logical_x =
+        0.0;
+
+    double logical_y =
+        0.0;
 
     (void) gesture;
 
@@ -605,13 +1085,37 @@ static void investigation_graph_view_on_drag_end(
             graph_view->drag_origin_offset_y +
             offset_y;
     }
+    else if (graph_view->node_dragging &&
+             graph_view->dragged_node != NULL)
+    {
+        pointer_x =
+            graph_view->drag_start_x +
+            offset_x;
 
-    graph_view->dragging =
-        FALSE;
+        pointer_y =
+            graph_view->drag_start_y +
+            offset_y;
 
-    gtk_widget_set_cursor_from_name(
-        graph_view->drawing_area,
-        "default"
+        if (investigation_graph_view_screen_to_logical(
+                graph_view,
+                pointer_x,
+                pointer_y,
+                &logical_x,
+                &logical_y
+            ))
+        {
+            graph_view->dragged_node->x =
+                logical_x -
+                graph_view->node_drag_pointer_offset_x;
+
+            graph_view->dragged_node->y =
+                logical_y -
+                graph_view->node_drag_pointer_offset_y;
+        }
+    }
+
+    investigation_graph_view_cancel_drag(
+        graph_view
     );
 
     gtk_widget_queue_draw(
@@ -942,6 +1446,277 @@ static GHashTable *investigation_graph_view_create_layout_index(
     }
 
     return layout_index;
+}
+
+/**
+ * @brief Compte les relations actives par couple source/cible.
+ */
+static GHashTable *investigation_graph_view_count_relation_pairs(
+    const GPtrArray *relations,
+    GHashTable *layout_index
+);
+
+/**
+ * @brief Supprime la disposition privée actuellement conservée.
+ *
+ * Les EntityRecord et RelationRecord contenus dans les collections restent
+ * la propriété du graphe métier.
+ */
+static void investigation_graph_view_clear_layout(
+    InvestigationGraphView *graph_view
+)
+{
+    if (graph_view == NULL)
+    {
+        return;
+    }
+
+    investigation_graph_view_cancel_drag(
+        graph_view
+    );
+
+    investigation_graph_view_set_selected_node(
+        graph_view,
+        NULL
+    );
+
+    graph_view->click_candidate_node =
+        NULL;
+
+    graph_view->click_suppressed =
+        FALSE;
+
+    g_clear_pointer(
+        &graph_view->relation_pair_counts,
+        g_hash_table_unref
+    );
+
+    g_clear_pointer(
+        &graph_view->relations,
+        g_ptr_array_unref
+    );
+
+    g_clear_pointer(
+        &graph_view->node_layouts_by_identifier,
+        g_hash_table_unref
+    );
+
+    g_clear_pointer(
+        &graph_view->node_layouts,
+        g_ptr_array_unref
+    );
+
+    g_clear_pointer(
+        &graph_view->layout_error_message,
+        g_free
+    );
+}
+
+/**
+ * @brief Enregistre une erreur de préparation lorsqu'aucune n'existe.
+ */
+static void investigation_graph_view_set_layout_error(
+    GError **error,
+    const char *message
+)
+{
+    if (error == NULL ||
+        *error != NULL)
+    {
+        return;
+    }
+
+    g_set_error_literal(
+        error,
+        INVESTIGATION_GRAPH_MODEL_ERROR,
+        INVESTIGATION_GRAPH_MODEL_ERROR_MEMORY,
+        message
+    );
+}
+
+/**
+ * @brief Construit et conserve la disposition du graphe courant.
+ */
+static gboolean investigation_graph_view_build_layout(
+    InvestigationGraphView *graph_view,
+    int width,
+    GError **error
+)
+{
+    GPtrArray *active_entities =
+        NULL;
+
+    GPtrArray *node_layouts =
+        NULL;
+
+    GHashTable *node_layouts_by_identifier =
+        NULL;
+
+    GPtrArray *relations =
+        NULL;
+
+    GHashTable *relation_pair_counts =
+        NULL;
+
+    gboolean success =
+        FALSE;
+
+    g_return_val_if_fail(
+        error == NULL || *error == NULL,
+        FALSE
+    );
+
+    if (graph_view == NULL ||
+        graph_view->graph_model == NULL)
+    {
+        investigation_graph_view_set_layout_error(
+            error,
+            "Le graphe à disposer est absent."
+        );
+
+        return FALSE;
+    }
+
+    if (width <= 0)
+    {
+        width =
+            640;
+    }
+
+    active_entities =
+        investigation_graph_view_list_active_entities(
+            graph_view->graph_model,
+            error
+        );
+
+    if (active_entities == NULL)
+    {
+        goto cleanup;
+    }
+
+    node_layouts =
+        investigation_graph_view_create_layout(
+            active_entities,
+            width
+        );
+
+    if (node_layouts == NULL)
+    {
+        investigation_graph_view_set_layout_error(
+            error,
+            "Impossible d'allouer la disposition des entités."
+        );
+
+        goto cleanup;
+    }
+
+    node_layouts_by_identifier =
+        investigation_graph_view_create_layout_index(
+            node_layouts
+        );
+
+    if (node_layouts_by_identifier == NULL)
+    {
+        investigation_graph_view_set_layout_error(
+            error,
+            "Impossible d'indexer la disposition des entités."
+        );
+
+        goto cleanup;
+    }
+
+    relations =
+        investigation_graph_model_list_relations(
+            graph_view->graph_model,
+            error
+        );
+
+    if (relations == NULL)
+    {
+        goto cleanup;
+    }
+
+    relation_pair_counts =
+        investigation_graph_view_count_relation_pairs(
+            relations,
+            node_layouts_by_identifier
+        );
+
+    if (relation_pair_counts == NULL)
+    {
+        investigation_graph_view_set_layout_error(
+            error,
+            "Impossible de préparer les relations du graphe."
+        );
+
+        goto cleanup;
+    }
+
+    graph_view->node_layouts =
+        node_layouts;
+
+    graph_view->node_layouts_by_identifier =
+        node_layouts_by_identifier;
+
+    graph_view->relations =
+        relations;
+
+    graph_view->relation_pair_counts =
+        relation_pair_counts;
+
+    node_layouts =
+        NULL;
+
+    node_layouts_by_identifier =
+        NULL;
+
+    relations =
+        NULL;
+
+    relation_pair_counts =
+        NULL;
+
+    success =
+        TRUE;
+
+cleanup:
+
+    if (relation_pair_counts != NULL)
+    {
+        g_hash_table_unref(
+            relation_pair_counts
+        );
+    }
+
+    if (relations != NULL)
+    {
+        g_ptr_array_unref(
+            relations
+        );
+    }
+
+    if (node_layouts_by_identifier != NULL)
+    {
+        g_hash_table_unref(
+            node_layouts_by_identifier
+        );
+    }
+
+    if (node_layouts != NULL)
+    {
+        g_ptr_array_unref(
+            node_layouts
+        );
+    }
+
+    if (active_entities != NULL)
+    {
+        g_ptr_array_unref(
+            active_entities
+        );
+    }
+
+    return success;
 }
 
 /**
@@ -1702,7 +2477,8 @@ static void investigation_graph_view_draw_entity(
     cairo_t *cairo_context,
     const EntityRecord *entity_record,
     double x,
-    double y
+    double y,
+    gboolean selected
 )
 {
     const char *title =
@@ -1729,28 +2505,57 @@ static void investigation_graph_view_draw_entity(
         INVESTIGATION_GRAPH_VIEW_NODE_RADIUS
     );
 
-    cairo_set_source_rgb(
-        cairo_context,
-        0.16,
-        0.18,
-        0.22
-    );
+    if (selected)
+    {
+        cairo_set_source_rgb(
+            cairo_context,
+            0.20,
+            0.23,
+            0.30
+        );
+    }
+    else
+    {
+        cairo_set_source_rgb(
+            cairo_context,
+            0.16,
+            0.18,
+            0.22
+        );
+    }
 
     cairo_fill_preserve(
         cairo_context
     );
 
-    cairo_set_source_rgb(
-        cairo_context,
-        0.40,
-        0.45,
-        0.55
-    );
+    if (selected)
+    {
+        cairo_set_source_rgb(
+            cairo_context,
+            0.56,
+            0.72,
+            1.00
+        );
 
-    cairo_set_line_width(
-        cairo_context,
-        1.5
-    );
+        cairo_set_line_width(
+            cairo_context,
+            3.0
+        );
+    }
+    else
+    {
+        cairo_set_source_rgb(
+            cairo_context,
+            0.40,
+            0.45,
+            0.55
+        );
+
+        cairo_set_line_width(
+            cairo_context,
+            1.5
+        );
+    }
 
     cairo_stroke(
         cairo_context
@@ -1903,24 +2708,6 @@ static void investigation_graph_view_draw(
     InvestigationGraphView *graph_view =
         user_data;
 
-    GPtrArray *active_entities =
-        NULL;
-
-    GPtrArray *node_layouts =
-        NULL;
-
-    GPtrArray *relations =
-        NULL;
-
-    GHashTable *layout_index =
-        NULL;
-
-    GHashTable *pair_counts =
-        NULL;
-
-    GError *error =
-        NULL;
-
     guint layout_position =
         0;
 
@@ -1957,18 +2744,34 @@ static void investigation_graph_view_draw(
         return;
     }
 
-    active_entities =
-        investigation_graph_view_list_active_entities(
-            graph_view->graph_model,
-            &error
+    if (graph_view->layout_error_message != NULL)
+    {
+        investigation_graph_view_draw_message(
+            cairo_context,
+            graph_view->layout_error_message,
+            width,
+            height
         );
 
-    if (active_entities == NULL)
-    {
-        goto draw_error;
+        return;
     }
 
-    if (active_entities->len == 0)
+    if (graph_view->node_layouts == NULL ||
+        graph_view->node_layouts_by_identifier == NULL ||
+        graph_view->relations == NULL ||
+        graph_view->relation_pair_counts == NULL)
+    {
+        investigation_graph_view_draw_message(
+            cairo_context,
+            "La disposition du graphe est indisponible",
+            width,
+            height
+        );
+
+        return;
+    }
+
+    if (graph_view->node_layouts->len == 0)
     {
         investigation_graph_view_draw_message(
             cairo_context,
@@ -1977,42 +2780,7 @@ static void investigation_graph_view_draw(
             height
         );
 
-        goto cleanup;
-    }
-
-    node_layouts =
-        investigation_graph_view_create_layout(
-            active_entities,
-            width
-        );
-
-    layout_index =
-        investigation_graph_view_create_layout_index(
-            node_layouts
-        );
-
-    relations =
-        investigation_graph_model_list_relations(
-            graph_view->graph_model,
-            &error
-        );
-
-    if (node_layouts == NULL ||
-        layout_index == NULL ||
-        relations == NULL)
-    {
-        goto draw_error;
-    }
-
-    pair_counts =
-        investigation_graph_view_count_relation_pairs(
-            relations,
-            layout_index
-        );
-
-    if (pair_counts == NULL)
-    {
-        goto draw_error;
+        return;
     }
 
     /*
@@ -2041,86 +2809,53 @@ static void investigation_graph_view_draw(
      */
     investigation_graph_view_draw_relations(
         cairo_context,
-        relations,
-        layout_index,
-        pair_counts
+        graph_view->relations,
+        graph_view->node_layouts_by_identifier,
+        graph_view->relation_pair_counts
     );
 
     for (layout_position = 0;
-         layout_position < node_layouts->len;
+         layout_position < graph_view->node_layouts->len;
          layout_position++)
     {
         const InvestigationGraphNodeLayout *node_layout =
             g_ptr_array_index(
-                node_layouts,
+                graph_view->node_layouts,
                 layout_position
             );
+
+        if (node_layout ==
+            graph_view->selected_node)
+        {
+            continue;
+        }
 
         investigation_graph_view_draw_entity(
             cairo_context,
             node_layout->entity_record,
             node_layout->x,
-            node_layout->y
+            node_layout->y,
+            FALSE
+        );
+    }
+
+    /*
+     * Le nœud sélectionné est dessiné en dernier pour rester au premier plan.
+     */
+    if (graph_view->selected_node != NULL)
+    {
+        investigation_graph_view_draw_entity(
+            cairo_context,
+            graph_view->selected_node->entity_record,
+            graph_view->selected_node->x,
+            graph_view->selected_node->y,
+            TRUE
         );
     }
 
     cairo_restore(
         cairo_context
     );
-
-    goto cleanup;
-
-draw_error:
-
-    investigation_graph_view_draw_message(
-        cairo_context,
-        error != NULL
-            ? error->message
-            : "Impossible de préparer le rendu du graphe",
-        width,
-        height
-    );
-
-cleanup:
-
-    g_clear_error(
-        &error
-    );
-
-    if (pair_counts != NULL)
-    {
-        g_hash_table_unref(
-            pair_counts
-        );
-    }
-
-    if (layout_index != NULL)
-    {
-        g_hash_table_unref(
-            layout_index
-        );
-    }
-
-    if (relations != NULL)
-    {
-        g_ptr_array_unref(
-            relations
-        );
-    }
-
-    if (node_layouts != NULL)
-    {
-        g_ptr_array_unref(
-            node_layouts
-        );
-    }
-
-    if (active_entities != NULL)
-    {
-        g_ptr_array_unref(
-            active_entities
-        );
-    }
 }
 
 InvestigationGraphView *investigation_graph_view_new(void)
@@ -2190,6 +2925,9 @@ InvestigationGraphView *investigation_graph_view_new(void)
     graph_view->drag_gesture =
         gtk_gesture_drag_new();
 
+    graph_view->click_gesture =
+        gtk_gesture_click_new();
+
     graph_view->scroll_controller =
         gtk_event_controller_scroll_new(
             GTK_EVENT_CONTROLLER_SCROLL_VERTICAL
@@ -2200,6 +2938,7 @@ InvestigationGraphView *investigation_graph_view_new(void)
 
     if (graph_view->zoom_gesture == NULL ||
         graph_view->drag_gesture == NULL ||
+        graph_view->click_gesture == NULL ||
         graph_view->scroll_controller == NULL ||
         graph_view->motion_controller == NULL)
     {
@@ -2262,6 +3001,31 @@ InvestigationGraphView *investigation_graph_view_new(void)
         graph_view
     );
 
+    gtk_gesture_single_set_button(
+        GTK_GESTURE_SINGLE(
+            graph_view->click_gesture
+        ),
+        GDK_BUTTON_PRIMARY
+    );
+
+    g_signal_connect(
+        graph_view->click_gesture,
+        "pressed",
+        G_CALLBACK(
+            investigation_graph_view_on_click_pressed
+        ),
+        graph_view
+    );
+
+    g_signal_connect(
+        graph_view->click_gesture,
+        "released",
+        G_CALLBACK(
+            investigation_graph_view_on_click_released
+        ),
+        graph_view
+    );
+
     g_signal_connect(
         graph_view->scroll_controller,
         "scroll",
@@ -2310,6 +3074,22 @@ InvestigationGraphView *investigation_graph_view_new(void)
         GTK_EVENT_CONTROLLER(
             graph_view->drag_gesture
         )
+    );
+
+    gtk_widget_add_controller(
+        graph_view->drawing_area,
+        GTK_EVENT_CONTROLLER(
+            graph_view->click_gesture
+        )
+    );
+
+    /*
+     * Les deux gestes doivent partager la même séquence : le glisser peut
+     * réclamer l'événement sans empêcher GtkGestureClick de terminer le clic.
+     */
+    gtk_gesture_group(
+        graph_view->drag_gesture,
+        graph_view->click_gesture
     );
 
     gtk_widget_add_controller(
@@ -2371,13 +3151,64 @@ void investigation_graph_view_set_graph(
     const InvestigationGraphModel *graph_model
 )
 {
+    GError *error =
+        NULL;
+
+    int width =
+        640;
+
     if (graph_view == NULL)
     {
         return;
     }
 
+    if (graph_model == NULL)
+    {
+        investigation_graph_view_clear(
+            graph_view
+        );
+
+        return;
+    }
+
+    investigation_graph_view_clear_layout(
+        graph_view
+    );
+
     graph_view->graph_model =
         graph_model;
+
+    if (graph_view->drawing_area != NULL)
+    {
+        width =
+            gtk_widget_get_width(
+                graph_view->drawing_area
+            );
+
+        if (width <= 0)
+        {
+            width =
+                640;
+        }
+    }
+
+    if (!investigation_graph_view_build_layout(
+            graph_view,
+            width,
+            &error
+        ))
+    {
+        graph_view->layout_error_message =
+            g_strdup(
+                error != NULL
+                    ? error->message
+                    : "Impossible de préparer la disposition du graphe."
+            );
+    }
+
+    g_clear_error(
+        &error
+    );
 
     investigation_graph_view_reset_view(
         graph_view
@@ -2393,11 +3224,56 @@ void investigation_graph_view_clear(
         return;
     }
 
+    investigation_graph_view_clear_layout(
+        graph_view
+    );
+
     graph_view->graph_model =
         NULL;
 
     investigation_graph_view_reset_view(
         graph_view
+    );
+}
+
+void investigation_graph_view_set_selection_callback(
+    InvestigationGraphView *graph_view,
+    InvestigationGraphViewSelectionCallback callback,
+    gpointer user_data
+)
+{
+    if (graph_view == NULL)
+    {
+        return;
+    }
+
+    graph_view->selection_callback =
+        callback;
+
+    graph_view->selection_user_data =
+        user_data;
+}
+
+const EntityRecord *investigation_graph_view_get_selected_entity(
+    const InvestigationGraphView *graph_view
+)
+{
+    if (graph_view == NULL ||
+        graph_view->selected_node == NULL)
+    {
+        return NULL;
+    }
+
+    return graph_view->selected_node->entity_record;
+}
+
+void investigation_graph_view_clear_selection(
+    InvestigationGraphView *graph_view
+)
+{
+    investigation_graph_view_set_selected_node(
+        graph_view,
+        NULL
     );
 }
 
@@ -2446,8 +3322,9 @@ void investigation_graph_view_reset_view(
     graph_view->zoom_gesture_anchor_y =
         0.0;
 
-    graph_view->dragging =
-        FALSE;
+    investigation_graph_view_cancel_drag(
+        graph_view
+    );
 
     if (graph_view->drawing_area != NULL)
     {
@@ -2462,6 +3339,68 @@ void investigation_graph_view_reset_view(
     }
 }
 
+void investigation_graph_view_reset_layout(
+    InvestigationGraphView *graph_view
+)
+{
+    GError *error =
+        NULL;
+
+    int width =
+        640;
+
+    if (graph_view == NULL)
+    {
+        return;
+    }
+
+    investigation_graph_view_clear_layout(
+        graph_view
+    );
+
+    if (graph_view->graph_model != NULL)
+    {
+        if (graph_view->drawing_area != NULL)
+        {
+            width =
+                gtk_widget_get_width(
+                    graph_view->drawing_area
+                );
+
+            if (width <= 0)
+            {
+                width =
+                    640;
+            }
+        }
+
+        if (!investigation_graph_view_build_layout(
+                graph_view,
+                width,
+                &error
+            ))
+        {
+            graph_view->layout_error_message =
+                g_strdup(
+                    error != NULL
+                        ? error->message
+                        : "Impossible de réinitialiser la disposition."
+                );
+        }
+    }
+
+    g_clear_error(
+        &error
+    );
+
+    if (graph_view->drawing_area != NULL)
+    {
+        gtk_widget_queue_draw(
+            graph_view->drawing_area
+        );
+    }
+}
+
 void investigation_graph_view_free(
     InvestigationGraphView *graph_view
 )
@@ -2470,6 +3409,16 @@ void investigation_graph_view_free(
     {
         return;
     }
+
+    graph_view->selection_callback =
+        NULL;
+
+    graph_view->selection_user_data =
+        NULL;
+
+    investigation_graph_view_clear_layout(
+        graph_view
+    );
 
     graph_view->graph_model =
         NULL;
@@ -2521,6 +3470,24 @@ void investigation_graph_view_free(
                 NULL;
         }
 
+        if (graph_view->click_gesture != NULL)
+        {
+            g_signal_handlers_disconnect_by_data(
+                graph_view->click_gesture,
+                graph_view
+            );
+
+            gtk_widget_remove_controller(
+                graph_view->drawing_area,
+                GTK_EVENT_CONTROLLER(
+                    graph_view->click_gesture
+                )
+            );
+
+            graph_view->click_gesture =
+                NULL;
+        }
+
         if (graph_view->scroll_controller != NULL)
         {
             g_signal_handlers_disconnect_by_data(
@@ -2561,4 +3528,3 @@ void investigation_graph_view_free(
         graph_view
     );
 }
-

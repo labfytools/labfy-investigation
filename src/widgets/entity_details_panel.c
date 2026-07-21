@@ -1,0 +1,985 @@
+/******************************************************************************
+ * @file entity_details_panel.c
+ * @brief Implémentation du volet latéral de détails d'une entité.
+ ******************************************************************************/
+
+#include "widgets/entity_details_panel.h"
+
+#include "models/entity_record.h"
+
+#include <glib.h>
+
+/**
+ * @struct EntityDetailsPanel
+ * @brief État privé du volet latéral.
+ */
+struct EntityDetailsPanel
+{
+    GtkWidget *root_revealer;
+    GtkWidget *frame;
+    GtkWidget *close_button;
+
+    GtkWidget *entity_title_label;
+    GtkWidget *entity_value_label;
+    GtkWidget *entity_type_label;
+    GtkWidget *entity_description_label;
+    GtkWidget *entity_confidence_label;
+    GtkWidget *entity_status_label;
+    GtkWidget *entity_created_at_label;
+    GtkWidget *entity_updated_at_label;
+    GtkWidget *entity_identifier_label;
+
+    EntityDetailsPanelCloseCallback close_callback;
+    gpointer close_user_data;
+};
+
+/**
+ * @brief Définit une valeur avec un texte de remplacement.
+ */
+static void entity_details_panel_set_field_text(
+    GtkWidget *label,
+    const char *value,
+    const char *fallback
+)
+{
+    if (label == NULL)
+    {
+        return;
+    }
+
+    gtk_label_set_text(
+        GTK_LABEL(label),
+        value != NULL &&
+        value[0] != '\0'
+            ? value
+            : fallback
+    );
+}
+
+/**
+ * @brief Ajoute une ligne de métadonnée dans la grille.
+ *
+ * @return Label GTK destiné à recevoir la valeur.
+ */
+static GtkWidget *entity_details_panel_add_field(
+    GtkGrid *grid,
+    gint row,
+    const char *title
+)
+{
+    GtkWidget *title_label =
+        NULL;
+
+    GtkWidget *value_label =
+        NULL;
+
+    if (grid == NULL ||
+        title == NULL ||
+        title[0] == '\0')
+    {
+        return NULL;
+    }
+
+    title_label =
+        gtk_label_new(
+            title
+        );
+
+    value_label =
+        gtk_label_new(
+            NULL
+        );
+
+    if (title_label == NULL ||
+        value_label == NULL)
+    {
+        return NULL;
+    }
+
+    gtk_label_set_xalign(
+        GTK_LABEL(title_label),
+        0.0F
+    );
+
+    gtk_widget_set_valign(
+        title_label,
+        GTK_ALIGN_START
+    );
+
+    gtk_widget_add_css_class(
+        title_label,
+        "dim-label"
+    );
+
+    gtk_label_set_xalign(
+        GTK_LABEL(value_label),
+        0.0F
+    );
+
+    gtk_label_set_wrap(
+        GTK_LABEL(value_label),
+        TRUE
+    );
+
+    gtk_label_set_wrap_mode(
+        GTK_LABEL(value_label),
+        PANGO_WRAP_WORD_CHAR
+    );
+
+    gtk_label_set_selectable(
+        GTK_LABEL(value_label),
+        TRUE
+    );
+
+    gtk_widget_set_hexpand(
+        value_label,
+        TRUE
+    );
+
+    gtk_widget_set_halign(
+        value_label,
+        GTK_ALIGN_FILL
+    );
+
+    gtk_widget_set_valign(
+        value_label,
+        GTK_ALIGN_START
+    );
+
+    gtk_grid_attach(
+        grid,
+        title_label,
+        0,
+        row,
+        1,
+        1
+    );
+
+    gtk_grid_attach(
+        grid,
+        value_label,
+        1,
+        row,
+        1,
+        1
+    );
+
+    return value_label;
+}
+
+/**
+ * @brief Convertit le statut métier en texte utilisateur.
+ */
+static const char *entity_details_panel_get_status_text(
+    EntityStatus status
+)
+{
+    switch (status)
+    {
+        case ENTITY_STATUS_ACTIVE:
+            return "Active";
+
+        case ENTITY_STATUS_ARCHIVED:
+            return "Archivée";
+
+        case ENTITY_STATUS_DELETED:
+            return "Supprimée";
+
+        case ENTITY_STATUS_UNKNOWN:
+        default:
+            return "Inconnu";
+    }
+}
+
+/**
+ * @brief Ferme le volet depuis le bouton de l'interface.
+ */
+static void entity_details_panel_on_close_clicked(
+    GtkButton *button,
+    gpointer user_data
+)
+{
+    EntityDetailsPanel *details_panel =
+        user_data;
+
+    (void) button;
+
+    if (details_panel == NULL)
+    {
+        return;
+    }
+
+    entity_details_panel_clear(
+        details_panel
+    );
+
+    if (details_panel->close_callback != NULL)
+    {
+        details_panel->close_callback(
+            details_panel->close_user_data
+        );
+    }
+}
+
+EntityDetailsPanel *entity_details_panel_new(void)
+{
+    EntityDetailsPanel *details_panel =
+        NULL;
+
+    GtkWidget *content_box =
+        NULL;
+
+    GtkWidget *header_box =
+        NULL;
+
+    GtkWidget *header_label =
+        NULL;
+
+    GtkWidget *separator =
+        NULL;
+
+    GtkWidget *scrolled_window =
+        NULL;
+
+    GtkWidget *details_box =
+        NULL;
+
+    GtkWidget *details_grid =
+        NULL;
+
+    details_panel =
+        g_try_new0(
+            EntityDetailsPanel,
+            1
+        );
+
+    if (details_panel == NULL)
+    {
+        return NULL;
+    }
+
+    details_panel->root_revealer =
+        gtk_revealer_new();
+
+    details_panel->frame =
+        gtk_frame_new(
+            NULL
+        );
+
+    details_panel->close_button =
+        gtk_button_new_from_icon_name(
+            "window-close-symbolic"
+        );
+
+    content_box =
+        gtk_box_new(
+            GTK_ORIENTATION_VERTICAL,
+            0
+        );
+
+    header_box =
+        gtk_box_new(
+            GTK_ORIENTATION_HORIZONTAL,
+            8
+        );
+
+    header_label =
+        gtk_label_new(
+            "Détails de l’entité"
+        );
+
+    separator =
+        gtk_separator_new(
+            GTK_ORIENTATION_HORIZONTAL
+        );
+
+    scrolled_window =
+        gtk_scrolled_window_new();
+
+    details_box =
+        gtk_box_new(
+            GTK_ORIENTATION_VERTICAL,
+            16
+        );
+
+    details_grid =
+        gtk_grid_new();
+
+    if (details_panel->root_revealer == NULL ||
+        details_panel->frame == NULL ||
+        details_panel->close_button == NULL ||
+        content_box == NULL ||
+        header_box == NULL ||
+        header_label == NULL ||
+        separator == NULL ||
+        scrolled_window == NULL ||
+        details_box == NULL ||
+        details_grid == NULL)
+    {
+        entity_details_panel_free(
+            details_panel
+        );
+
+        return NULL;
+    }
+
+    gtk_widget_set_size_request(
+        details_panel->root_revealer,
+        360,
+        -1
+    );
+
+    gtk_widget_set_halign(
+        details_panel->root_revealer,
+        GTK_ALIGN_END
+    );
+
+    gtk_widget_set_valign(
+        details_panel->root_revealer,
+        GTK_ALIGN_FILL
+    );
+
+    gtk_widget_set_vexpand(
+        details_panel->root_revealer,
+        TRUE
+    );
+
+    gtk_revealer_set_transition_type(
+        GTK_REVEALER(
+            details_panel->root_revealer
+        ),
+        GTK_REVEALER_TRANSITION_TYPE_SLIDE_LEFT
+    );
+
+    gtk_revealer_set_transition_duration(
+        GTK_REVEALER(
+            details_panel->root_revealer
+        ),
+        180
+    );
+
+    gtk_revealer_set_reveal_child(
+        GTK_REVEALER(
+            details_panel->root_revealer
+        ),
+        FALSE
+    );
+
+    gtk_widget_set_margin_top(
+        details_panel->frame,
+        12
+    );
+
+    gtk_widget_set_margin_end(
+        details_panel->frame,
+        12
+    );
+
+    gtk_widget_set_margin_bottom(
+        details_panel->frame,
+        12
+    );
+
+    gtk_widget_add_css_class(
+        details_panel->frame,
+        "view"
+    );
+
+    gtk_widget_set_margin_start(
+        header_box,
+        16
+    );
+
+    gtk_widget_set_margin_end(
+        header_box,
+        8
+    );
+
+    gtk_widget_set_margin_top(
+        header_box,
+        8
+    );
+
+    gtk_widget_set_margin_bottom(
+        header_box,
+        8
+    );
+
+    gtk_label_set_xalign(
+        GTK_LABEL(header_label),
+        0.0F
+    );
+
+    gtk_widget_set_hexpand(
+        header_label,
+        TRUE
+    );
+
+    gtk_widget_set_halign(
+        header_label,
+        GTK_ALIGN_FILL
+    );
+
+    gtk_widget_add_css_class(
+        header_label,
+        "heading"
+    );
+
+    gtk_widget_set_tooltip_text(
+        details_panel->close_button,
+        "Fermer le volet"
+    );
+
+    gtk_widget_add_css_class(
+        details_panel->close_button,
+        "flat"
+    );
+
+    gtk_box_append(
+        GTK_BOX(header_box),
+        header_label
+    );
+
+    gtk_box_append(
+        GTK_BOX(header_box),
+        details_panel->close_button
+    );
+
+    gtk_box_append(
+        GTK_BOX(content_box),
+        header_box
+    );
+
+    gtk_box_append(
+        GTK_BOX(content_box),
+        separator
+    );
+
+    gtk_scrolled_window_set_policy(
+        GTK_SCROLLED_WINDOW(scrolled_window),
+        GTK_POLICY_NEVER,
+        GTK_POLICY_AUTOMATIC
+    );
+
+    gtk_widget_set_vexpand(
+        scrolled_window,
+        TRUE
+    );
+
+    gtk_widget_set_margin_start(
+        details_box,
+        20
+    );
+
+    gtk_widget_set_margin_end(
+        details_box,
+        20
+    );
+
+    gtk_widget_set_margin_top(
+        details_box,
+        20
+    );
+
+    gtk_widget_set_margin_bottom(
+        details_box,
+        20
+    );
+
+    details_panel->entity_title_label =
+        gtk_label_new(
+            NULL
+        );
+
+    if (details_panel->entity_title_label == NULL)
+    {
+        entity_details_panel_free(
+            details_panel
+        );
+
+        return NULL;
+    }
+
+    gtk_label_set_xalign(
+        GTK_LABEL(
+            details_panel->entity_title_label
+        ),
+        0.0F
+    );
+
+    gtk_label_set_wrap(
+        GTK_LABEL(
+            details_panel->entity_title_label
+        ),
+        TRUE
+    );
+
+    gtk_label_set_selectable(
+        GTK_LABEL(
+            details_panel->entity_title_label
+        ),
+        TRUE
+    );
+
+    gtk_widget_add_css_class(
+        details_panel->entity_title_label,
+        "title-3"
+    );
+
+    gtk_box_append(
+        GTK_BOX(details_box),
+        details_panel->entity_title_label
+    );
+
+    gtk_grid_set_column_spacing(
+        GTK_GRID(details_grid),
+        16
+    );
+
+    gtk_grid_set_row_spacing(
+        GTK_GRID(details_grid),
+        12
+    );
+
+    gtk_widget_set_hexpand(
+        details_grid,
+        TRUE
+    );
+
+    details_panel->entity_value_label =
+        entity_details_panel_add_field(
+            GTK_GRID(details_grid),
+            0,
+            "Valeur"
+        );
+
+    details_panel->entity_type_label =
+        entity_details_panel_add_field(
+            GTK_GRID(details_grid),
+            1,
+            "Type"
+        );
+
+    details_panel->entity_description_label =
+        entity_details_panel_add_field(
+            GTK_GRID(details_grid),
+            2,
+            "Description"
+        );
+
+    details_panel->entity_confidence_label =
+        entity_details_panel_add_field(
+            GTK_GRID(details_grid),
+            3,
+            "Confiance"
+        );
+
+    details_panel->entity_status_label =
+        entity_details_panel_add_field(
+            GTK_GRID(details_grid),
+            4,
+            "Statut"
+        );
+
+    details_panel->entity_created_at_label =
+        entity_details_panel_add_field(
+            GTK_GRID(details_grid),
+            5,
+            "Créée le"
+        );
+
+    details_panel->entity_updated_at_label =
+        entity_details_panel_add_field(
+            GTK_GRID(details_grid),
+            6,
+            "Modifiée le"
+        );
+
+    details_panel->entity_identifier_label =
+        entity_details_panel_add_field(
+            GTK_GRID(details_grid),
+            7,
+            "Identifiant"
+        );
+
+    if (details_panel->entity_value_label == NULL ||
+        details_panel->entity_type_label == NULL ||
+        details_panel->entity_description_label == NULL ||
+        details_panel->entity_confidence_label == NULL ||
+        details_panel->entity_status_label == NULL ||
+        details_panel->entity_created_at_label == NULL ||
+        details_panel->entity_updated_at_label == NULL ||
+        details_panel->entity_identifier_label == NULL)
+    {
+        entity_details_panel_free(
+            details_panel
+        );
+
+        return NULL;
+    }
+
+    gtk_box_append(
+        GTK_BOX(details_box),
+        details_grid
+    );
+
+    gtk_scrolled_window_set_child(
+        GTK_SCROLLED_WINDOW(scrolled_window),
+        details_box
+    );
+
+    gtk_box_append(
+        GTK_BOX(content_box),
+        scrolled_window
+    );
+
+    gtk_frame_set_child(
+        GTK_FRAME(details_panel->frame),
+        content_box
+    );
+
+    gtk_revealer_set_child(
+        GTK_REVEALER(
+            details_panel->root_revealer
+        ),
+        details_panel->frame
+    );
+
+    g_signal_connect(
+        details_panel->close_button,
+        "clicked",
+        G_CALLBACK(
+            entity_details_panel_on_close_clicked
+        ),
+        details_panel
+    );
+
+    entity_details_panel_clear(
+        details_panel
+    );
+
+    return details_panel;
+}
+
+GtkWidget *entity_details_panel_get_widget(
+    const EntityDetailsPanel *details_panel
+)
+{
+    if (details_panel == NULL)
+    {
+        return NULL;
+    }
+
+    return details_panel->root_revealer;
+}
+
+void entity_details_panel_set_entity(
+    EntityDetailsPanel *details_panel,
+    const EntityRecord *entity_record
+)
+{
+    const char *title =
+        NULL;
+
+    char *confidence_text =
+        NULL;
+
+    if (details_panel == NULL)
+    {
+        return;
+    }
+
+    if (entity_record == NULL)
+    {
+        entity_details_panel_clear(
+            details_panel
+        );
+
+        return;
+    }
+
+    title =
+        entity_record_get_label(
+            entity_record
+        );
+
+    if (title == NULL ||
+        title[0] == '\0')
+    {
+        title =
+            entity_record_get_value(
+                entity_record
+            );
+    }
+
+    if (title == NULL ||
+        title[0] == '\0')
+    {
+        title =
+            entity_record_get_identifier(
+                entity_record
+            );
+    }
+
+    confidence_text =
+        g_strdup_printf(
+            "%d %%",
+            entity_record_get_confidence(
+                entity_record
+            )
+        );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_title_label,
+        title,
+        "(entité sans libellé)"
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_value_label,
+        entity_record_get_value(
+            entity_record
+        ),
+        "(valeur inconnue)"
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_type_label,
+        entity_record_get_type_identifier(
+            entity_record
+        ),
+        "(type inconnu)"
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_description_label,
+        entity_record_get_description(
+            entity_record
+        ),
+        "Non renseignée"
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_confidence_label,
+        confidence_text,
+        "Inconnue"
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_status_label,
+        entity_details_panel_get_status_text(
+            entity_record_get_status(
+                entity_record
+            )
+        ),
+        "Inconnu"
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_created_at_label,
+        entity_record_get_created_at(
+            entity_record
+        ),
+        "(date inconnue)"
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_updated_at_label,
+        entity_record_get_updated_at(
+            entity_record
+        ),
+        "(date inconnue)"
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_identifier_label,
+        entity_record_get_identifier(
+            entity_record
+        ),
+        "(identifiant inconnu)"
+    );
+
+    gtk_revealer_set_reveal_child(
+        GTK_REVEALER(
+            details_panel->root_revealer
+        ),
+        TRUE
+    );
+
+    g_free(
+        confidence_text
+    );
+}
+
+void entity_details_panel_clear(
+    EntityDetailsPanel *details_panel
+)
+{
+    if (details_panel == NULL)
+    {
+        return;
+    }
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_title_label,
+        NULL,
+        ""
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_value_label,
+        NULL,
+        ""
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_type_label,
+        NULL,
+        ""
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_description_label,
+        NULL,
+        ""
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_confidence_label,
+        NULL,
+        ""
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_status_label,
+        NULL,
+        ""
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_created_at_label,
+        NULL,
+        ""
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_updated_at_label,
+        NULL,
+        ""
+    );
+
+    entity_details_panel_set_field_text(
+        details_panel->entity_identifier_label,
+        NULL,
+        ""
+    );
+
+    if (details_panel->root_revealer != NULL)
+    {
+        gtk_revealer_set_reveal_child(
+            GTK_REVEALER(
+                details_panel->root_revealer
+            ),
+            FALSE
+        );
+    }
+}
+
+void entity_details_panel_set_close_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelCloseCallback callback,
+    gpointer user_data
+)
+{
+    if (details_panel == NULL)
+    {
+        return;
+    }
+
+    details_panel->close_callback =
+        callback;
+
+    details_panel->close_user_data =
+        user_data;
+}
+
+gboolean entity_details_panel_is_open(
+    const EntityDetailsPanel *details_panel
+)
+{
+    if (details_panel == NULL ||
+        details_panel->root_revealer == NULL)
+    {
+        return FALSE;
+    }
+
+    return gtk_revealer_get_reveal_child(
+        GTK_REVEALER(
+            details_panel->root_revealer
+        )
+    );
+}
+
+void entity_details_panel_free(
+    EntityDetailsPanel *details_panel
+)
+{
+    if (details_panel == NULL)
+    {
+        return;
+    }
+
+    if (details_panel->close_button != NULL)
+    {
+        g_signal_handlers_disconnect_by_data(
+            details_panel->close_button,
+            details_panel
+        );
+    }
+
+    details_panel->close_callback =
+        NULL;
+
+    details_panel->close_user_data =
+        NULL;
+
+    details_panel->root_revealer =
+        NULL;
+
+    details_panel->frame =
+        NULL;
+
+    details_panel->close_button =
+        NULL;
+
+    details_panel->entity_title_label =
+        NULL;
+
+    details_panel->entity_value_label =
+        NULL;
+
+    details_panel->entity_type_label =
+        NULL;
+
+    details_panel->entity_description_label =
+        NULL;
+
+    details_panel->entity_confidence_label =
+        NULL;
+
+    details_panel->entity_status_label =
+        NULL;
+
+    details_panel->entity_created_at_label =
+        NULL;
+
+    details_panel->entity_updated_at_label =
+        NULL;
+
+    details_panel->entity_identifier_label =
+        NULL;
+
+    g_free(
+        details_panel
+    );
+}

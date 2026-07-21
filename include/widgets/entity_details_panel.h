@@ -1,0 +1,119 @@
+/******************************************************************************
+ * @file entity_details_panel.h
+ * @brief Volet latéral affichant les détails d'une entité.
+ ******************************************************************************/
+
+#ifndef LABFY_INVESTIGATION_ENTITY_DETAILS_PANEL_H
+#define LABFY_INVESTIGATION_ENTITY_DETAILS_PANEL_H
+
+#include <gtk/gtk.h>
+
+G_BEGIN_DECLS
+
+/**
+ * @brief Modèle opaque représentant une entité.
+ */
+typedef struct EntityRecord EntityRecord;
+
+/**
+ * @brief Représentation opaque du volet de détails.
+ */
+typedef struct EntityDetailsPanel EntityDetailsPanel;
+
+/**
+ * @brief Callback appelé lorsque l'utilisateur ferme le volet.
+ *
+ * Le callback n'est pas déclenché lors d'une fermeture programmatique avec
+ * entity_details_panel_clear().
+ *
+ * @param user_data Données empruntées fournies par l'appelant.
+ */
+typedef void (*EntityDetailsPanelCloseCallback)(
+    gpointer user_data
+);
+
+/**
+ * @brief Crée un volet de détails fermé.
+ *
+ * @return Nouveau volet, ou NULL en cas d'échec.
+ */
+EntityDetailsPanel *entity_details_panel_new(void);
+
+/**
+ * @brief Retourne le widget GTK racine du volet.
+ *
+ * Le widget appartient au module EntityDetailsPanel.
+ *
+ * @param details_panel Volet à consulter.
+ *
+ * @return Widget GTK racine, ou NULL.
+ */
+GtkWidget *entity_details_panel_get_widget(
+    const EntityDetailsPanel *details_panel
+);
+
+/**
+ * @brief Affiche une entité et ouvre le volet.
+ *
+ * Les textes sont immédiatement copiés dans les widgets GTK.
+ * Le pointeur EntityRecord n'est jamais conservé.
+ *
+ * Passer NULL équivaut à entity_details_panel_clear().
+ *
+ * @param details_panel Volet à mettre à jour.
+ * @param entity_record Entité empruntée, ou NULL.
+ */
+void entity_details_panel_set_entity(
+    EntityDetailsPanel *details_panel,
+    const EntityRecord *entity_record
+);
+
+/**
+ * @brief Vide et referme le volet sans appeler le callback de fermeture.
+ *
+ * @param details_panel Volet à vider.
+ */
+void entity_details_panel_clear(
+    EntityDetailsPanel *details_panel
+);
+
+/**
+ * @brief Définit le callback du bouton de fermeture.
+ *
+ * Le callback et user_data sont empruntés.
+ *
+ * @param details_panel Volet à configurer.
+ * @param callback Callback à appeler, ou NULL.
+ * @param user_data Données empruntées du callback.
+ */
+void entity_details_panel_set_close_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelCloseCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Indique si le volet est actuellement ouvert.
+ *
+ * @param details_panel Volet à consulter.
+ *
+ * @return TRUE si le volet est ouvert, sinon FALSE.
+ */
+gboolean entity_details_panel_is_open(
+    const EntityDetailsPanel *details_panel
+);
+
+/**
+ * @brief Libère la structure d'encapsulation du volet.
+ *
+ * Cette fonction accepte NULL.
+ *
+ * @param details_panel Volet à libérer.
+ */
+void entity_details_panel_free(
+    EntityDetailsPanel *details_panel
+);
+
+G_END_DECLS
+
+#endif
