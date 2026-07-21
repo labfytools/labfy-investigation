@@ -51,6 +51,10 @@ RELATION_SERVICE_TEST_CFLAGS := \
 	-DRELATION_SERVICE_ENABLE_TEST_HOOKS
 INVESTIGATION_GRAPH_MODEL_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 INVESTIGATION_GRAPH_LOADER_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
+INVESTIGATION_GRAPH_LOAD_TASK_TEST_CFLAGS := \
+	$(TEST_CFLAGS) \
+	-Wpedantic \
+	-DINVESTIGATION_GRAPH_LOAD_TASK_ENABLE_TEST_HOOKS
 
 SRC := $(shell find src -name "*.c")
 
@@ -102,6 +106,7 @@ TEST_RELATION_EVIDENCE_DAO := tests/test_relation_evidence_dao
 TEST_RELATION_SERVICE := tests/test_relation_service
 TEST_INVESTIGATION_GRAPH_MODEL := tests/test_investigation_graph_model
 TEST_INVESTIGATION_GRAPH_LOADER := tests/test_investigation_graph_loader
+TEST_INVESTIGATION_GRAPH_LOAD_TASK := tests/test_investigation_graph_load_task
 
 all: $(TARGET)
 
@@ -505,6 +510,24 @@ $(TEST_INVESTIGATION_GRAPH_LOADER): \
 	$(CC) $(INVESTIGATION_GRAPH_LOADER_TEST_CFLAGS) $^ -o $@ \
 		$(TEST_LDFLAGS) -lsqlite3
 
+$(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
+	tests/test_investigation_graph_load_task.c \
+	src/core/investigation_graph_load_task.c \
+	src/core/investigation_graph_loader.c \
+	src/core/background_task.c \
+	src/dao/entity_dao.c \
+	src/dao/relation_dao.c \
+	src/models/investigation_graph_model.c \
+	src/models/entity_record.c \
+	src/models/relation_record.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(INVESTIGATION_GRAPH_LOAD_TASK_TEST_CFLAGS) $^ -o $@ \
+		$(TEST_LDFLAGS) -lsqlite3
+
 test: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
@@ -549,7 +572,8 @@ test: \
 	$(TEST_RELATION_EVIDENCE_DAO) \
 	$(TEST_RELATION_SERVICE) \
 	$(TEST_INVESTIGATION_GRAPH_MODEL) \
-	$(TEST_INVESTIGATION_GRAPH_LOADER)
+	$(TEST_INVESTIGATION_GRAPH_LOADER) \
+	$(TEST_INVESTIGATION_GRAPH_LOAD_TASK)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -595,6 +619,7 @@ test: \
 	@$(TEST_RELATION_SERVICE)
 	@$(TEST_INVESTIGATION_GRAPH_MODEL)
 	@$(TEST_INVESTIGATION_GRAPH_LOADER)
+	@$(TEST_INVESTIGATION_GRAPH_LOAD_TASK)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -646,6 +671,7 @@ clean:
 		$(TEST_RELATION_EVIDENCE_DAO) \
 		$(TEST_RELATION_SERVICE) \
 		$(TEST_INVESTIGATION_GRAPH_MODEL) \
-		$(TEST_INVESTIGATION_GRAPH_LOADER)
+		$(TEST_INVESTIGATION_GRAPH_LOADER) \
+		$(TEST_INVESTIGATION_GRAPH_LOAD_TASK)
 
 .PHONY: clean run test
