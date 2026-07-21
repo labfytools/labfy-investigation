@@ -6,19 +6,31 @@
 #ifndef LABFY_INVESTIGATION_WORKSPACE_H
 #define LABFY_INVESTIGATION_WORKSPACE_H
 
-
 #include "core/investigation_node.h"
 #include "models/evidence_record.h"
 
 #include <gtk/gtk.h>
 
 /**
+ * @brief Représentation opaque du graphe d'enquête.
+ */
+typedef struct InvestigationGraphModel InvestigationGraphModel;
+
+/**
  * @brief Représentation opaque de la zone de travail.
- *
- * La structure réelle est définie dans workspace.c.
- * Les autres modules manipulent uniquement un pointeur vers Workspace.
  */
 typedef struct Workspace Workspace;
+
+/**
+ * @brief Callback appelé lors d'une demande de vérification d'une preuve.
+ *
+ * @param evidence_identifier UUID de la preuve affichée.
+ * @param user_data Données empruntées fournies par l'appelant.
+ */
+typedef void (*WorkspaceVerifyEvidenceCallback)(
+    const char *evidence_identifier,
+    gpointer user_data
+);
 
 /**
  * @brief Crée une nouvelle zone de travail.
@@ -28,43 +40,26 @@ typedef struct Workspace Workspace;
 Workspace *workspace_new(void);
 
 /**
- * @brief Callback appelé lorsque l'utilisateur demande la vérification
- *        de la preuve affichée.
- *
- * L'identifiant est emprunté et uniquement valide pendant l'appel.
- *
- * @param evidence_identifier UUID de la preuve.
- * @param user_data Données privées du callback.
- */
-typedef void (*WorkspaceVerifyEvidenceCallback)(
-    const char *evidence_identifier,
-    gpointer user_data
-);
-
-/**
  * @brief Retourne le widget GTK racine de la zone de travail.
  *
- * Le widget retourné appartient au module Workspace et ne doit pas être
- * détruit directement par le code appelant.
+ * Le widget retourné appartient au module Workspace.
  *
  * @param workspace Zone de travail à consulter.
  *
- * @return Le widget racine, ou NULL si workspace est NULL.
+ * @return Widget racine, ou NULL.
  */
 GtkWidget *workspace_get_widget(
     const Workspace *workspace
 );
 
 /**
- * @brief Affiche les informations du nœud sélectionné.
+ * @brief Affiche les informations d'un nœud sélectionné.
  *
- * Le Workspace ne devient pas propriétaire du nœud.
- * Le nœud doit rester valide pendant toute la durée de son affichage.
+ * Le Workspace emprunte le nœud.
+ * Passer NULL restaure l'état principal courant.
  *
- * Passer NULL restaure la page d'accueil.
- *
- * @param workspace Zone de travail à mettre à jour.
- * @param node      Nœud sélectionné en lecture seule, ou NULL.
+ * @param workspace Zone de travail.
+ * @param node Nœud emprunté, ou NULL.
  */
 void workspace_set_selected_node(
     Workspace *workspace,
@@ -74,13 +69,13 @@ void workspace_set_selected_node(
 /**
  * @brief Affiche la fiche détaillée d'une preuve.
  *
- * Les valeurs sont immédiatement copiées par les widgets GTK.
- * Le Workspace ne conserve pas le pointeur EvidenceRecord.
+ * Les textes sont copiés dans les widgets. Le Workspace ne conserve pas le
+ * pointeur EvidenceRecord.
  *
- * Passer NULL restaure la page d'accueil.
+ * Passer NULL restaure l'état principal courant.
  *
- * @param workspace Zone de travail à mettre à jour.
- * @param evidence_record Preuve sélectionnée, ou NULL.
+ * @param workspace Zone de travail.
+ * @param evidence_record Preuve empruntée, ou NULL.
  */
 void workspace_set_selected_evidence(
     Workspace *workspace,
@@ -88,13 +83,13 @@ void workspace_set_selected_evidence(
 );
 
 /**
- * @brief Définit le callback de vérification d'une preuve.
+ * @brief Définit le callback de vérification de la preuve affichée.
  *
- * Le Workspace transmet uniquement l'identifiant de la preuve affichée.
+ * Le Workspace emprunte callback et user_data.
  *
  * @param workspace Zone de travail.
- * @param callback Callback facultatif.
- * @param user_data Données privées transmises au callback.
+ * @param callback Callback à utiliser, ou NULL.
+ * @param user_data Données empruntées du callback.
  */
 void workspace_set_verify_evidence_callback(
     Workspace *workspace,
@@ -103,12 +98,64 @@ void workspace_set_verify_evidence_callback(
 );
 
 /**
- * @brief Libère la structure d'encapsulation de la zone de travail.
+ * @brief Affiche l'état de chargement du graphe.
  *
- * Cette fonction accepte NULL.
+ * L'ancien graphe emprunté est détaché.
+ *
+ * @param workspace Zone de travail.
+ */
+void workspace_set_graph_loading(
+    Workspace *workspace
+);
+
+/**
+ * @brief Affiche le résumé du graphe chargé.
+ *
+ * Le Workspace emprunte graph_model et ne le libère jamais.
+ * Passer NULL équivaut à workspace_clear_graph().
+ *
+ * @param workspace Zone de travail.
+ * @param graph_model Graphe emprunté.
+ */
+void workspace_set_graph(
+    Workspace *workspace,
+    const InvestigationGraphModel *graph_model
+);
+
+/**
+ * @brief Affiche une erreur de chargement du graphe.
+ *
+ * Le texte du message est immédiatement copié par GTK.
+ *
+ * @param workspace Zone de travail.
+ * @param message Détail de l'erreur, ou NULL.
+ */
+void workspace_set_graph_error(
+    Workspace *workspace,
+    const char *message
+);
+
+/**
+ * @brief Détache le graphe et restaure l'état sans enquête.
+ *
+ * Le graphe précédemment emprunté n'est jamais libéré par le Workspace.
+ *
+ * @param workspace Zone de travail.
+ */
+void workspace_clear_graph(
+    Workspace *workspace
+);
+
+/**
+ * @brief Libère la structure Workspace.
+ *
+ * Cette fonction accepte NULL. Elle ne libère jamais le graphe emprunté.
  *
  * @param workspace Zone de travail à libérer.
  */
-void workspace_free(Workspace *workspace);
+void workspace_free(
+    Workspace *workspace
+);
 
 #endif
+

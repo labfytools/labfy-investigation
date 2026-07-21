@@ -5,12 +5,28 @@
 
 #include "widgets/workspace.h"
 
+#include "models/investigation_graph_model.h"
+
 #include <glib.h>
 
 #define WORKSPACE_PAGE_WELCOME "welcome"
 #define WORKSPACE_PAGE_NODE_INFORMATION "node-information"
 #define WORKSPACE_PAGE_EVIDENCE_INFORMATION \
     "evidence-information"
+#define WORKSPACE_PAGE_GRAPH_STATE \
+    "graph-state"
+
+/**
+ * @brief État métier représenté par la page du graphe.
+ */
+typedef enum
+{
+    WORKSPACE_GRAPH_STATE_EMPTY,
+    WORKSPACE_GRAPH_STATE_LOADING,
+    WORKSPACE_GRAPH_STATE_READY,
+    WORKSPACE_GRAPH_STATE_ERROR
+} WorkspaceGraphState;
+
 /**
  * @struct Workspace
  * @brief Représentation interne de la zone de travail.
@@ -21,9 +37,11 @@ struct Workspace
     GtkWidget *stack;
 
     GtkWidget *welcome_page;
-    GtkWidget *welcome_title_label;
-    GtkWidget *welcome_status_label;
-    GtkWidget *welcome_instruction_label;
+
+    GtkWidget *graph_state_page;
+    GtkWidget *graph_spinner;
+    GtkWidget *graph_title_label;
+    GtkWidget *graph_details_label;
 
     GtkWidget *node_page;
 
@@ -56,6 +74,9 @@ struct Workspace
     GtkWidget *node_type_label;
     GtkWidget *node_parent_label;
     GtkWidget *node_children_label;
+
+    const InvestigationGraphModel *graph_model;
+    WorkspaceGraphState graph_state;
 };
 
 /**
@@ -226,9 +247,12 @@ static const char *workspace_get_integrity_status_text(
 }
 
 /**
- * @brief Affiche la page d'accueil.
+ * @brief Affiche l'état principal courant du Workspace.
+ *
+ * Sans enquête, la page d'accueil est utilisée. Lorsqu'un chargement, un
+ * graphe ou une erreur existe, la page d'état du graphe est affichée.
  */
-static void workspace_show_welcome(
+static void workspace_show_default(
     Workspace *workspace
 )
 {
@@ -237,9 +261,20 @@ static void workspace_show_welcome(
         return;
     }
 
+    if (workspace->graph_state ==
+        WORKSPACE_GRAPH_STATE_EMPTY)
+    {
+        gtk_stack_set_visible_child_name(
+            GTK_STACK(workspace->stack),
+            WORKSPACE_PAGE_WELCOME
+        );
+
+        return;
+    }
+
     gtk_stack_set_visible_child_name(
         GTK_STACK(workspace->stack),
-        WORKSPACE_PAGE_WELCOME
+        WORKSPACE_PAGE_GRAPH_STATE
     );
 }
 
@@ -346,33 +381,6 @@ Workspace *workspace_new(void)
     gtk_widget_set_valign(
         workspace->welcome_page,
         GTK_ALIGN_CENTER
-    );
-
-    workspace->welcome_title_label = gtk_label_new(
-        "Labfy Investigation"
-    );
-
-    workspace->welcome_status_label = gtk_label_new(
-        "Aucune enquête ouverte"
-    );
-
-    workspace->welcome_instruction_label = gtk_label_new(
-        "Sélectionnez ou créez une enquête"
-    );
-
-    gtk_box_append(
-        GTK_BOX(workspace->welcome_page),
-        workspace->welcome_title_label
-    );
-
-    gtk_box_append(
-        GTK_BOX(workspace->welcome_page),
-        workspace->welcome_status_label
-    );
-
-    gtk_box_append(
-        GTK_BOX(workspace->welcome_page),
-        workspace->welcome_instruction_label
     );
 
     gtk_stack_add_named(
@@ -767,7 +775,119 @@ Workspace *workspace_new(void)
         WORKSPACE_PAGE_EVIDENCE_INFORMATION
     );
 
-    workspace_show_welcome(workspace);
+    /*
+     * Page temporaire de chargement et de résumé du graphe.
+     * Le futur canvas interactif remplacera cette représentation.
+     */
+    workspace->graph_state_page =
+        gtk_box_new(
+            GTK_ORIENTATION_VERTICAL,
+            12
+        );
+
+    if (workspace->graph_state_page == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    gtk_widget_set_halign(
+        workspace->graph_state_page,
+        GTK_ALIGN_CENTER
+    );
+
+    gtk_widget_set_valign(
+        workspace->graph_state_page,
+        GTK_ALIGN_CENTER
+    );
+
+    workspace->graph_spinner =
+        gtk_spinner_new();
+
+    workspace->graph_title_label =
+        gtk_label_new(
+            NULL
+        );
+
+    workspace->graph_details_label =
+        gtk_label_new(
+            NULL
+        );
+
+    if (workspace->graph_spinner == NULL ||
+        workspace->graph_title_label == NULL ||
+        workspace->graph_details_label == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    gtk_widget_add_css_class(
+        workspace->graph_title_label,
+        "title-2"
+    );
+
+    gtk_label_set_wrap(
+        GTK_LABEL(
+            workspace->graph_details_label
+        ),
+        TRUE
+    );
+
+    gtk_label_set_justify(
+        GTK_LABEL(
+            workspace->graph_details_label
+        ),
+        GTK_JUSTIFY_CENTER
+    );
+
+    gtk_widget_set_visible(
+        workspace->graph_spinner,
+        FALSE
+    );
+
+    gtk_box_append(
+        GTK_BOX(
+            workspace->graph_state_page
+        ),
+        workspace->graph_spinner
+    );
+
+    gtk_box_append(
+        GTK_BOX(
+            workspace->graph_state_page
+        ),
+        workspace->graph_title_label
+    );
+
+    gtk_box_append(
+        GTK_BOX(
+            workspace->graph_state_page
+        ),
+        workspace->graph_details_label
+    );
+
+    gtk_stack_add_named(
+        GTK_STACK(workspace->stack),
+        workspace->graph_state_page,
+        WORKSPACE_PAGE_GRAPH_STATE
+    );
+
+    workspace->graph_model =
+        NULL;
+
+    workspace->graph_state =
+        WORKSPACE_GRAPH_STATE_EMPTY;
+
+    workspace_show_default(
+        workspace
+    );
 
     return workspace;
 }
@@ -820,7 +940,7 @@ void workspace_set_selected_node(
 
     if (node == NULL)
     {
-        workspace_show_welcome(workspace);
+        workspace_show_default(workspace);
         return;
     }
 
@@ -944,7 +1064,7 @@ void workspace_set_selected_evidence(
 
     if (evidence_record == NULL)
     {
-        workspace_show_welcome(
+        workspace_show_default(
             workspace
         );
 
@@ -960,7 +1080,7 @@ void workspace_set_selected_evidence(
 
     if (workspace->selected_evidence_identifier == NULL)
     {
-        workspace_show_welcome(
+        workspace_show_default(
             workspace
         );
 
@@ -1102,6 +1222,273 @@ void workspace_set_selected_evidence(
     );
 }
 
+void workspace_set_graph_loading(
+    Workspace *workspace
+)
+{
+    if (workspace == NULL)
+    {
+        return;
+    }
+
+    g_clear_pointer(
+        &workspace->selected_evidence_identifier,
+        g_free
+    );
+
+    if (workspace->verify_evidence_button != NULL)
+    {
+        gtk_widget_set_sensitive(
+            workspace->verify_evidence_button,
+            FALSE
+        );
+    }
+
+    workspace->graph_model =
+        NULL;
+
+    workspace->graph_state =
+        WORKSPACE_GRAPH_STATE_LOADING;
+
+    gtk_label_set_text(
+        GTK_LABEL(
+            workspace->graph_title_label
+        ),
+        "Chargement de l’enquête…"
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(
+            workspace->graph_details_label
+        ),
+        "Lecture des entités et des relations"
+    );
+
+    gtk_widget_set_visible(
+        workspace->graph_spinner,
+        TRUE
+    );
+
+    gtk_spinner_start(
+        GTK_SPINNER(
+            workspace->graph_spinner
+        )
+    );
+
+    workspace_show_default(
+        workspace
+    );
+}
+
+void workspace_set_graph(
+    Workspace *workspace,
+    const InvestigationGraphModel *graph_model
+)
+{
+    char *summary_text =
+        NULL;
+
+    if (workspace == NULL)
+    {
+        return;
+    }
+
+    if (graph_model == NULL)
+    {
+        workspace_clear_graph(
+            workspace
+        );
+
+        return;
+    }
+
+    g_clear_pointer(
+        &workspace->selected_evidence_identifier,
+        g_free
+    );
+
+    if (workspace->verify_evidence_button != NULL)
+    {
+        gtk_widget_set_sensitive(
+            workspace->verify_evidence_button,
+            FALSE
+        );
+    }
+
+    workspace->graph_model =
+        graph_model;
+
+    workspace->graph_state =
+        WORKSPACE_GRAPH_STATE_READY;
+
+    gtk_spinner_stop(
+        GTK_SPINNER(
+            workspace->graph_spinner
+        )
+    );
+
+    gtk_widget_set_visible(
+        workspace->graph_spinner,
+        FALSE
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(
+            workspace->graph_title_label
+        ),
+        "Graphe chargé"
+    );
+
+    summary_text =
+        g_strdup_printf(
+            "%" G_GUINT64_FORMAT " entité(s)\n"
+            "%" G_GUINT64_FORMAT " relation(s)",
+            investigation_graph_model_get_entity_count(
+                graph_model
+            ),
+            investigation_graph_model_get_relation_count(
+                graph_model
+            )
+        );
+
+    gtk_label_set_text(
+        GTK_LABEL(
+            workspace->graph_details_label
+        ),
+        summary_text != NULL
+            ? summary_text
+            : "Résumé indisponible"
+    );
+
+    g_free(
+        summary_text
+    );
+
+    workspace_show_default(
+        workspace
+    );
+}
+
+void workspace_set_graph_error(
+    Workspace *workspace,
+    const char *message
+)
+{
+    if (workspace == NULL)
+    {
+        return;
+    }
+
+    g_clear_pointer(
+        &workspace->selected_evidence_identifier,
+        g_free
+    );
+
+    if (workspace->verify_evidence_button != NULL)
+    {
+        gtk_widget_set_sensitive(
+            workspace->verify_evidence_button,
+            FALSE
+        );
+    }
+
+    workspace->graph_model =
+        NULL;
+
+    workspace->graph_state =
+        WORKSPACE_GRAPH_STATE_ERROR;
+
+    gtk_spinner_stop(
+        GTK_SPINNER(
+            workspace->graph_spinner
+        )
+    );
+
+    gtk_widget_set_visible(
+        workspace->graph_spinner,
+        FALSE
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(
+            workspace->graph_title_label
+        ),
+        "Impossible de charger le graphe de l’enquête"
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(
+            workspace->graph_details_label
+        ),
+        message != NULL &&
+        message[0] != '\0'
+            ? message
+            : "Aucun détail supplémentaire n’est disponible."
+    );
+
+    workspace_show_default(
+        workspace
+    );
+}
+
+void workspace_clear_graph(
+    Workspace *workspace
+)
+{
+    if (workspace == NULL)
+    {
+        return;
+    }
+
+    g_clear_pointer(
+        &workspace->selected_evidence_identifier,
+        g_free
+    );
+
+    if (workspace->verify_evidence_button != NULL)
+    {
+        gtk_widget_set_sensitive(
+            workspace->verify_evidence_button,
+            FALSE
+        );
+    }
+
+    workspace->graph_model =
+        NULL;
+
+    workspace->graph_state =
+        WORKSPACE_GRAPH_STATE_EMPTY;
+
+    gtk_spinner_stop(
+        GTK_SPINNER(
+            workspace->graph_spinner
+        )
+    );
+
+    gtk_widget_set_visible(
+        workspace->graph_spinner,
+        FALSE
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(
+            workspace->graph_title_label
+        ),
+        ""
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(
+            workspace->graph_details_label
+        ),
+        ""
+    );
+
+    workspace_show_default(
+        workspace
+    );
+}
+
 void workspace_set_verify_evidence_callback(
     Workspace *workspace,
     WorkspaceVerifyEvidenceCallback callback,
@@ -1127,6 +1514,9 @@ void workspace_free(Workspace *workspace)
         return;
     }
 
+    workspace->graph_model =
+        NULL;
+
     workspace->verify_evidence_callback =
         NULL;
 
@@ -1140,3 +1530,4 @@ void workspace_free(Workspace *workspace)
 
     g_free(workspace);
 }
+

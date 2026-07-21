@@ -9,6 +9,8 @@
 #include "core/investigation_project.h"
 #include "core/investigation_session.h"
 #include "core/investigation_tree_model.h"
+#include "core/investigation_graph_load_task.h"
+#include "models/investigation_graph_model.h"
 #include "models/investigation_record.h"
 #include "core/investigation_tree_builder.h"
 #include "views/create_investigation_dialog.h"
@@ -91,6 +93,11 @@ struct Application
     ToolInitializer *tool_initializer;
     EvidenceListModel *evidence_list_model;
     EvidenceCategoryModel *evidence_category_model;
+
+    InvestigationGraphLoadTask *graph_load_task;
+    InvestigationGraphModel *graph_model;
+    guint64 graph_load_generation;
+
     char *selected_evidence_identifier;
 };
 
@@ -102,6 +109,15 @@ typedef struct
     Application *application;
     char *investigation_root_path;
 } ApplicationEvidenceImportContext;
+
+/**
+ * @brief Contexte conservé jusqu'à la fin d'un chargement de graphe.
+ */
+typedef struct
+{
+    Application *application;
+    guint64 generation;
+} ApplicationGraphLoadContext;
 
 /**
  * @brief Contexte conservé pendant le dialogue de métadonnées.
@@ -211,6 +227,374 @@ static void application_evidence_integrity_context_free(
     g_free(
         context
     );
+}
+
+/**
+ * @brief Libère le contexte d'un chargement de graphe.
+ */
+static void application_graph_load_context_free(
+    gpointer user_data
+)
+{
+    g_free(
+        user_data
+    );
+}
+
+/**
+ * @brief Annule et détache le chargement de graphe courant.
+ *
+ * Chaque appel invalide les résultats appartenant à la génération
+ * précédente, même lorsqu'aucune tâche n'est encore active.
+ */
+static void application_cancel_graph_loading(
+    Application *application
+)
+{
+    InvestigationGraphLoadTask *load_task =
+        NULL;
+
+    if (application == NULL)
+    {
+        return;
+    }
+
+    application->graph_load_generation++;
+
+    load_task =
+        application->graph_load_task;
+
+    application->graph_load_task =
+        NULL;
+
+    if (load_task == NULL)
+    {
+        return;
+    }
+
+    investigation_graph_load_task_cancel(
+        load_task
+    );
+
+    investigation_graph_load_task_free(
+        load_task
+    );
+}
+
+/**
+ * @brief Détache puis libère le graphe possédé par Application.
+ */
+static void application_clear_graph(
+    Application *application
+)
+{
+    InvestigationGraphModel *graph_model =
+        NULL;
+
+    if (application == NULL)
+    {
+        return;
+    }
+
+    if (application->main_window != NULL)
+    {
+        main_window_clear_graph(
+            application->main_window
+        );
+    }
+
+    graph_model =
+        application->graph_model;
+
+    application->graph_model =
+        NULL;
+
+    investigation_graph_model_free(
+        graph_model
+    );
+}
+
+/**
+ * @brief Traite le résultat d'un chargement asynchrone de graphe.
+ *
+ * Le callback est exécuté sur le contexte principal GLib.
+ */
+static void application_on_graph_loaded(
+    InvestigationGraphLoadTask *load_task,
+    InvestigationGraphModel *graph_model,
+    const GError *error,
+    gpointer user_data
+)
+{
+    ApplicationGraphLoadContext *context =
+        user_data;
+
+    Application *application =
+        NULL;
+
+    char *status_message =
+        NULL;
+
+    gboolean is_current_result =
+        FALSE;
+
+    if (context != NULL)
+    {
+        application =
+            context->application;
+    }
+
+    if (application != NULL)
+    {
+        is_current_result =
+            load_task ==
+                application->graph_load_task &&
+            context->generation ==
+                application->graph_load_generation;
+    }
+
+    /*
+     * Un résultat appartenant à une ancienne enquête ne doit jamais
+     * modifier l'interface actuelle.
+     */
+    if (!is_current_result)
+    {
+        investigation_graph_model_free(
+            graph_model
+        );
+
+        investigation_graph_load_task_free(
+            load_task
+        );
+
+        return;
+    }
+
+    application->graph_load_task =
+        NULL;
+
+    if (error != NULL)
+    {
+        investigation_graph_model_free(
+            graph_model
+        );
+
+        main_window_set_graph_error(
+            application->main_window,
+            error->message
+        );
+
+        main_window_set_status(
+            application->main_window,
+            "Le graphe de l'enquête n'a pas pu être chargé."
+        );
+
+        investigation_graph_load_task_free(
+            load_task
+        );
+
+        return;
+    }
+
+    if (graph_model == NULL)
+    {
+        main_window_set_graph_error(
+            application->main_window,
+            "Le chargement s'est terminé sans fournir de graphe."
+        );
+
+        main_window_set_status(
+            application->main_window,
+            "Le graphe de l'enquête est indisponible."
+        );
+
+        investigation_graph_load_task_free(
+            load_task
+        );
+
+        return;
+    }
+
+    /*
+     * MainWindow et Workspace doivent être détachés de l'ancien modèle
+     * avant sa libération.
+     */
+    application_clear_graph(
+        application
+    );
+
+    application->graph_model =
+        graph_model;
+
+    main_window_set_graph(
+        application->main_window,
+        application->graph_model
+    );
+
+    status_message =
+        g_strdup_printf(
+            "Graphe chargé : %" G_GUINT64_FORMAT
+            " entité(s), %" G_GUINT64_FORMAT
+            " relation(s).",
+            investigation_graph_model_get_entity_count(
+                application->graph_model
+            ),
+            investigation_graph_model_get_relation_count(
+                application->graph_model
+            )
+        );
+
+    main_window_set_status(
+        application->main_window,
+        status_message != NULL
+            ? status_message
+            : "Graphe chargé."
+    );
+
+    g_free(
+        status_message
+    );
+
+    investigation_graph_load_task_free(
+        load_task
+    );
+}
+
+/**
+ * @brief Démarre le chargement asynchrone du graphe d'une enquête.
+ */
+static void application_start_graph_loading(
+    Application *application,
+    const char *database_path
+)
+{
+    InvestigationGraphLoadTask *load_task =
+        NULL;
+
+    ApplicationGraphLoadContext *context =
+        NULL;
+
+    GError *error =
+        NULL;
+
+    if (application == NULL ||
+        application->main_window == NULL)
+    {
+        return;
+    }
+
+    /*
+     * Cette opération invalide l'ancienne génération et libère
+     * l'ancien chargement avant d'en créer un nouveau.
+     */
+    application_cancel_graph_loading(
+        application
+    );
+
+    application_clear_graph(
+        application
+    );
+
+    if (database_path == NULL ||
+        database_path[0] == '\0')
+    {
+        main_window_set_graph_error(
+            application->main_window,
+            "Le chemin de la base SQLite est invalide."
+        );
+
+        return;
+    }
+
+    main_window_set_graph_loading(
+        application->main_window
+    );
+
+    load_task =
+        investigation_graph_load_task_new(
+            database_path,
+            &error
+        );
+
+    if (load_task == NULL)
+    {
+        main_window_set_graph_error(
+            application->main_window,
+            error != NULL
+                ? error->message
+                : "Impossible de préparer le chargement du graphe."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        return;
+    }
+
+    context =
+        g_try_new0(
+            ApplicationGraphLoadContext,
+            1
+        );
+
+    if (context == NULL)
+    {
+        investigation_graph_load_task_free(
+            load_task
+        );
+
+        main_window_set_graph_error(
+            application->main_window,
+            "Impossible d'allouer le contexte de chargement."
+        );
+
+        return;
+    }
+
+    context->application =
+        application;
+
+    context->generation =
+        application->graph_load_generation;
+
+    application->graph_load_task =
+        load_task;
+
+    if (!investigation_graph_load_task_start(
+            load_task,
+            application_on_graph_loaded,
+            context,
+            application_graph_load_context_free,
+            &error
+        ))
+    {
+        /*
+         * En cas d'échec immédiat, la tâche n'a pas pris possession
+         * du contexte fourni.
+         */
+        application->graph_load_task =
+            NULL;
+
+        application_graph_load_context_free(
+            context
+        );
+
+        investigation_graph_load_task_free(
+            load_task
+        );
+
+        main_window_set_graph_error(
+            application->main_window,
+            error != NULL
+                ? error->message
+                : "Impossible de démarrer le chargement du graphe."
+        );
+
+        g_clear_error(
+            &error
+        );
+    }
 }
 
 /**
@@ -972,6 +1356,7 @@ static gboolean application_install_session(
     const InvestigationRecord *record = NULL;
 
     const char *root_path = NULL;
+    const char *database_path = NULL;
     const char *investigation_name = NULL;
 
     GError *evidence_error = NULL;
@@ -1002,12 +1387,19 @@ static gboolean application_install_session(
         project
     );
 
+    database_path =
+        investigation_project_get_database_path(
+            project
+        );
+
     investigation_name = investigation_record_get_name(
         record
     );
 
     if (root_path == NULL ||
         root_path[0] == '\0' ||
+        database_path == NULL ||
+        database_path[0] == '\0' ||
         investigation_name == NULL ||
         investigation_name[0] == '\0')
     {
@@ -1053,6 +1445,11 @@ static gboolean application_install_session(
     main_window_set_import_evidence_enabled(
         application->main_window,
         TRUE
+    );
+
+    application_start_graph_loading(
+        application,
+        database_path
     );
 
     /*
@@ -3928,6 +4325,14 @@ void application_free(
 
     task_manager_cancel_all(
         application->task_manager
+    );
+
+    application_cancel_graph_loading(
+        application
+    );
+
+    application_clear_graph(
+        application
     );
 
     investigation_tree_model_free(

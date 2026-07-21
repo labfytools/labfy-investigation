@@ -16,6 +16,11 @@
 #include <gtk/gtk.h>
 
 /**
+ * @brief Représentation opaque du graphe d'enquête.
+ */
+typedef struct InvestigationGraphModel InvestigationGraphModel;
+
+/**
  * @brief Représentation opaque de la fenêtre principale.
  */
 typedef struct MainWindow MainWindow;
@@ -227,6 +232,53 @@ void main_window_set_selected_node(
 void main_window_set_selected_evidence(
     MainWindow *main_window,
     const EvidenceRecord *evidence_record
+);
+
+
+/**
+ * @brief Affiche l'état de chargement du graphe.
+ *
+ * MainWindow transmet uniquement la demande au Workspace.
+ *
+ * @param main_window Fenêtre principale.
+ */
+void main_window_set_graph_loading(
+    MainWindow *main_window
+);
+
+/**
+ * @brief Affiche le graphe chargé dans le Workspace.
+ *
+ * MainWindow et Workspace empruntent graph_model.
+ *
+ * @param main_window Fenêtre principale.
+ * @param graph_model Graphe emprunté, ou NULL.
+ */
+void main_window_set_graph(
+    MainWindow *main_window,
+    const InvestigationGraphModel *graph_model
+);
+
+/**
+ * @brief Affiche une erreur de chargement du graphe.
+ *
+ * @param main_window Fenêtre principale.
+ * @param message Message d'erreur, ou NULL.
+ */
+void main_window_set_graph_error(
+    MainWindow *main_window,
+    const char *message
+);
+
+/**
+ * @brief Détache le graphe du Workspace.
+ *
+ * Aucun graphe n'est libéré par MainWindow.
+ *
+ * @param main_window Fenêtre principale.
+ */
+void main_window_clear_graph(
+    MainWindow *main_window
 );
 
 /**

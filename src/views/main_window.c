@@ -853,6 +853,67 @@ void main_window_set_investigation(
     g_free(window_title);
 }
 
+
+void main_window_set_graph_loading(
+    MainWindow *main_window
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    workspace_set_graph_loading(
+        main_window->workspace
+    );
+}
+
+void main_window_set_graph(
+    MainWindow *main_window,
+    const InvestigationGraphModel *graph_model
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    workspace_set_graph(
+        main_window->workspace,
+        graph_model
+    );
+}
+
+void main_window_set_graph_error(
+    MainWindow *main_window,
+    const char *message
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    workspace_set_graph_error(
+        main_window->workspace,
+        message
+    );
+}
+
+void main_window_clear_graph(
+    MainWindow *main_window
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    workspace_clear_graph(
+        main_window->workspace
+    );
+}
+
 void main_window_set_status(
     MainWindow *main_window,
     const char *status_text
@@ -1111,6 +1172,10 @@ void main_window_free(
             main_window->workspace,
             NULL,
             NULL
+        );
+
+        main_window_clear_graph(
+            main_window
         );
     }
 
