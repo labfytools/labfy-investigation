@@ -49,6 +49,8 @@ struct Workspace
     GtkWidget *graph_view_page;
     GtkWidget *graph_toolbar;
     GtkWidget *reset_graph_layout_button;
+    GtkWidget *graph_help_button;
+    GtkWidget *graph_help_popover;
 
     InvestigationGraphView *graph_view;
     EntityDetailsPanel *entity_details_panel;
@@ -1174,6 +1176,175 @@ Workspace *workspace_new(void)
         TRUE
     );
 
+    workspace->graph_help_button =
+        gtk_menu_button_new();
+
+    workspace->graph_help_popover =
+        gtk_popover_new();
+
+    GtkWidget *graph_help_content =
+        gtk_box_new(
+            GTK_ORIENTATION_VERTICAL,
+            8
+        );
+
+    GtkWidget *graph_help_title =
+        gtk_label_new(
+            "Commandes du graphe"
+        );
+
+    GtkWidget *graph_help_text =
+        gtk_label_new(
+            "• Clic : sélectionner un nœud\n"
+            "• Glisser un nœud : le déplacer\n"
+            "• Maj + glisser : déplacer la vue\n"
+            "• Ctrl + molette : zoomer\n"
+            "• Pincement : zoomer"
+        );
+
+    if (workspace->graph_help_button == NULL ||
+        workspace->graph_help_popover == NULL ||
+        graph_help_content == NULL ||
+        graph_help_title == NULL ||
+        graph_help_text == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    gtk_menu_button_set_label(
+        GTK_MENU_BUTTON(
+            workspace->graph_help_button
+        ),
+        "?"
+    );
+
+    gtk_widget_add_css_class(
+        workspace->graph_help_button,
+        "flat"
+    );
+
+    gtk_widget_set_tooltip_text(
+        workspace->graph_help_button,
+        "Afficher les commandes du graphe"
+    );
+
+    gtk_widget_set_can_target(
+        workspace->graph_help_button,
+        TRUE
+    );
+
+    gtk_widget_set_halign(
+        workspace->graph_help_button,
+        GTK_ALIGN_END
+    );
+
+    gtk_widget_set_valign(
+        workspace->graph_help_button,
+        GTK_ALIGN_START
+    );
+
+    gtk_widget_set_margin_end(
+        workspace->graph_help_button,
+        12
+    );
+
+    gtk_widget_set_margin_top(
+        workspace->graph_help_button,
+        12
+    );
+
+    gtk_widget_set_margin_start(
+        graph_help_content,
+        16
+    );
+
+    gtk_widget_set_margin_end(
+        graph_help_content,
+        16
+    );
+
+    gtk_widget_set_margin_top(
+        graph_help_content,
+        14
+    );
+
+    gtk_widget_set_margin_bottom(
+        graph_help_content,
+        14
+    );
+
+    gtk_label_set_xalign(
+        GTK_LABEL(
+            graph_help_title
+        ),
+        0.0F
+    );
+
+    gtk_widget_add_css_class(
+        graph_help_title,
+        "heading"
+    );
+
+    gtk_label_set_xalign(
+        GTK_LABEL(
+            graph_help_text
+        ),
+        0.0F
+    );
+
+    gtk_label_set_wrap(
+        GTK_LABEL(
+            graph_help_text
+        ),
+        TRUE
+    );
+
+    gtk_label_set_wrap_mode(
+        GTK_LABEL(
+            graph_help_text
+        ),
+        PANGO_WRAP_WORD_CHAR
+    );
+
+    gtk_label_set_max_width_chars(
+        GTK_LABEL(
+            graph_help_text
+        ),
+        44
+    );
+
+    gtk_box_append(
+        GTK_BOX(
+            graph_help_content
+        ),
+        graph_help_title
+    );
+
+    gtk_box_append(
+        GTK_BOX(
+            graph_help_content
+        ),
+        graph_help_text
+    );
+
+    gtk_popover_set_child(
+        GTK_POPOVER(
+            workspace->graph_help_popover
+        ),
+        graph_help_content
+    );
+
+    gtk_menu_button_set_popover(
+        GTK_MENU_BUTTON(
+            workspace->graph_help_button
+        ),
+        workspace->graph_help_popover
+    );
+
     gtk_overlay_add_overlay(
         GTK_OVERLAY(
             workspace->graph_view_page
@@ -1192,6 +1363,22 @@ Workspace *workspace_new(void)
         ),
         TRUE
     );
+
+    gtk_overlay_add_overlay(
+        GTK_OVERLAY(
+            workspace->graph_view_page
+        ),
+        workspace->graph_help_button
+    );
+
+    gtk_overlay_set_clip_overlay(
+        GTK_OVERLAY(
+            workspace->graph_view_page
+        ),
+        workspace->graph_help_button,
+        TRUE
+    );
+
 
     gtk_stack_add_named(
         GTK_STACK(workspace->stack),
@@ -2020,6 +2207,12 @@ void workspace_free(Workspace *workspace)
         NULL;
 
     workspace->reset_graph_layout_button =
+        NULL;
+
+    workspace->graph_help_button =
+        NULL;
+
+    workspace->graph_help_popover =
         NULL;
 
     g_clear_pointer(

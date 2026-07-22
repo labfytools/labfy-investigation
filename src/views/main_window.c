@@ -59,6 +59,7 @@ struct MainWindow
     GtkWidget *new_investigation_button;
     GtkWidget *open_investigation_button;
     GtkWidget *import_evidence_button;
+    GtkWidget *show_graph_button;
     GtkWidget *content_paned;
     GtkWidget *main_paned;
     GtkWidget *status_label;
@@ -85,6 +86,12 @@ struct MainWindow
 
     gpointer
         import_evidence_user_data;
+
+    MainWindowShowGraphCallback
+        show_graph_callback;
+
+    gpointer
+        show_graph_user_data;
 
     MainWindowVerifyEvidenceCallback
         verify_evidence_callback;
@@ -187,6 +194,33 @@ static void main_window_on_import_evidence_clicked(
 
     main_window->import_evidence_callback(
         main_window->import_evidence_user_data
+    );
+}
+
+/**
+ * @brief Transmet la demande de fermeture au contrôleur.
+ *
+ * @param button Bouton ayant reçu le clic.
+ * @param user_data Pointeur vers MainWindow.
+ */
+static void main_window_on_show_graph_clicked(
+    GtkButton *button,
+    gpointer user_data
+)
+{
+    MainWindow *main_window =
+        user_data;
+
+    (void) button;
+
+    if (main_window == NULL ||
+        main_window->show_graph_callback == NULL)
+    {
+        return;
+    }
+
+    main_window->show_graph_callback(
+        main_window->show_graph_user_data
     );
 }
 
@@ -436,6 +470,12 @@ MainWindow *main_window_new(
             "Importer une preuve"
         );
 
+    main_window->show_graph_button =
+        main_window_create_action_button(
+            "go-previous-symbolic",
+            "Revenir au graphe"
+        );
+
     main_window->quit_button =
         main_window_create_action_button(
             "application-exit-symbolic",
@@ -461,6 +501,11 @@ MainWindow *main_window_new(
         FALSE
     );
 
+    gtk_widget_set_sensitive(
+        main_window->show_graph_button,
+        FALSE
+    );
+
     gtk_box_append(
         GTK_BOX(main_window->action_bar),
         main_window->new_investigation_button
@@ -474,6 +519,11 @@ MainWindow *main_window_new(
     gtk_box_append(
         GTK_BOX(main_window->action_bar),
         main_window->import_evidence_button
+    );
+
+    gtk_box_append(
+        GTK_BOX(main_window->action_bar),
+        main_window->show_graph_button
     );
 
     gtk_box_append(
@@ -509,6 +559,15 @@ MainWindow *main_window_new(
         "clicked",
         G_CALLBACK(
             main_window_on_import_evidence_clicked
+        ),
+        main_window
+    );
+
+    g_signal_connect(
+        main_window->show_graph_button,
+        "clicked",
+        G_CALLBACK(
+            main_window_on_show_graph_clicked
         ),
         main_window
     );
@@ -937,6 +996,11 @@ void main_window_set_graph_loading(
         return;
     }
 
+    gtk_widget_set_sensitive(
+        main_window->show_graph_button,
+        FALSE
+    );
+
     workspace_set_graph_loading(
         main_window->workspace
     );
@@ -958,6 +1022,11 @@ void main_window_set_graph(
         graph_model,
         graph_layout
     );
+
+    gtk_widget_set_sensitive(
+        main_window->show_graph_button,
+        graph_model != NULL
+    );
 }
 
 void main_window_set_graph_error(
@@ -969,6 +1038,11 @@ void main_window_set_graph_error(
     {
         return;
     }
+
+    gtk_widget_set_sensitive(
+        main_window->show_graph_button,
+        FALSE
+    );
 
     workspace_set_graph_error(
         main_window->workspace,
@@ -984,6 +1058,11 @@ void main_window_clear_graph(
     {
         return;
     }
+
+    gtk_widget_set_sensitive(
+        main_window->show_graph_button,
+        FALSE
+    );
 
     workspace_clear_graph(
         main_window->workspace
@@ -1110,6 +1189,24 @@ void main_window_set_import_evidence_callback(
         callback;
 
     main_window->import_evidence_user_data =
+        user_data;
+}
+
+void main_window_set_show_graph_callback(
+    MainWindow *main_window,
+    MainWindowShowGraphCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    main_window->show_graph_callback =
+        callback;
+
+    main_window->show_graph_user_data =
         user_data;
 }
 
@@ -1324,6 +1421,12 @@ void main_window_free(
         main_window->reset_graph_layout_user_data =
             NULL;
 
+        main_window->show_graph_callback =
+            NULL;
+
+        main_window->show_graph_user_data =
+            NULL;
+
         main_window_clear_graph(
             main_window
         );
@@ -1354,3 +1457,4 @@ void main_window_free(
         main_window
     );
 }
+

@@ -4424,6 +4424,43 @@ static void application_on_reset_graph_layout_confirmed(
 /**
  * @brief Demande confirmation avant toute suppression de position.
  */
+static void application_on_show_graph_requested(
+    gpointer user_data
+)
+{
+    Application *application =
+        user_data;
+
+    if (application == NULL ||
+        application->main_window == NULL ||
+        application->graph_model == NULL)
+    {
+        return;
+    }
+
+    application_set_selected_evidence_identifier(
+        application,
+        NULL
+    );
+
+    /*
+     * Passer NULL restaure l'état principal du Workspace. Quand le graphe
+     * est prêt, workspace_show_default() affiche automatiquement le canvas.
+     */
+    main_window_set_selected_evidence(
+        application->main_window,
+        NULL
+    );
+
+    main_window_set_status(
+        application->main_window,
+        "Graphe de l'enquête affiché."
+    );
+}
+
+/**
+ * @brief Demande confirmation avant toute suppression de position.
+ */
 static void application_on_reset_graph_layout_requested(
     gpointer user_data
 )
@@ -4554,6 +4591,12 @@ static void application_on_activate(
     main_window_set_reset_graph_layout_callback(
         application->main_window,
         application_on_reset_graph_layout_requested,
+        application
+    );
+
+    main_window_set_show_graph_callback(
+        application->main_window,
+        application_on_show_graph_requested,
         application
     );
 

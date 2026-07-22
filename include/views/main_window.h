@@ -50,6 +50,15 @@ typedef void (*MainWindowImportEvidenceCallback)(
 );
 
 /**
+ * @brief Callback appelé lorsque l'utilisateur revient au graphe.
+ *
+ * @param user_data Données utilisateur associées au callback.
+ */
+typedef void (*MainWindowShowGraphCallback)(
+    gpointer user_data
+);
+
+/**
  * @brief Callback appelé lorsqu'une preuve est sélectionnée.
  *
  * L'identifiant est emprunté et uniquement valide pendant l'appel.
@@ -429,6 +438,21 @@ void main_window_set_quit_callback(
 void main_window_set_import_evidence_callback(
     MainWindow *main_window,
     MainWindowImportEvidenceCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback du bouton « Revenir au graphe ».
+ *
+ * MainWindow transmet uniquement la demande au contrôleur.
+ *
+ * @param main_window Fenêtre principale.
+ * @param callback Fonction appelée lors du clic, ou NULL.
+ * @param user_data Données transmises au callback.
+ */
+void main_window_set_show_graph_callback(
+    MainWindow *main_window,
+    MainWindowShowGraphCallback callback,
     gpointer user_data
 );
 
