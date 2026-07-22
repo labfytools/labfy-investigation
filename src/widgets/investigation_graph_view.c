@@ -17,8 +17,8 @@
 #define INVESTIGATION_GRAPH_VIEW_MARGIN 32.0
 #define INVESTIGATION_GRAPH_VIEW_NODE_WIDTH 190.0
 #define INVESTIGATION_GRAPH_VIEW_NODE_HEIGHT 78.0
-#define INVESTIGATION_GRAPH_VIEW_RELATION_NODE_WIDTH 170.0
-#define INVESTIGATION_GRAPH_VIEW_RELATION_NODE_HEIGHT 62.0
+#define INVESTIGATION_GRAPH_VIEW_RELATION_NODE_WIDTH 142.0
+#define INVESTIGATION_GRAPH_VIEW_RELATION_NODE_HEIGHT 30.0
 #define INVESTIGATION_GRAPH_VIEW_HORIZONTAL_GAP 28.0
 #define INVESTIGATION_GRAPH_VIEW_VERTICAL_GAP 28.0
 #define INVESTIGATION_GRAPH_VIEW_NODE_RADIUS 12.0
@@ -26,8 +26,7 @@
 #define INVESTIGATION_GRAPH_VIEW_NODE_PADDING 12
 #define INVESTIGATION_GRAPH_VIEW_SOCIAL_ICON_SIZE 38.0
 #define INVESTIGATION_GRAPH_VIEW_SOCIAL_ICON_GAP 10.0
-#define INVESTIGATION_GRAPH_VIEW_RELATION_NODE_GAP 72.0
-#define INVESTIGATION_GRAPH_VIEW_RELATION_NODE_CLEARANCE 16.0
+#define INVESTIGATION_GRAPH_VIEW_RELATION_NODE_GAP 38.0
 #define INVESTIGATION_GRAPH_VIEW_ARROW_LENGTH 9.0
 #define INVESTIGATION_GRAPH_VIEW_ARROW_HALF_WIDTH 5.0
 
@@ -955,6 +954,12 @@ static void investigation_graph_view_on_drag_begin(
         return;
     }
 
+    /* Le libellé d'une relation suit automatiquement ses deux extrémités. */
+    if (node_layout->kind == INVESTIGATION_GRAPH_NODE_KIND_RELATION)
+    {
+        return;
+    }
+
     graph_view->dragged_node =
         node_layout;
 
@@ -1287,30 +1292,6 @@ static double investigation_graph_view_get_node_center_y(
     return node_layout != NULL
         ? node_layout->y + (node_layout->height / 2.0)
         : 0.0;
-}
-
-/**
- * @brief Indique si deux zones de nœuds se recouvrent.
- */
-static gboolean investigation_graph_view_node_layouts_overlap(
-    const InvestigationGraphNodeLayout *first_layout,
-    const InvestigationGraphNodeLayout *second_layout
-)
-{
-    if (first_layout == NULL ||
-        second_layout == NULL)
-    {
-        return FALSE;
-    }
-
-    return first_layout->x <
-               second_layout->x + second_layout->width &&
-           first_layout->x + first_layout->width >
-               second_layout->x &&
-           first_layout->y <
-               second_layout->y + second_layout->height &&
-           first_layout->y + first_layout->height >
-               second_layout->y;
 }
 
 /**
@@ -1721,6 +1702,9 @@ static gboolean investigation_graph_view_append_relation_layouts(
     guint relation_index =
         0;
 
+    (void) graph_layout;
+    (void) apply_persisted_positions;
+
     if (node_layouts == NULL ||
         layout_index == NULL ||
         relations == NULL ||
@@ -1813,21 +1797,6 @@ static gboolean investigation_graph_view_append_relation_layouts(
             0.0;
 
         double parallel_offset =
-            0.0;
-
-        double endpoint_clearance_offset =
-            0.0;
-
-        double automatic_x =
-            0.0;
-
-        double automatic_y =
-            0.0;
-
-        double persisted_x =
-            0.0;
-
-        double persisted_y =
             0.0;
 
         if (relation_record == NULL ||
@@ -2023,27 +1992,11 @@ static gboolean investigation_graph_view_append_relation_layouts(
         {
             perpendicular_y =
                 1.0;
-
-            endpoint_clearance_offset =
-                (
-                    INVESTIGATION_GRAPH_VIEW_NODE_HEIGHT +
-                    INVESTIGATION_GRAPH_VIEW_RELATION_NODE_HEIGHT
-                ) /
-                2.0 +
-                INVESTIGATION_GRAPH_VIEW_RELATION_NODE_CLEARANCE;
         }
         else
         {
             perpendicular_x =
                 1.0;
-
-            endpoint_clearance_offset =
-                (
-                    INVESTIGATION_GRAPH_VIEW_NODE_WIDTH +
-                    INVESTIGATION_GRAPH_VIEW_RELATION_NODE_WIDTH
-                ) /
-                2.0 +
-                INVESTIGATION_GRAPH_VIEW_RELATION_NODE_CLEARANCE;
         }
 
         if (pair_count > 1U)
@@ -2064,10 +2017,7 @@ static gboolean investigation_graph_view_append_relation_layouts(
             (relation_layout->width / 2.0) +
             (
                 perpendicular_x *
-                (
-                    endpoint_clearance_offset +
-                    parallel_offset
-                )
+                parallel_offset
             );
 
         relation_layout->y =
@@ -2078,49 +2028,8 @@ static gboolean investigation_graph_view_append_relation_layouts(
             (relation_layout->height / 2.0) +
             (
                 perpendicular_y *
-                (
-                    endpoint_clearance_offset +
-                    parallel_offset
-                )
+                parallel_offset
             );
-
-        automatic_x =
-            relation_layout->x;
-
-        automatic_y =
-            relation_layout->y;
-
-        if (apply_persisted_positions &&
-            graph_layout != NULL &&
-            investigation_graph_layout_get_position(
-                graph_layout,
-                relation_identifier,
-                &persisted_x,
-                &persisted_y
-            ))
-        {
-            relation_layout->x =
-                persisted_x;
-
-            relation_layout->y =
-                persisted_y;
-
-            if (investigation_graph_view_node_layouts_overlap(
-                    relation_layout,
-                    source_layout
-                ) ||
-                investigation_graph_view_node_layouts_overlap(
-                    relation_layout,
-                    target_layout
-                ))
-            {
-                relation_layout->x =
-                    automatic_x;
-
-                relation_layout->y =
-                    automatic_y;
-            }
-        }
 
         g_ptr_array_add(
             node_layouts,
@@ -3119,12 +3028,6 @@ static void investigation_graph_view_draw_relations(
         investigation_graph_view_draw_edge(
             cairo_context,
             source_layout,
-            relation_layout
-        );
-
-        investigation_graph_view_draw_edge(
-            cairo_context,
-            relation_layout,
             target_layout
         );
     }
@@ -3465,12 +3368,6 @@ static void investigation_graph_view_draw_relation_node(
     const char *title =
         NULL;
 
-    const char *relation_type =
-        NULL;
-
-    char *details =
-        NULL;
-
     int text_width =
         (int) INVESTIGATION_GRAPH_VIEW_RELATION_NODE_WIDTH -
         (2 * INVESTIGATION_GRAPH_VIEW_NODE_PADDING);
@@ -3494,18 +3391,18 @@ static void investigation_graph_view_draw_relation_node(
     {
         cairo_set_source_rgb(
             cairo_context,
-            0.29,
-            0.20,
-            0.34
+            0.22,
+            0.25,
+            0.32
         );
     }
     else
     {
         cairo_set_source_rgb(
             cairo_context,
-            0.21,
-            0.16,
-            0.25
+            0.12,
+            0.14,
+            0.18
         );
     }
 
@@ -3517,8 +3414,8 @@ static void investigation_graph_view_draw_relation_node(
     {
         cairo_set_source_rgb(
             cairo_context,
-            0.83,
-            0.65,
+            0.56,
+            0.72,
             1.00
         );
 
@@ -3531,9 +3428,9 @@ static void investigation_graph_view_draw_relation_node(
     {
         cairo_set_source_rgb(
             cairo_context,
-            0.62,
             0.48,
-            0.72
+            0.54,
+            0.65
         );
 
         cairo_set_line_width(
@@ -3551,52 +3448,18 @@ static void investigation_graph_view_draw_relation_node(
             relation_record
         );
 
-    relation_type =
-        relation_record_get_relation_type(
-            relation_record
-        );
-
-    details =
-        g_strdup_printf(
-            "%s — %d %%",
-            relation_type != NULL &&
-            relation_type[0] != '\0'
-                ? relation_type
-                : "relation",
-            relation_record_get_confidence(
-                relation_record
-            )
-        );
-
     investigation_graph_view_draw_text(
         cairo_context,
         title,
         x + INVESTIGATION_GRAPH_VIEW_NODE_PADDING,
-        y + 9.0,
+        y + 6.0,
         text_width,
-        "Sans Bold 10",
+        "Sans 9",
         0.96,
         0.93,
         0.98
     );
 
-    investigation_graph_view_draw_text(
-        cairo_context,
-        details != NULL
-            ? details
-            : "relation",
-        x + INVESTIGATION_GRAPH_VIEW_NODE_PADDING,
-        y + 34.0,
-        text_width,
-        "Sans 8",
-        0.78,
-        0.70,
-        0.84
-    );
-
-    g_free(
-        details
-    );
 }
 
 /**

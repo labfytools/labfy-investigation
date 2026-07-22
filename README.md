@@ -165,6 +165,8 @@ Le socle actuel comprend notamment :
   conservant leur lisibilité pendant le zoom ;
 - création de personnes observées avec statut d'identification, confiance,
   notes factuelles et rattachement facultatif à une preuve ;
+- relations représentées par des flèches directes à libellé cliquable, sans
+  ajouter de faux nœud visuel entre les entités ;
 - historique OSINT contextuel en lecture seule avec détail des exécutions,
   sorties standard et d'erreur, et objets créés ou réutilisés ;
 - vérification manuelle de l'intégrité des sorties OSINT enregistrées, sans
