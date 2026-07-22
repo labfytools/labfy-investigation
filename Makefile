@@ -124,6 +124,7 @@ TEST_EVIDENCE_RECLASSIFICATION := tests/test_evidence_reclassification
 TEST_SOCIAL_ACCOUNT_SERVICE := tests/test_social_account_service
 TEST_SOCIAL_PLATFORM := tests/test_social_platform
 TEST_PERSON_ENTITY_SERVICE := tests/test_person_entity_service
+TEST_EML_ANALYZER := tests/test_eml_analyzer
 
 all: $(TARGET)
 
@@ -643,6 +644,9 @@ $(TEST_PERSON_ENTITY_SERVICE): \
 	src/database/error.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
+$(TEST_EML_ANALYZER): tests/test_eml_analyzer.c src/core/eml_analyzer.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	tests/test_investigation_graph_load_task.c \
 	src/core/investigation_graph_load_task.c \
@@ -721,7 +725,8 @@ test: \
 	$(TEST_EVIDENCE_RECLASSIFICATION) \
 	$(TEST_SOCIAL_ACCOUNT_SERVICE) \
 	$(TEST_SOCIAL_PLATFORM) \
-	$(TEST_PERSON_ENTITY_SERVICE)
+	$(TEST_PERSON_ENTITY_SERVICE) \
+	$(TEST_EML_ANALYZER)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -780,6 +785,7 @@ test: \
 	@$(TEST_SOCIAL_ACCOUNT_SERVICE)
 	@$(TEST_SOCIAL_PLATFORM)
 	@$(TEST_PERSON_ENTITY_SERVICE)
+	@$(TEST_EML_ANALYZER)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -844,7 +850,8 @@ clean:
 		$(TEST_EVIDENCE_RECLASSIFICATION) \
 		$(TEST_SOCIAL_ACCOUNT_SERVICE) \
 		$(TEST_SOCIAL_PLATFORM) \
-		$(TEST_PERSON_ENTITY_SERVICE)
+		$(TEST_PERSON_ENTITY_SERVICE) \
+		$(TEST_EML_ANALYZER)
 
 -include $(DEP)
 

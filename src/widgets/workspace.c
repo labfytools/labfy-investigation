@@ -86,6 +86,7 @@ struct Workspace
     GtkWidget *evidence_sha256_label;
     GtkWidget *verify_evidence_button;
     GtkWidget *edit_evidence_button;
+    GtkWidget *analyze_eml_button;
 
     char *selected_evidence_identifier;
 
@@ -97,6 +98,8 @@ struct Workspace
 
     WorkspaceEditEvidenceCallback edit_evidence_callback;
     gpointer edit_evidence_user_data;
+    WorkspaceAnalyzeEmlCallback analyze_eml_callback;
+    gpointer analyze_eml_user_data;
 
     WorkspaceGraphNodeMovedCallback
         graph_node_moved_callback;
@@ -851,6 +854,15 @@ static void workspace_on_edit_evidence_clicked(
         workspace->selected_evidence_identifier,
         workspace->edit_evidence_user_data);
 }
+/** @brief Transmet la demande d'analyse de la preuve EML affichée. */
+static void workspace_on_analyze_eml_clicked(GtkButton *button, gpointer data)
+{
+    Workspace *workspace = data; (void) button;
+    if (workspace != NULL && workspace->analyze_eml_callback != NULL &&
+        workspace->selected_evidence_identifier != NULL)
+        workspace->analyze_eml_callback(workspace->selected_evidence_identifier,
+            workspace->analyze_eml_user_data);
+}
 
 Workspace *workspace_new(void)
 {
@@ -1180,6 +1192,15 @@ Workspace *workspace_new(void)
     g_signal_connect(workspace->edit_evidence_button, "clicked",
         G_CALLBACK(workspace_on_edit_evidence_clicked), workspace);
     gtk_box_append(GTK_BOX(evidence_content), workspace->edit_evidence_button);
+    workspace->analyze_eml_button = gtk_button_new_with_label(
+        "Analyser les en-têtes EML");
+    gtk_widget_set_halign(workspace->analyze_eml_button, GTK_ALIGN_START);
+    gtk_widget_set_sensitive(workspace->analyze_eml_button, FALSE);
+    gtk_widget_set_tooltip_text(workspace->analyze_eml_button,
+        "Créer une copie vérifiée puis analyser localement ses en-têtes");
+    g_signal_connect(workspace->analyze_eml_button, "clicked",
+        G_CALLBACK(workspace_on_analyze_eml_clicked), workspace);
+    gtk_box_append(GTK_BOX(evidence_content), workspace->analyze_eml_button);
 
     evidence_separator =
         gtk_separator_new(
@@ -2109,6 +2130,8 @@ void workspace_set_selected_node(
     }
     if (workspace->edit_evidence_button != NULL)
         gtk_widget_set_sensitive(workspace->edit_evidence_button, FALSE);
+    if (workspace->analyze_eml_button != NULL)
+        gtk_widget_set_sensitive(workspace->analyze_eml_button, FALSE);
 
     if (node == NULL)
     {
@@ -2264,6 +2287,13 @@ void workspace_set_selected_evidence(
         TRUE
     );
     gtk_widget_set_sensitive(workspace->edit_evidence_button, TRUE);
+    {
+        const char *name = evidence_record_get_original_name(evidence_record);
+        char *lower = name != NULL ? g_ascii_strdown(name, -1) : NULL;
+        gtk_widget_set_sensitive(workspace->analyze_eml_button,
+            lower != NULL && g_str_has_suffix(lower, ".eml"));
+        g_free(lower);
+    }
 
     size_bytes =
         evidence_record_get_size_bytes(
@@ -2813,6 +2843,13 @@ void workspace_set_edit_evidence_callback(
     if (workspace == NULL) return;
     workspace->edit_evidence_callback = callback;
     workspace->edit_evidence_user_data = user_data;
+}
+void workspace_set_analyze_eml_callback(Workspace *workspace,
+    WorkspaceAnalyzeEmlCallback callback, gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->analyze_eml_callback = callback;
+    workspace->analyze_eml_user_data = user_data;
 }
 
 void workspace_set_graph_node_moved_callback(

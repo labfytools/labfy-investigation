@@ -108,6 +108,8 @@ struct MainWindow
 
     MainWindowEditEvidenceCallback edit_evidence_callback;
     gpointer edit_evidence_user_data;
+    MainWindowAnalyzeEmlCallback analyze_eml_callback;
+    gpointer analyze_eml_user_data;
 
     MainWindowGraphNodeMovedCallback
         graph_node_moved_callback;
@@ -175,6 +177,15 @@ static void main_window_on_edit_evidence_requested(
     if (main_window == NULL || main_window->edit_evidence_callback == NULL) return;
     main_window->edit_evidence_callback(
         evidence_identifier, main_window->edit_evidence_user_data);
+}
+/** @brief Relaie la demande d'analyse EML vers l'application. */
+static void main_window_on_analyze_eml_requested(const char *identifier,
+    gpointer data)
+{
+    MainWindow *main_window = data;
+    if (main_window != NULL && main_window->analyze_eml_callback != NULL)
+        main_window->analyze_eml_callback(identifier,
+            main_window->analyze_eml_user_data);
 }
 
 /**
@@ -847,6 +858,8 @@ MainWindow *main_window_new(
         main_window_on_edit_evidence_requested,
         main_window
     );
+    workspace_set_analyze_eml_callback(main_window->workspace,
+        main_window_on_analyze_eml_requested, main_window);
 
     workspace_widget = workspace_get_widget(
         main_window->workspace
@@ -1371,6 +1384,13 @@ void main_window_set_edit_evidence_callback(
     if (main_window == NULL) return;
     main_window->edit_evidence_callback = callback;
     main_window->edit_evidence_user_data = user_data;
+}
+void main_window_set_analyze_eml_callback(MainWindow *main_window,
+    MainWindowAnalyzeEmlCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->analyze_eml_callback = callback;
+    main_window->analyze_eml_user_data = user_data;
 }
 
 void main_window_set_tree_selection_callback(

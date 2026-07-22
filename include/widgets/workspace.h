@@ -100,6 +100,9 @@ typedef void (*WorkspaceEditEvidenceCallback)(
     const char *evidence_identifier,
     gpointer user_data
 );
+/** @brief Callback appelé pour analyser une preuve EML. */
+typedef void (*WorkspaceAnalyzeEmlCallback)(const char *evidence_identifier,
+    gpointer user_data);
 
 /**
  * @brief Crée une nouvelle zone de travail.
@@ -221,6 +224,9 @@ void workspace_set_edit_evidence_callback(
     WorkspaceEditEvidenceCallback callback,
     gpointer user_data
 );
+/** @brief Définit le callback d'analyse locale d'une preuve EML. */
+void workspace_set_analyze_eml_callback(Workspace *workspace,
+    WorkspaceAnalyzeEmlCallback callback, gpointer user_data);
 
 /**
  * @brief Définit le callback de vérification de la preuve affichée.

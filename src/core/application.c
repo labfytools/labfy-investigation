@@ -49,9 +49,12 @@
 #include "core/relation_service.h"
 #include "core/social_account_service.h"
 #include "core/person_entity_service.h"
+#include "core/eml_processing.h"
+#include "core/eml_integration.h"
 #include "database/database.h"
 #include "views/create_social_account_dialog.h"
 #include "views/create_person_dialog.h"
+#include "views/eml_analysis_dialog.h"
 
 #include <gtk/gtk.h>
 #include <errno.h>
@@ -212,6 +215,9 @@ typedef struct
     char *execution_identifier;
     GPtrArray *proposals;
 } ApplicationOsintReviewContext;
+/** @brief Contexte possédé pendant la révision d'une analyse EML. */
+typedef struct { Application *application; char *evidence_identifier; }
+    ApplicationEmlReviewContext;
 
 static void application_start_graph_loading(
     Application *application,
@@ -3289,6 +3295,75 @@ cleanup:
     evidence_dao_free(evidence_dao);
 }
 
+/** @brief Libère le contexte de révision EML. */
+static void application_eml_review_context_free(ApplicationEmlReviewContext *context)
+{ if (context == NULL) return; g_free(context->evidence_identifier); g_free(context); }
+
+/** @brief Intègre la sélection EML puis actualise le graphe. */
+static void application_on_eml_selection_completed(
+    GPtrArray *proposals, gpointer user_data)
+{
+    ApplicationEmlReviewContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    const InvestigationProject *project = NULL;
+    GError *error = NULL; guint created = 0, reused = 0; char *message = NULL;
+    if (proposals == NULL)
+    { application_eml_review_context_free(context); return; }
+    if (application == NULL || application->session == NULL ||
+        !eml_integration_apply(investigation_session_get_database(application->session),
+            context->evidence_identifier, proposals, &created, &reused, &error))
+        application_present_error(application, "Intégration EML impossible",
+            error != NULL ? error->message : "La transaction a échoué.");
+    else
+    {
+        message = g_strdup_printf("%u entité(s) créée(s), %u réutilisée(s).",
+            created, reused);
+        application_message_dialog_present(main_window_get_window(application->main_window),
+            APPLICATION_MESSAGE_DIALOG_INFORMATION, "Analyse EML intégrée", message);
+        project = investigation_session_get_project(application->session);
+        application_start_graph_loading(application,
+            investigation_project_get_database_path(project));
+    }
+    g_free(message); g_clear_error(&error); g_ptr_array_unref(proposals);
+    application_eml_review_context_free(context);
+}
+
+/** @brief Prépare une copie vérifiée puis affiche l'analyse EML locale. */
+static void application_on_analyze_eml_requested(
+    const char *evidence_identifier, gpointer user_data)
+{
+    Application *application = user_data;
+    const InvestigationProject *project = NULL;
+    EvidenceDao *dao = NULL;
+    EvidenceRecord *record = NULL;
+    EmlProcessingResult *result = NULL;
+    ApplicationEmlReviewContext *context = NULL;
+    GError *error = NULL;
+    if (application == NULL || application->session == NULL ||
+        evidence_identifier == NULL) return;
+    dao = evidence_dao_new(
+        investigation_session_get_database(application->session), &error);
+    if (dao != NULL) record = evidence_dao_find_by_identifier(
+        dao, evidence_identifier, &error);
+    project = investigation_session_get_project(application->session);
+    if (record != NULL && project != NULL)
+        result = eml_processing_prepare(
+            investigation_project_get_root_path(project), record, &error);
+    if (result == NULL)
+        application_present_error(application, "Analyse EML impossible",
+            error != NULL ? error->message : "La copie de travail n'a pas pu être analysée.");
+    else
+    {
+        context = g_new0(ApplicationEmlReviewContext, 1);
+        context->application = application;
+        context->evidence_identifier = g_strdup(evidence_identifier);
+        eml_analysis_dialog_present(main_window_get_window(application->main_window),
+            result, application_on_eml_selection_completed, context);
+    }
+    eml_processing_result_free(result); evidence_record_free(record);
+    evidence_dao_free(dao); g_clear_error(&error);
+}
+
 /**
  * @brief Prépare et démarre l’import asynchrone d’un fichier.
  */
@@ -6231,6 +6306,8 @@ static void application_on_activate(
         application_on_edit_evidence_requested,
         application
     );
+    main_window_set_analyze_eml_callback(application->main_window,
+        application_on_analyze_eml_requested, application);
 
     main_window_set_graph_node_moved_callback(
         application->main_window,
