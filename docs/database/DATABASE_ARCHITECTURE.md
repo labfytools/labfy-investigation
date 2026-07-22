@@ -1106,28 +1106,24 @@ En revanche, la suppression ou la modification d'un type existant doit être
 réalisée avec précaution afin de préserver la cohérence des données déjà
 enregistrées.
 
-### Limite actuelle de la traçabilité OSINT
+### Traçabilité OSINT structurée — schéma V3
 
-L'intégration DNS initiale peut créer des entités `domain_name` et
-`ip_address`, ainsi que les relations `resolves_to`, `aliases_to` et
-`uses_name_server`. La description de l'entité et la justification de la
-relation conservent une indication minimale : outil `dns.dig`, cible
-interrogée et type d'enregistrement.
-
-Cette information ne remplace pas une provenance structurée. Une migration
-future devra introduire un objet de résultat OSINT capable de conserver au
-minimum :
+La table `osint_executions` conserve chaque exécution terminée, y compris
+lorsque la révision est annulée. Elle contient notamment :
 
 - l'outil et sa version ;
 - la cible et les arguments de l'exécution ;
 - la date d'exécution ;
-- la sortie brute et son empreinte ;
-- les propositions extraites ;
-- les entités effectivement créées ou réutilisées.
+- les sorties standard et d'erreur sous forme de BLOB ;
+- leur empreinte SHA-256.
 
-Jusqu'à cette migration, l'intégration ne doit pas présenter les entités DNS
-comme des faits vérifiés et ne doit pas supprimer la sortie brute affichée à
-l'utilisateur.
+Les tables `osint_execution_entities` et `osint_execution_relations` relient
+l'exécution aux objets intégrés. Le champ `disposition` distingue les objets
+créés des objets réutilisés. Ces liaisons sont ajoutées dans la même
+transaction que l'intégration DNS.
+
+Les descriptions métier restent présentes pour la lisibilité, mais les
+entités DNS demeurent des résultats OSINT à vérifier et non des faits établis.
 
 ---
 

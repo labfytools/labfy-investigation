@@ -193,6 +193,17 @@ bool schema_install_v2(
     );
 }
 
+bool schema_install_v3(
+    Database *database
+)
+{
+    return schema_execute_file(
+        database,
+        "database/schema_v3.sql",
+        "la migration SQLite V3"
+    );
+}
+
 bool schema_ensure_current(
     Database *database
 )

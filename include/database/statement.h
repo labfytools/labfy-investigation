@@ -10,6 +10,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <glib.h>
 
 /**
  * @brief Résultat de l'exécution d'une requête préparée.
@@ -162,6 +163,24 @@ bool database_statement_column_text(
 );
 
 /**
+ * @brief Copie le contenu binaire d'une colonne BLOB.
+ *
+ * Si la colonne contient SQL NULL, la fonction réussit et place NULL dans
+ * value. La référence retournée doit être libérée avec g_bytes_unref().
+ *
+ * @param statement Requête positionnée sur une ligne.
+ * @param column_index Indice de la colonne.
+ * @param value Destination du GBytes alloué.
+ *
+ * @return true si la colonne a pu être lue, sinon false.
+ */
+bool database_statement_column_blob(
+    DatabaseStatement *statement,
+    int column_index,
+    GBytes **value
+);
+
+/**
  * @brief Lie une chaîne de caractères à un paramètre SQL.
  *
  * Les indices SQLite commencent à 1.
@@ -176,6 +195,23 @@ bool database_statement_bind_text(
     DatabaseStatement *statement,
     int index,
     const char *value
+);
+
+/**
+ * @brief Lie des octets à un paramètre SQL BLOB.
+ *
+ * Les octets sont copiés par SQLite pendant l'appel.
+ *
+ * @param statement Requête préparée.
+ * @param index Indice du paramètre, commençant à 1.
+ * @param value Octets à lier.
+ *
+ * @return true en cas de succès, sinon false.
+ */
+bool database_statement_bind_blob(
+    DatabaseStatement *statement,
+    int index,
+    GBytes *value
 );
 
 /**

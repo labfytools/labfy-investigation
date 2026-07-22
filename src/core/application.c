@@ -15,6 +15,7 @@
 #include "models/investigation_record.h"
 #include "models/osint_dns_query.h"
 #include "models/osint_dns_proposal.h"
+#include "models/osint_execution_record.h"
 #include "core/investigation_tree_builder.h"
 #include "views/create_investigation_dialog.h"
 #include "views/folder_dialog.h"
@@ -35,6 +36,7 @@
 #include "views/osint_dns_review_dialog.h"
 #include "dao/evidence_dao.h"
 #include "dao/entity_dao.h"
+#include "dao/osint_execution_dao.h"
 #include "models/evidence_type.h"
 #include "widgets/evidence_list_model.h"
 #include "widgets/evidence_category_model.h"
@@ -164,6 +166,7 @@ typedef struct
     Application *application;
     char *target_identifier;
     char *target_value;
+    char *started_at;
 } ApplicationOsintActionContext;
 
 /** @brief Données possédées par l'étape de révision OSINT. */
@@ -171,6 +174,7 @@ typedef struct
 {
     Application *application;
     char *source_entity_identifier;
+    char *execution_identifier;
     GPtrArray *proposals;
 } ApplicationOsintReviewContext;
 
@@ -191,6 +195,7 @@ static void application_osint_review_context_free(gpointer user_data)
     ApplicationOsintReviewContext *context = user_data;
     if (context == NULL) return;
     g_clear_pointer(&context->proposals, g_ptr_array_unref);
+    g_free(context->execution_identifier);
     g_free(context->source_entity_identifier);
     g_free(context);
 }
@@ -227,6 +232,7 @@ static void application_on_osint_integration_confirmed(
         ? investigation_project_get_database_path(project) : NULL;
     if (!osint_dns_integration_apply(
             database, review_context->source_entity_identifier,
+            review_context->execution_identifier,
             selected_proposals, &inserted_count, &skipped_count,
             &inserted_relation_count, &skipped_relation_count, &error
         ))
@@ -244,10 +250,10 @@ static void application_on_osint_integration_confirmed(
     message = g_strdup_printf(
         "%u entité(s) créée(s), %u entité(s) réutilisée(s) ou ignorée(s).\n"
         "%u relation(s) créée(s), %u relation(s) ignorée(s).\n\n"
-        "La provenance complète devra être ajoutée par une future migration "
-        "du schéma OSINT.",
+        "Les objets créés ou réutilisés sont liés à l'exécution OSINT %s.",
         inserted_count, skipped_count,
-        inserted_relation_count, skipped_relation_count
+        inserted_relation_count, skipped_relation_count,
+        review_context->execution_identifier
     );
     application_message_dialog_present(
         main_window_get_window(application->main_window),
@@ -291,6 +297,7 @@ static void application_osint_action_context_free(
 
     g_free(context->target_value);
     g_free(context->target_identifier);
+    g_free(context->started_at);
     g_free(context);
 }
 
@@ -1085,6 +1092,89 @@ static char *application_osint_output_to_utf8(
     return g_utf8_make_valid(data, (gssize) data_size);
 }
 
+/** @brief Crée une date UTC au format persistant du projet. */
+static char *application_osint_create_timestamp(void)
+{
+    GDateTime *now = g_date_time_new_now_utc();
+    char *timestamp = now != NULL
+        ? g_date_time_format(now, "%Y-%m-%dT%H:%M:%SZ") : NULL;
+    g_clear_pointer(&now, g_date_time_unref);
+    return timestamp;
+}
+
+/** @brief Calcule l'empreinte déterministe de stdout et stderr bruts. */
+static char *application_osint_hash_outputs(GBytes *stdout_raw, GBytes *stderr_raw)
+{
+    GChecksum *checksum = g_checksum_new(G_CHECKSUM_SHA256);
+    gconstpointer data = NULL;
+    gsize data_size = 0U;
+    const guint8 separator = 0U;
+    char *digest = NULL;
+    if (checksum == NULL || stdout_raw == NULL || stderr_raw == NULL)
+    {
+        g_clear_pointer(&checksum, g_checksum_free);
+        return NULL;
+    }
+    data = g_bytes_get_data(stdout_raw, &data_size);
+    if (data_size > 0U) g_checksum_update(checksum, data, data_size);
+    g_checksum_update(checksum, &separator, 1U);
+    data = g_bytes_get_data(stderr_raw, &data_size);
+    if (data_size > 0U) g_checksum_update(checksum, data, data_size);
+    digest = g_strdup(g_checksum_get_string(checksum));
+    g_checksum_free(checksum);
+    return digest;
+}
+
+/** @brief Persiste une exécution DNS terminée et retourne son UUID. */
+static char *application_persist_dns_execution(
+    ApplicationOsintActionContext *context,
+    const char *final_state,
+    gboolean has_exit_code,
+    gint exit_code,
+    GBytes *stdout_raw,
+    GBytes *stderr_raw,
+    GError **error
+)
+{
+    Application *application = context != NULL ? context->application : NULL;
+    ToolRegistry *registry = NULL;
+    const ToolInfo *tool_info = NULL;
+    Database *database = NULL;
+    OsintExecutionDao *dao = NULL;
+    OsintExecutionRecord *record = NULL;
+    char *identifier = NULL;
+    char *finished_at = NULL;
+    char *arguments = NULL;
+    char *sha256 = NULL;
+    gboolean inserted = FALSE;
+    if (application == NULL || application->session == NULL) return NULL;
+    database = investigation_session_get_database(application->session);
+    registry = tool_initializer_get_registry(application->tool_initializer);
+    tool_info = tool_registry_find(registry, "dns.dig");
+    identifier = g_uuid_string_random();
+    finished_at = application_osint_create_timestamp();
+    arguments = g_strdup_printf(
+        "[\"+noall\",\"+answer\",\"%s\"]", context->target_value
+    );
+    sha256 = application_osint_hash_outputs(stdout_raw, stderr_raw);
+    record = osint_execution_record_new(
+        identifier, "dns.dig",
+        tool_info != NULL ? tool_info_get_detected_version(tool_info) : NULL,
+        "dns-preview", context->target_identifier, "entity",
+        context->target_value, arguments, context->started_at, finished_at,
+        has_exit_code, exit_code, final_state, stdout_raw, stderr_raw, sha256,
+        error
+    );
+    dao = osint_execution_dao_new(database, error);
+    if (record != NULL && dao != NULL)
+        inserted = osint_execution_dao_insert(dao, record, error);
+    osint_execution_dao_free(dao);
+    osint_execution_record_free(record);
+    g_free(finished_at); g_free(arguments); g_free(sha256);
+    if (!inserted) g_clear_pointer(&identifier, g_free);
+    return identifier;
+}
+
 /**
  * @brief Présente le résultat final d'une résolution DNS.
  */
@@ -1103,9 +1193,11 @@ static void application_on_dns_lookup_completed(
     char *stderr_text = NULL;
     char *details = NULL;
     char *message = NULL;
+    char *execution_identifier = NULL;
     GPtrArray *proposals = NULL;
     ApplicationOsintReviewContext *review_context = NULL;
     GError *error = NULL;
+    const ToolInfo *dns_tool_info = NULL;
 
     if (task == NULL || context == NULL || context->application == NULL)
     {
@@ -1118,19 +1210,38 @@ static void application_on_dns_lookup_completed(
         return;
     }
 
+    dns_tool_info = tool_registry_find(
+        tool_initializer_get_registry(application->tool_initializer),
+        "dns.dig"
+    );
+
     if (background_task_get_state(task) == BACKGROUND_TASK_STATE_CANCELLED)
     {
+        GBytes *empty_output = g_bytes_new_static("", 0U);
+        execution_identifier = application_persist_dns_execution(
+            context, "cancelled", FALSE, -1, empty_output, empty_output, &error
+        );
+        g_bytes_unref(empty_output);
         application_message_dialog_present(
             main_window_get_window(application->main_window),
             APPLICATION_MESSAGE_DIALOG_INFORMATION,
             "Résolution DNS annulée",
-            "La tâche a été annulée. Aucun résultat n'a été enregistré."
+            execution_identifier != NULL
+                ? "La tâche a été annulée et sa provenance a été enregistrée."
+                : "La tâche a été annulée, mais sa provenance n'a pas pu être enregistrée."
         );
+        g_free(execution_identifier);
+        g_clear_error(&error);
         return;
     }
 
     if (background_task_get_state(task) != BACKGROUND_TASK_STATE_COMPLETED)
     {
+        GBytes *empty_output = g_bytes_new_static("", 0U);
+        execution_identifier = application_persist_dns_execution(
+            context, "failed", FALSE, -1, empty_output, empty_output, NULL
+        );
+        g_bytes_unref(empty_output);
         error = background_task_dup_error(task);
         application_present_error(
             application,
@@ -1139,6 +1250,7 @@ static void application_on_dns_lookup_completed(
                 ? error->message
                 : "L'exécution de dig a été annulée ou a échoué."
         );
+        g_free(execution_identifier);
         g_clear_error(&error);
         return;
     }
@@ -1157,6 +1269,23 @@ static void application_on_dns_lookup_completed(
 
     stdout_bytes = tool_process_result_ref_stdout(process_result);
     stderr_bytes = tool_process_result_ref_stderr(process_result);
+    execution_identifier = application_persist_dns_execution(
+        context, "completed", TRUE,
+        tool_process_result_get_exit_status(process_result),
+        stdout_bytes, stderr_bytes, &error
+    );
+    if (execution_identifier == NULL)
+    {
+        application_present_error(
+            application,
+            "Conservation OSINT impossible",
+            error != NULL ? error->message
+                          : "La sortie brute n'a pas pu être enregistrée."
+        );
+        g_clear_error(&error);
+        g_clear_pointer(&stdout_bytes, g_bytes_unref);
+        return;
+    }
     stdout_text = application_osint_output_to_utf8(stdout_bytes);
     stderr_text = application_osint_output_to_utf8(stderr_bytes);
 
@@ -1193,10 +1322,14 @@ static void application_on_dns_lookup_completed(
             review_context->source_entity_identifier = g_strdup(
                 context->target_identifier
             );
+            review_context->execution_identifier = g_strdup(
+                execution_identifier
+            );
             review_context->proposals = g_ptr_array_ref(proposals);
         }
         if (review_context == NULL || review_context->proposals == NULL ||
-            review_context->source_entity_identifier == NULL)
+            review_context->source_entity_identifier == NULL ||
+            review_context->execution_identifier == NULL)
         {
             application_osint_review_context_free(review_context);
             review_context = NULL;
@@ -1204,10 +1337,17 @@ static void application_on_dns_lookup_completed(
     }
 
     message = g_strdup_printf(
-        "Cible : %s\nOutil : dns.dig\nCode de sortie : %d\n"
-        "Résultat brut non enregistré dans l'enquête.",
+        "Cible : %s\nOutil : dns.dig%s%s\nDébut : %s\nCode de sortie : %d\n"
+        "Exécution : %s\nSortie brute enregistrée avec son empreinte SHA-256.",
         context->target_value,
-        tool_process_result_get_exit_status(process_result)
+        dns_tool_info != NULL &&
+            tool_info_get_detected_version(dns_tool_info) != NULL ? " — " : "",
+        dns_tool_info != NULL &&
+            tool_info_get_detected_version(dns_tool_info) != NULL
+                ? tool_info_get_detected_version(dns_tool_info) : "",
+        context->started_at,
+        tool_process_result_get_exit_status(process_result),
+        execution_identifier
     );
 
     application_message_dialog_present_details_action(
@@ -1232,6 +1372,7 @@ static void application_on_dns_lookup_completed(
     g_free(stderr_text);
     g_free(details);
     g_free(message);
+    g_free(execution_identifier);
     g_clear_pointer(&proposals, g_ptr_array_unref);
 }
 
@@ -1294,10 +1435,11 @@ static void application_start_dns_lookup(
         context->application = application;
         context->target_identifier = g_strdup(target_identifier);
         context->target_value = g_strdup(target_value);
+        context->started_at = application_osint_create_timestamp();
     }
 
     if (context == NULL || context->target_identifier == NULL ||
-        context->target_value == NULL)
+        context->target_value == NULL || context->started_at == NULL)
     {
         application_osint_action_context_free(context);
         tool_task_free(tool_task);

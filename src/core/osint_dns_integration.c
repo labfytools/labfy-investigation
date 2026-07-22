@@ -7,6 +7,7 @@
 
 #include "dao/entity_dao.h"
 #include "dao/relation_dao.h"
+#include "dao/osint_execution_dao.h"
 #include "database/error.h"
 #include "database/transaction.h"
 #include "models/entity_record.h"
@@ -83,6 +84,7 @@ GQuark osint_dns_integration_error_quark(void)
 gboolean osint_dns_integration_apply(
     Database *database,
     const char *source_entity_identifier,
+    const char *execution_identifier,
     GPtrArray *selected_proposals,
     guint *out_inserted_entity_count,
     guint *out_skipped_entity_count,
@@ -93,6 +95,7 @@ gboolean osint_dns_integration_apply(
 {
     EntityDao *entity_dao = NULL;
     RelationDao *relation_dao = NULL;
+    OsintExecutionDao *execution_dao = NULL;
     GPtrArray *existing_entities = NULL;
     GPtrArray *existing_relations = NULL;
     GHashTable *known_entities = NULL;
@@ -113,6 +116,8 @@ gboolean osint_dns_integration_apply(
     if (out_skipped_relation_count != NULL) *out_skipped_relation_count = 0U;
     if (database == NULL || source_entity_identifier == NULL ||
         !g_uuid_string_is_valid(source_entity_identifier) ||
+        execution_identifier == NULL ||
+        !g_uuid_string_is_valid(execution_identifier) ||
         selected_proposals == NULL ||
         selected_proposals->len == 0U)
     {
@@ -127,6 +132,8 @@ gboolean osint_dns_integration_apply(
     if (entity_dao == NULL) return FALSE;
     relation_dao = relation_dao_new(database, error);
     if (relation_dao == NULL) goto cleanup;
+    execution_dao = osint_execution_dao_new(database, error);
+    if (execution_dao == NULL) goto cleanup;
     source_entity = entity_dao_find_by_identifier(
         entity_dao, source_entity_identifier, error
     );
@@ -164,20 +171,21 @@ gboolean osint_dns_integration_apply(
         g_free(normalized_value);
     }
     known_relations = g_hash_table_new_full(
-        g_str_hash, g_str_equal, g_free, NULL
+        g_str_hash, g_str_equal, g_free, g_free
     );
     for (guint index = 0; index < existing_relations->len; index++)
     {
         const RelationRecord *relation = g_ptr_array_index(
             existing_relations, index
         );
-        g_hash_table_add(
+        g_hash_table_insert(
             known_relations,
             osint_dns_integration_build_relation_key(
                 relation_record_get_source_entity_identifier(relation),
                 relation_record_get_target_entity_identifier(relation),
                 relation_record_get_relation_type(relation)
-            )
+            ),
+            g_strdup(relation_record_get_identifier(relation))
         );
     }
 
@@ -222,6 +230,8 @@ gboolean osint_dns_integration_apply(
         char *relation_label = NULL;
         char *relation_justification = NULL;
         GError *model_error = NULL;
+        gboolean entity_was_created = FALSE;
+        gboolean relation_was_created = FALSE;
 
         if (entity_type == NULL || relation_type == NULL ||
             normalized_value == NULL)
@@ -271,6 +281,7 @@ gboolean osint_dns_integration_apply(
             );
             entity_key = NULL;
             inserted_entity_count++;
+            entity_was_created = TRUE;
             entity_record_free(entity);
             g_clear_error(&model_error);
             g_free(description);
@@ -279,8 +290,11 @@ gboolean osint_dns_integration_apply(
         relation_key = osint_dns_integration_build_relation_key(
             source_entity_identifier, target_identifier, relation_type
         );
+        relation_identifier = g_strdup(
+            g_hash_table_lookup(known_relations, relation_key)
+        );
         if (g_strcmp0(source_entity_identifier, target_identifier) == 0 ||
-            g_hash_table_contains(known_relations, relation_key))
+            relation_identifier != NULL)
         {
             skipped_relation_count++;
         }
@@ -321,16 +335,36 @@ gboolean osint_dns_integration_apply(
                 database_transaction_rollback(database);
                 goto cleanup;
             }
-            g_hash_table_add(known_relations, relation_key);
+            g_hash_table_insert(
+                known_relations, relation_key, g_strdup(relation_identifier)
+            );
             relation_key = NULL;
             inserted_relation_count++;
+            relation_was_created = TRUE;
             relation_record_free(relation);
             g_clear_error(&model_error);
-            g_free(relation_identifier);
             g_free(relation_label);
             g_free(relation_justification);
         }
 
+        if (!osint_execution_dao_link_entity(
+                execution_dao, execution_identifier, target_identifier,
+                entity_was_created ? "created" : "reused", error
+            ) ||
+            (relation_identifier != NULL &&
+             !osint_execution_dao_link_relation(
+                 execution_dao, execution_identifier, relation_identifier,
+                 relation_was_created ? "created" : "reused", error
+             )))
+        {
+            g_free(relation_identifier);
+            g_free(relation_key); g_free(target_identifier);
+            g_free(entity_key); g_free(normalized_value);
+            database_transaction_rollback(database);
+            goto cleanup;
+        }
+
+        g_free(relation_identifier);
         g_free(relation_key);
         g_free(target_identifier);
         g_free(entity_key);
@@ -367,6 +401,7 @@ cleanup:
     g_clear_pointer(&existing_relations, g_ptr_array_unref);
     entity_record_free(source_entity);
     relation_dao_free(relation_dao);
+    osint_execution_dao_free(execution_dao);
     entity_dao_free(entity_dao);
     return success;
 }

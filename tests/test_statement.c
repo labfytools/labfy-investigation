@@ -8,6 +8,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include <glib.h>
 
 /**
@@ -663,6 +664,31 @@ static void test_column_int64(void)
     database_close(database);
 }
 
+/**
+ * @brief Vérifie la conservation exacte d'un paramètre BLOB.
+ */
+static void test_bind_and_read_blob(void)
+{
+    const guint8 expected_data[] = {0x00U, 0x41U, 0xFFU, 0x0AU};
+    Database *database = database_open(":memory:");
+    DatabaseStatement *statement = database_statement_prepare(database, "SELECT ?;");
+    GBytes *input = g_bytes_new_static(expected_data, sizeof(expected_data));
+    GBytes *output = NULL;
+    gconstpointer output_data = NULL;
+    gsize output_size = 0U;
+
+    assert(database_statement_bind_blob(statement, 1, input));
+    assert(database_statement_step(statement) == DATABASE_STATEMENT_STEP_ROW);
+    assert(database_statement_column_blob(statement, 0, &output));
+    output_data = g_bytes_get_data(output, &output_size);
+    assert(output_size == sizeof(expected_data));
+    assert(memcmp(output_data, expected_data, sizeof(expected_data)) == 0);
+    g_bytes_unref(output);
+    g_bytes_unref(input);
+    database_statement_finalize(statement);
+    database_close(database);
+}
+
 int main(void)
 {
     test_prepare_valid_statement();
@@ -680,6 +706,7 @@ int main(void)
     test_column_is_null();
     test_column_text();
     test_column_int64();
+    test_bind_and_read_blob();
 
     printf(
         "DatabaseStatement : tous les tests sont valides.\n"

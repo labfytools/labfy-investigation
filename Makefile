@@ -118,6 +118,7 @@ TEST_OSINT_ACTION_CATALOG := tests/test_osint_action_catalog
 TEST_OSINT_DNS_QUERY := tests/test_osint_dns_query
 TEST_OSINT_DNS_PROPOSAL := tests/test_osint_dns_proposal
 TEST_OSINT_DNS_INTEGRATION := tests/test_osint_dns_integration
+TEST_OSINT_EXECUTION_DAO := tests/test_osint_execution_dao
 
 all: $(TARGET)
 
@@ -566,8 +567,21 @@ $(TEST_OSINT_DNS_INTEGRATION): \
 	src/models/osint_dns_query.c \
 	src/models/entity_record.c \
 	src/models/relation_record.c \
+	src/models/osint_execution_record.c \
 	src/dao/entity_dao.c \
 	src/dao/relation_dao.c \
+	src/dao/osint_execution_dao.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
+$(TEST_OSINT_EXECUTION_DAO): \
+	tests/test_osint_execution_dao.c \
+	src/dao/osint_execution_dao.c \
+	src/models/osint_execution_record.c \
 	src/database/database.c \
 	src/database/schema.c \
 	src/database/statement.c \
@@ -647,7 +661,8 @@ test: \
 	$(TEST_OSINT_ACTION_CATALOG) \
 	$(TEST_OSINT_DNS_QUERY) \
 	$(TEST_OSINT_DNS_PROPOSAL) \
-	$(TEST_OSINT_DNS_INTEGRATION)
+	$(TEST_OSINT_DNS_INTEGRATION) \
+	$(TEST_OSINT_EXECUTION_DAO)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -700,6 +715,7 @@ test: \
 	@$(TEST_OSINT_DNS_QUERY)
 	@$(TEST_OSINT_DNS_PROPOSAL)
 	@$(TEST_OSINT_DNS_INTEGRATION)
+	@$(TEST_OSINT_EXECUTION_DAO)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -758,7 +774,8 @@ clean:
 		$(TEST_OSINT_ACTION_CATALOG) \
 		$(TEST_OSINT_DNS_QUERY) \
 		$(TEST_OSINT_DNS_PROPOSAL) \
-		$(TEST_OSINT_DNS_INTEGRATION)
+		$(TEST_OSINT_DNS_INTEGRATION) \
+		$(TEST_OSINT_EXECUTION_DAO)
 
 -include $(DEP)
 

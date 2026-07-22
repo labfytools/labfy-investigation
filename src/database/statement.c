@@ -172,6 +172,49 @@ bool database_statement_bind_text(
     return true;
 }
 
+bool database_statement_bind_blob(
+    DatabaseStatement *statement,
+    int index,
+    GBytes *value
+)
+{
+    sqlite3 *database_handle = NULL;
+    gconstpointer data = NULL;
+    gsize data_size = 0U;
+    int result = SQLITE_ERROR;
+
+    if (statement == NULL || statement->handle == NULL ||
+        index <= 0 || value == NULL)
+    {
+        if (statement != NULL)
+            database_set_error(
+                statement->database, DATABASE_ERROR_INVALID_ARGUMENT,
+                "Paramètres invalides pour la liaison d'un BLOB."
+            );
+        return false;
+    }
+
+    data = g_bytes_get_data(value, &data_size);
+    result = data_size == 0U
+        ? sqlite3_bind_zeroblob(statement->handle, index, 0)
+        : sqlite3_bind_blob64(
+            statement->handle, index, data, (sqlite3_uint64) data_size,
+            SQLITE_TRANSIENT
+        );
+    if (result != SQLITE_OK)
+    {
+        database_handle = database_get_handle(statement->database);
+        database_set_error(
+            statement->database, DATABASE_ERROR_SQLITE,
+            database_handle != NULL ? sqlite3_errmsg(database_handle)
+                                    : sqlite3_errstr(result)
+        );
+        return false;
+    }
+    database_clear_error_internal(statement->database);
+    return true;
+}
+
 bool database_statement_bind_int64(
     DatabaseStatement *statement,
     int index,
@@ -664,6 +707,32 @@ bool database_statement_column_text(
     }
 
     return true;
+}
+
+bool database_statement_column_blob(
+    DatabaseStatement *statement,
+    int column_index,
+    GBytes **value
+)
+{
+    const void *column_data = NULL;
+    int column_count = 0;
+    int data_length = 0;
+
+    if (statement == NULL || statement->handle == NULL || value == NULL)
+        return false;
+    *value = NULL;
+    column_count = sqlite3_column_count(statement->handle);
+    if (column_index < 0 || column_index >= column_count) return false;
+    if (sqlite3_column_type(statement->handle, column_index) == SQLITE_NULL)
+        return true;
+    if (sqlite3_column_type(statement->handle, column_index) != SQLITE_BLOB)
+        return false;
+    column_data = sqlite3_column_blob(statement->handle, column_index);
+    data_length = sqlite3_column_bytes(statement->handle, column_index);
+    if (data_length < 0 || (data_length > 0 && column_data == NULL)) return false;
+    *value = g_bytes_new(column_data, (gsize) data_length);
+    return *value != NULL;
 }
 
 bool database_statement_column_int64(

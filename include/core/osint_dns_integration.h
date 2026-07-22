@@ -40,6 +40,7 @@ GQuark osint_dns_integration_error_quark(void);
  *
  * @param database Connexion SQLite active.
  * @param source_entity_identifier UUID de l'entité interrogée.
+ * @param execution_identifier UUID de l'exécution OSINT persistée.
  * @param selected_proposals Propositions explicitement sélectionnées.
  * @param out_inserted_entity_count Nombre d'entités créées.
  * @param out_skipped_entity_count Nombre d'entités ignorées ou réutilisées.
@@ -52,6 +53,7 @@ GQuark osint_dns_integration_error_quark(void);
 gboolean osint_dns_integration_apply(
     Database *database,
     const char *source_entity_identifier,
+    const char *execution_identifier,
     GPtrArray *selected_proposals,
     guint *out_inserted_entity_count,
     guint *out_skipped_entity_count,

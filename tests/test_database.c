@@ -525,7 +525,10 @@ static void test_database_initialize_valid_database(void)
         "FROM investigation;"
     );
 
-    assert(strcmp(schema_version, "2") == 0);
+    assert(strcmp(schema_version, "3") == 0);
+    test_database_assert_table_exists(database, "osint_executions");
+    test_database_assert_table_exists(database, "osint_execution_entities");
+    test_database_assert_table_exists(database, "osint_execution_relations");
     assert(strcmp(application_name, "Labfy Investigation") == 0);
 
     assert(created_at[0] != '\0');
@@ -795,7 +798,7 @@ static void test_database_initialize_rollback(void)
 }
 
 /**
- * @brief Vérifie la migration V1 vers V2 et sa répétition sans effet.
+ * @brief Vérifie la migration V1 vers la version courante sans perte.
  */
 static void test_database_migrate_v1_to_v2(void)
 {
@@ -849,7 +852,7 @@ static void test_database_migrate_v1_to_v2(void)
     assert(database_context != NULL);
 
     /*
-     * Premier appel : migration réelle de V1 vers V2.
+     * Premier appel : migrations réelles de V1 vers la version courante.
      */
     assert(
         database_migrate_to_latest(
@@ -864,7 +867,7 @@ static void test_database_migrate_v1_to_v2(void)
     );
 
     /*
-     * Second appel : la base est déjà en V2.
+     * Second appel : la base est déjà à jour.
      *
      * Aucun ALTER TABLE, index ou trigger ne doit être rejoué.
      */
@@ -984,7 +987,7 @@ static void test_database_migrate_v1_to_v2(void)
     assert(
         strcmp(
             schema_version,
-            "2"
+            "3"
         ) == 0
     );
 

@@ -55,6 +55,20 @@ bool schema_install_v2(
 );
 
 /**
+ * @brief Installe la migration de provenance OSINT du schéma V3.
+ *
+ * La connexion doit être valide et une transaction doit déjà être active.
+ * La fonction ne réalise ni COMMIT ni ROLLBACK.
+ *
+ * @param database Connexion Database ouverte.
+ *
+ * @return true si la migration V3 a été appliquée, sinon false.
+ */
+bool schema_install_v3(
+    Database *database
+);
+
+/**
  * @brief Garantit la présence des extensions du schéma courant V2.
  *
  * La connexion doit être valide et une transaction doit déjà être active.
