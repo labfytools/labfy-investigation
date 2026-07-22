@@ -50,6 +50,11 @@ typedef void (*MainWindowImportEvidenceCallback)(
     gpointer user_data
 );
 
+/** @brief Callback appelé pour ajouter un compte de réseau social. */
+typedef void (*MainWindowAddSocialAccountCallback)(
+    gpointer user_data
+);
+
 /**
  * @brief Callback appelé lorsque l'utilisateur revient au graphe.
  *
@@ -532,6 +537,18 @@ void main_window_set_import_evidence_callback(
 );
 
 /**
+ * @brief Définit le callback de l'action d'ajout d'un compte social.
+ * @param main_window Fenêtre principale.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void main_window_set_add_social_account_callback(
+    MainWindow *main_window,
+    MainWindowAddSocialAccountCallback callback,
+    gpointer user_data
+);
+
+/**
  * @brief Définit le callback du bouton « Revenir au graphe ».
  *
  * MainWindow transmet uniquement la demande au contrôleur.
@@ -553,6 +570,16 @@ void main_window_set_show_graph_callback(
  * @param enabled TRUE pour autoriser l'import.
  */
 void main_window_set_import_evidence_enabled(
+    MainWindow *main_window,
+    gboolean enabled
+);
+
+/**
+ * @brief Active ou désactive l'ajout d'un compte social.
+ * @param main_window Fenêtre principale.
+ * @param enabled TRUE si une enquête est ouverte.
+ */
+void main_window_set_add_social_account_enabled(
     MainWindow *main_window,
     gboolean enabled
 );

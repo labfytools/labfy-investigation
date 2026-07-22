@@ -1148,6 +1148,19 @@ lors de l'enregistrement. Le résultat indique si les sorties sont intactes,
 altérées ou impossibles à vérifier. Ce contrôle est strictement en lecture
 seule : aucune sortie ni empreinte persistée n'est corrigée automatiquement.
 
+### Comptes sociaux structurés — schéma V4
+
+La table `comptes_sociaux` complète une ligne de `entites` sans dupliquer le
+nœud affiché dans le graphe. Elle conserve la plateforme, l'URL de profil, le
+pseudonyme affiché, l'identifiant stable facultatif, la première observation,
+l'état observé et les notes factuelles. La contrainte unique sur
+`(plateforme, url_profil)` évite les doublons.
+
+Une capture, une vidéo ou un courriel déjà importé peut être rattaché au
+compte via `preuve_entites`. La création des deux lignes et de cette liaison
+est transactionnelle : aucun nœud incomplet n'est conservé si une étape
+échoue.
+
 ---
 
 # 6. Tables de liaison

@@ -158,6 +158,9 @@ Le socle actuel comprend notamment :
   `uses_name_server` depuis l'entité interrogée ;
 - provenance OSINT SQLite V3 conservant les arguments, sorties brutes,
   empreinte SHA-256 et liaisons vers les entités et relations intégrées ;
+- comptes sociaux structurés en SQLite V4 (TikTok, Instagram, Facebook, X,
+  Telegram ou autre), avec URL, pseudonyme, identifiant stable facultatif,
+  première observation, état, notes et rattachement à une preuve ;
 - historique OSINT contextuel en lecture seule avec détail des exécutions,
   sorties standard et d'erreur, et objets créés ou réutilisés ;
 - vérification manuelle de l'intégrité des sorties OSINT enregistrées, sans

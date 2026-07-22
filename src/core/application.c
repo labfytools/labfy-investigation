@@ -47,7 +47,9 @@
 #include "core/evidence_integrity_task.h"
 #include "core/evidence_integrity_verifier.h"
 #include "core/relation_service.h"
+#include "core/social_account_service.h"
 #include "database/database.h"
+#include "views/create_social_account_dialog.h"
 
 #include <gtk/gtk.h>
 #include <errno.h>
@@ -2267,6 +2269,11 @@ static gboolean application_install_session(
         TRUE
     );
 
+    main_window_set_add_social_account_enabled(
+        application->main_window,
+        TRUE
+    );
+
     application_start_graph_loading(
         application,
         database_path
@@ -4089,6 +4096,80 @@ static void application_on_import_evidence_requested(
         application_on_evidence_files_selected,
         application
     );
+}
+
+/** @brief Persiste le résultat validé du dialogue de compte social. */
+static void application_on_social_account_completed(
+    CreateSocialAccountDialogResult *result, gpointer user_data)
+{
+    Application *application = user_data;
+    SocialAccountInput input = {0};
+    const InvestigationProject *project = NULL;
+    Database *database = NULL;
+    GError *error = NULL;
+    char *identifier = NULL;
+    if (result == NULL || application == NULL || application->session == NULL)
+    {
+        create_social_account_dialog_result_free(result);
+        return;
+    }
+    input.platform = create_social_account_dialog_result_get_platform(result);
+    input.profile_url = create_social_account_dialog_result_get_profile_url(result);
+    input.username = create_social_account_dialog_result_get_username(result);
+    input.platform_identifier = create_social_account_dialog_result_get_platform_identifier(result);
+    input.first_observed_at = create_social_account_dialog_result_get_first_observed_at(result);
+    input.account_state = create_social_account_dialog_result_get_account_state(result);
+    input.notes = create_social_account_dialog_result_get_notes(result);
+    input.evidence_identifier = create_social_account_dialog_result_get_evidence_identifier(result);
+    database = investigation_session_get_database(application->session);
+    if (!social_account_service_create(database, &input, &identifier, &error))
+    {
+        application_present_error(application, "Compte social non créé",
+            error != NULL ? error->message : "L'écriture dans l'enquête a échoué.");
+    }
+    else
+    {
+        project = investigation_session_get_project(application->session);
+        application_message_dialog_present(
+            main_window_get_window(application->main_window),
+            APPLICATION_MESSAGE_DIALOG_INFORMATION,
+            "Compte social ajouté",
+            "Le profil et son éventuelle preuve associée ont été ajoutés au graphe.");
+        application_start_graph_loading(application,
+            investigation_project_get_database_path(project));
+    }
+    g_clear_error(&error);
+    g_free(identifier);
+    create_social_account_dialog_result_free(result);
+}
+
+/** @brief Charge les preuves puis ouvre le formulaire de compte social. */
+static void application_on_add_social_account_requested(gpointer user_data)
+{
+    Application *application = user_data;
+    Database *database = NULL;
+    EvidenceDao *dao = NULL;
+    GPtrArray *evidence_records = NULL;
+    GError *error = NULL;
+    if (application == NULL || application->main_window == NULL ||
+        application->session == NULL) return;
+    database = investigation_session_get_database(application->session);
+    dao = evidence_dao_new(database, &error);
+    if (dao != NULL) evidence_records = evidence_dao_list_all(dao, &error);
+    if (evidence_records == NULL)
+    {
+        application_present_error(application, "Formulaire indisponible",
+            error != NULL ? error->message : "Impossible de charger les preuves.");
+    }
+    else
+    {
+        create_social_account_dialog_present(
+            main_window_get_window(application->main_window), evidence_records,
+            application_on_social_account_completed, application);
+    }
+    g_clear_pointer(&evidence_records, g_ptr_array_unref);
+    evidence_dao_free(dao);
+    g_clear_error(&error);
 }
 
 /**
@@ -6147,7 +6228,18 @@ static void application_on_activate(
         application
     );
 
+    main_window_set_add_social_account_callback(
+        application->main_window,
+        application_on_add_social_account_requested,
+        application
+    );
+
     main_window_set_import_evidence_enabled(
+        application->main_window,
+        application->session != NULL
+    );
+
+    main_window_set_add_social_account_enabled(
         application->main_window,
         application->session != NULL
     );

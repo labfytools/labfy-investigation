@@ -525,10 +525,11 @@ static void test_database_initialize_valid_database(void)
         "FROM investigation;"
     );
 
-    assert(strcmp(schema_version, "3") == 0);
+    assert(strcmp(schema_version, "4") == 0);
     test_database_assert_table_exists(database, "osint_executions");
     test_database_assert_table_exists(database, "osint_execution_entities");
     test_database_assert_table_exists(database, "osint_execution_relations");
+    test_database_assert_table_exists(database, "comptes_sociaux");
     assert(strcmp(application_name, "Labfy Investigation") == 0);
 
     assert(created_at[0] != '\0');
@@ -987,7 +988,7 @@ static void test_database_migrate_v1_to_v2(void)
     assert(
         strcmp(
             schema_version,
-            "3"
+            "4"
         ) == 0
     );
 

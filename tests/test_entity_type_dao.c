@@ -245,7 +245,11 @@ static void test_entity_type_dao_list_all(void)
         "domain_name",
         "ip_address",
         "organization",
-        "other"
+        "other",
+        "tiktok_account",
+        "x_account",
+        "telegram_account",
+        "social_account"
     };
 
     static const char *const expected_labels[] =
@@ -263,7 +267,11 @@ static void test_entity_type_dao_list_all(void)
         "Nom de domaine",
         "Adresse IP",
         "Organisation",
-        "Autre"
+        "Autre",
+        "Compte TikTok",
+        "Compte X",
+        "Compte Telegram",
+        "Autre compte social"
     };
 
     TestEntityTypeDaoFixture fixture =

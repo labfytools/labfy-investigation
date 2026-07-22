@@ -59,6 +59,7 @@ struct MainWindow
     GtkWidget *new_investigation_button;
     GtkWidget *open_investigation_button;
     GtkWidget *import_evidence_button;
+    GtkWidget *add_social_account_button;
     GtkWidget *show_graph_button;
     GtkWidget *content_paned;
     GtkWidget *main_paned;
@@ -86,6 +87,9 @@ struct MainWindow
 
     gpointer
         import_evidence_user_data;
+
+    MainWindowAddSocialAccountCallback add_social_account_callback;
+    gpointer add_social_account_user_data;
 
     MainWindowShowGraphCallback
         show_graph_callback;
@@ -292,6 +296,18 @@ static void main_window_on_import_evidence_clicked(
     main_window->import_evidence_callback(
         main_window->import_evidence_user_data
     );
+}
+
+/** @brief Relaie la demande d'ajout d'un compte social. */
+static void main_window_on_add_social_account_clicked(
+    GtkButton *button, gpointer user_data)
+{
+    MainWindow *main_window = user_data;
+    (void) button;
+    if (main_window == NULL || main_window->add_social_account_callback == NULL)
+        return;
+    main_window->add_social_account_callback(
+        main_window->add_social_account_user_data);
 }
 
 /**
@@ -594,6 +610,12 @@ MainWindow *main_window_new(
             "Importer une preuve"
         );
 
+    main_window->add_social_account_button =
+        main_window_create_action_button(
+            "contact-new-symbolic",
+            "Ajouter un compte social"
+        );
+
     main_window->show_graph_button =
         main_window_create_action_button(
             "go-previous-symbolic",
@@ -625,6 +647,8 @@ MainWindow *main_window_new(
         FALSE
     );
 
+    gtk_widget_set_sensitive(main_window->add_social_account_button, FALSE);
+
     gtk_widget_set_sensitive(
         main_window->show_graph_button,
         FALSE
@@ -644,6 +668,9 @@ MainWindow *main_window_new(
         GTK_BOX(main_window->action_bar),
         main_window->import_evidence_button
     );
+
+    gtk_box_append(GTK_BOX(main_window->action_bar),
+        main_window->add_social_account_button);
 
     gtk_box_append(
         GTK_BOX(main_window->action_bar),
@@ -686,6 +713,9 @@ MainWindow *main_window_new(
         ),
         main_window
     );
+
+    g_signal_connect(main_window->add_social_account_button, "clicked",
+        G_CALLBACK(main_window_on_add_social_account_clicked), main_window);
 
     g_signal_connect(
         main_window->show_graph_button,
@@ -1411,6 +1441,16 @@ void main_window_set_import_evidence_callback(
         user_data;
 }
 
+void main_window_set_add_social_account_callback(
+    MainWindow *main_window,
+    MainWindowAddSocialAccountCallback callback,
+    gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->add_social_account_callback = callback;
+    main_window->add_social_account_user_data = user_data;
+}
+
 void main_window_set_show_graph_callback(
     MainWindow *main_window,
     MainWindowShowGraphCallback callback,
@@ -1444,6 +1484,14 @@ void main_window_set_import_evidence_enabled(
         main_window->import_evidence_button,
         enabled
     );
+}
+
+void main_window_set_add_social_account_enabled(
+    MainWindow *main_window, gboolean enabled)
+{
+    if (main_window == NULL || main_window->add_social_account_button == NULL)
+        return;
+    gtk_widget_set_sensitive(main_window->add_social_account_button, enabled);
 }
 
 void main_window_set_verify_evidence_callback(

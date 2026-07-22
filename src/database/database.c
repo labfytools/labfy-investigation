@@ -16,12 +16,12 @@
 /**
  * @brief Version actuelle du schéma SQLite.
  */
-#define DATABASE_SCHEMA_VERSION_CURRENT 3
+#define DATABASE_SCHEMA_VERSION_CURRENT 4
 
 /**
  * @brief Version actuelle sous forme textuelle pour metadata.
  */
-#define DATABASE_SCHEMA_VERSION_CURRENT_TEXT "3"
+#define DATABASE_SCHEMA_VERSION_CURRENT_TEXT "4"
 
 /**
  * @brief Nom de l'application enregistré dans les métadonnées.
@@ -692,6 +692,26 @@ rollback:
     return false;
 }
 
+/** @brief Applique atomiquement la migration du schéma V3 vers V4. */
+static bool database_migrate_v3_to_v4(Database *database)
+{
+    bool transaction_started = false;
+
+    if (database == NULL || !database_transaction_begin(database))
+        return false;
+    transaction_started = true;
+    if (!schema_install_v4(database) ||
+        !database_update_schema_version(database, "4") ||
+        !database_transaction_commit(database))
+        goto rollback;
+    return true;
+
+rollback:
+    if (transaction_started && !database_transaction_rollback(database))
+        g_warning("Impossible d’annuler la migration SQLite V3 vers V4.");
+    return false;
+}
+
 /**
  * @brief Garantit atomiquement la présence des extensions du schéma courant.
  */
@@ -884,6 +904,12 @@ bool database_migrate_to_latest(
                 schema_version = 3;
                 break;
 
+            case 3:
+                if (!database_migrate_v3_to_v4(database))
+                    return false;
+                schema_version = 4;
+                break;
+
             default:
                 database_set_error(
                     database,
@@ -996,6 +1022,11 @@ bool database_initialize(
     if (!schema_install_v3(
             database
         ))
+    {
+        goto rollback;
+    }
+
+    if (!schema_install_v4(database))
     {
         goto rollback;
     }
