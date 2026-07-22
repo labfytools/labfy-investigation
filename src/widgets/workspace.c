@@ -183,7 +183,9 @@ static void workspace_on_osint_action_clicked(
 
     gtk_label_set_text(
         GTK_LABEL(workspace->osint_tools_status_label),
-        "Exécution lancée ; suivez sa progression dans les tâches."
+        g_str_has_prefix(action_identifier, "history-")
+            ? "Ouverture de l'historique enregistré."
+            : "Exécution lancée ; suivez sa progression dans les tâches."
     );
 
     gtk_popover_popdown(
@@ -289,6 +291,31 @@ static void workspace_update_osint_tools_menu(
         workspace->osint_action_catalog,
         context
     );
+
+    {
+        GtkWidget *history_button = gtk_button_new_with_label(
+            "Historique OSINT"
+        );
+        const char *history_action =
+            osint_selection_context_get_kind(context) ==
+                OSINT_SELECTION_CONTEXT_KIND_RELATION
+                ? "history-relation" : "history-entity";
+        gtk_widget_set_tooltip_text(
+            history_button,
+            "Consulter les exécutions OSINT enregistrées pour cette sélection"
+        );
+        g_object_set_data_full(
+            G_OBJECT(history_button), "osint-action-identifier",
+            g_strdup(history_action), g_free
+        );
+        g_signal_connect(
+            history_button, "clicked",
+            G_CALLBACK(workspace_on_osint_action_clicked), workspace
+        );
+        gtk_box_append(
+            GTK_BOX(workspace->osint_tools_actions_box), history_button
+        );
+    }
 
     for (guint action_index = 0;
          compatible_actions != NULL &&

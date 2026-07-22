@@ -1125,6 +1125,11 @@ transaction que l'intégration DNS.
 Les descriptions métier restent présentes pour la lisibilité, mais les
 entités DNS demeurent des résultats OSINT à vérifier et non des faits établis.
 
+Le menu contextuel du workspace permet de consulter cet historique pour
+l'entité ou la relation sélectionnée. La vue est strictement en lecture seule
+et expose les métadonnées, les sorties brutes rendues en UTF-8, l'empreinte et
+les objets liés avec leur disposition `created` ou `reused`.
+
 ---
 
 # 6. Tables de liaison

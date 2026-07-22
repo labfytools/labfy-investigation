@@ -153,7 +153,9 @@ Le socle actuel comprend notamment :
 - création transactionnelle des relations DNS `resolves_to`, `aliases_to` et
   `uses_name_server` depuis l'entité interrogée ;
 - provenance OSINT SQLite V3 conservant les arguments, sorties brutes,
-  empreinte SHA-256 et liaisons vers les entités et relations intégrées.
+  empreinte SHA-256 et liaisons vers les entités et relations intégrées ;
+- historique OSINT contextuel en lecture seule avec détail des exécutions,
+  sorties standard et d'erreur, et objets créés ou réutilisés.
 
 Les outils actuellement présents dans le catalogue initial sont :
 

@@ -26,6 +26,25 @@ gboolean osint_execution_dao_insert(
 OsintExecutionRecord *osint_execution_dao_find_by_identifier(
     OsintExecutionDao *dao, const char *identifier, GError **error
 );
+/**
+ * @brief Liste les exécutions d'une sélection, de la plus récente à l'ancienne.
+ *
+ * @return Tableau possédé de OsintExecutionRecord, ou NULL en cas d'erreur.
+ */
+GPtrArray *osint_execution_dao_list_by_selection(
+    OsintExecutionDao *dao, const char *selection_kind,
+    const char *selection_identifier, GError **error
+);
+/**
+ * @brief Liste les objets liés à une exécution sous forme de libellés possédés.
+ *
+ * Chaque libellé indique la nature, l'UUID et la disposition created/reused.
+ *
+ * @return Tableau possédé de chaînes, ou NULL en cas d'erreur.
+ */
+GPtrArray *osint_execution_dao_list_linked_objects(
+    OsintExecutionDao *dao, const char *execution_identifier, GError **error
+);
 /** @brief Lie une entité créée ou réutilisée à une exécution. */
 gboolean osint_execution_dao_link_entity(
     OsintExecutionDao *dao, const char *execution_identifier,

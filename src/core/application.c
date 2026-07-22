@@ -34,6 +34,7 @@
 #include "views/evidence_import_dialog.h"
 #include "views/create_relation_dialog.h"
 #include "views/osint_dns_review_dialog.h"
+#include "views/osint_execution_history_dialog.h"
 #include "dao/evidence_dao.h"
 #include "dao/entity_dao.h"
 #include "dao/osint_execution_dao.h"
@@ -1476,6 +1477,61 @@ static void application_start_dns_lookup(
     tool_task_free(tool_task);
 }
 
+/** @brief Charge et présente l'historique OSINT d'une sélection. */
+static void application_present_osint_history(
+    Application *application,
+    const char *selection_kind,
+    const char *selection_identifier
+)
+{
+    Database *database = NULL;
+    OsintExecutionDao *dao = NULL;
+    GPtrArray *records = NULL;
+    GHashTable *linked_objects = NULL;
+    GError *error = NULL;
+    if (application == NULL || application->session == NULL ||
+        application->main_window == NULL) return;
+    database = investigation_session_get_database(application->session);
+    dao = osint_execution_dao_new(database, &error);
+    if (dao != NULL) records = osint_execution_dao_list_by_selection(
+        dao, selection_kind, selection_identifier, &error);
+    linked_objects = g_hash_table_new_full(
+        g_str_hash, g_str_equal, g_free, (GDestroyNotify) g_ptr_array_unref);
+    for (guint index = 0U; records != NULL && index < records->len; index++)
+    {
+        const OsintExecutionRecord *record = g_ptr_array_index(records, index);
+        GPtrArray *objects = osint_execution_dao_list_linked_objects(
+            dao, osint_execution_record_get_identifier(record), &error);
+        if (objects == NULL) break;
+        g_hash_table_insert(linked_objects,
+            g_strdup(osint_execution_record_get_identifier(record)), objects);
+    }
+    osint_execution_dao_free(dao);
+    if (error != NULL)
+    {
+        application_present_error(application, "Historique OSINT indisponible",
+            error->message);
+        g_clear_error(&error);
+    }
+    else if (records == NULL || records->len == 0U)
+    {
+        application_message_dialog_present(
+            main_window_get_window(application->main_window),
+            APPLICATION_MESSAGE_DIALOG_INFORMATION,
+            "Historique OSINT",
+            "Aucune exécution OSINT n'est enregistrée pour cette sélection."
+        );
+    }
+    else
+    {
+        osint_execution_history_dialog_present(
+            main_window_get_window(application->main_window),
+            records, linked_objects);
+    }
+    g_clear_pointer(&records, g_ptr_array_unref);
+    g_hash_table_unref(linked_objects);
+}
+
 /**
  * @brief Traite une action OSINT relayée par la fenêtre principale.
  */
@@ -1487,6 +1543,18 @@ static void application_on_osint_action_requested(
 )
 {
     Application *application = user_data;
+
+    if (g_strcmp0(action_identifier, "history-entity") == 0 ||
+        g_strcmp0(action_identifier, "history-relation") == 0)
+    {
+        application_present_osint_history(
+            application,
+            g_strcmp0(action_identifier, "history-relation") == 0
+                ? "relation" : "entity",
+            target_identifier
+        );
+        return;
+    }
 
     if (g_strcmp0(action_identifier, "dns-preview") == 0)
     {

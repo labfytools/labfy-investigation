@@ -20,6 +20,21 @@ static const char *const find_sql =
     "selection_kind,target_value,arguments,started_at,finished_at,exit_code,"
     "final_state,stdout_raw,stderr_raw,output_sha256 FROM osint_executions "
     "WHERE id=?;";
+static const char *const list_by_selection_sql =
+    "SELECT id,tool_identifier,tool_version,action_identifier,selection_id,"
+    "selection_kind,target_value,arguments,started_at,finished_at,exit_code,"
+    "final_state,stdout_raw,stderr_raw,output_sha256 FROM osint_executions "
+    "WHERE (selection_kind=? AND selection_id=?) "
+    "OR (?='entity' AND id IN (SELECT execution_id "
+    "FROM osint_execution_entities WHERE entity_id=?)) "
+    "OR (?='relation' AND id IN (SELECT execution_id "
+    "FROM osint_execution_relations WHERE relation_id=?)) "
+    "ORDER BY finished_at DESC,id DESC;";
+static const char *const list_linked_objects_sql =
+    "SELECT 'Entité',entity_id,disposition FROM osint_execution_entities "
+    "WHERE execution_id=? UNION ALL "
+    "SELECT 'Relation',relation_id,disposition FROM osint_execution_relations "
+    "WHERE execution_id=? ORDER BY 1,2;";
 
 static void osint_execution_dao_set_error(
     OsintExecutionDao *dao, GError **error, const char *context
@@ -101,22 +116,16 @@ cleanup:
     return success;
 }
 
-OsintExecutionRecord *osint_execution_dao_find_by_identifier(
-    OsintExecutionDao *dao, const char *identifier, GError **error
+static OsintExecutionRecord *osint_execution_dao_read_record(
+    DatabaseStatement *statement, GError **error
 )
 {
-    DatabaseStatement *statement = NULL;
     OsintExecutionRecord *record = NULL;
     char *values[12] = {0};
     GBytes *stdout_raw = NULL;
     GBytes *stderr_raw = NULL;
     int64_t exit_code = 0;
     bool exit_is_null = true;
-    if (dao == NULL || identifier == NULL) return NULL;
-    statement = database_statement_prepare(dao->database, find_sql);
-    if (statement == NULL || !database_statement_bind_text(statement, 1, identifier) ||
-        database_statement_step(statement) != DATABASE_STATEMENT_STEP_ROW)
-        goto cleanup;
     if (!database_statement_column_text(statement, 0, &values[0]) ||
         !database_statement_column_text(statement, 1, &values[1]) ||
         !database_statement_column_text(statement, 2, &values[2]) ||
@@ -138,14 +147,106 @@ OsintExecutionRecord *osint_execution_dao_find_by_identifier(
         values[6], values[7], values[8], values[9], !exit_is_null,
         (gint) exit_code, values[10], stdout_raw, stderr_raw, values[11], error);
 cleanup:
-    if (record == NULL && error != NULL && *error == NULL)
-        osint_execution_dao_set_error(dao, error,
-            "Impossible de lire l'exécution OSINT");
     for (guint index = 0; index < G_N_ELEMENTS(values); index++) g_free(values[index]);
     g_clear_pointer(&stdout_raw, g_bytes_unref);
     g_clear_pointer(&stderr_raw, g_bytes_unref);
+    return record;
+}
+
+OsintExecutionRecord *osint_execution_dao_find_by_identifier(
+    OsintExecutionDao *dao, const char *identifier, GError **error
+)
+{
+    DatabaseStatement *statement = NULL;
+    OsintExecutionRecord *record = NULL;
+    if (dao == NULL || identifier == NULL) return NULL;
+    statement = database_statement_prepare(dao->database, find_sql);
+    if (statement != NULL && database_statement_bind_text(statement, 1, identifier) &&
+        database_statement_step(statement) == DATABASE_STATEMENT_STEP_ROW)
+        record = osint_execution_dao_read_record(statement, error);
+    if (record == NULL && error != NULL && *error == NULL)
+        osint_execution_dao_set_error(dao, error,
+            "Impossible de lire l'exécution OSINT");
     database_statement_finalize(statement);
     return record;
+}
+
+GPtrArray *osint_execution_dao_list_by_selection(
+    OsintExecutionDao *dao, const char *selection_kind,
+    const char *selection_identifier, GError **error
+)
+{
+    DatabaseStatement *statement = NULL;
+    GPtrArray *records = NULL;
+    DatabaseStatementStepResult step = DATABASE_STATEMENT_STEP_ERROR;
+    if (dao == NULL || selection_identifier == NULL ||
+        (g_strcmp0(selection_kind, "entity") != 0 &&
+         g_strcmp0(selection_kind, "relation") != 0)) return NULL;
+    statement = database_statement_prepare(dao->database, list_by_selection_sql);
+    records = g_ptr_array_new_with_free_func(
+        (GDestroyNotify) osint_execution_record_free);
+    if (statement == NULL || records == NULL ||
+        !database_statement_bind_text(statement, 1, selection_kind) ||
+        !database_statement_bind_text(statement, 2, selection_identifier) ||
+        !database_statement_bind_text(statement, 3, selection_kind) ||
+        !database_statement_bind_text(statement, 4, selection_identifier) ||
+        !database_statement_bind_text(statement, 5, selection_kind) ||
+        !database_statement_bind_text(statement, 6, selection_identifier))
+        goto failure;
+    while ((step = database_statement_step(statement)) == DATABASE_STATEMENT_STEP_ROW)
+    {
+        OsintExecutionRecord *record = osint_execution_dao_read_record(statement, error);
+        if (record == NULL) goto failure;
+        g_ptr_array_add(records, record);
+    }
+    if (step != DATABASE_STATEMENT_STEP_DONE) goto failure;
+    database_statement_finalize(statement);
+    return records;
+failure:
+    osint_execution_dao_set_error(dao, error,
+        "Impossible de lister l'historique OSINT");
+    database_statement_finalize(statement);
+    g_clear_pointer(&records, g_ptr_array_unref);
+    return NULL;
+}
+
+GPtrArray *osint_execution_dao_list_linked_objects(
+    OsintExecutionDao *dao, const char *execution_identifier, GError **error
+)
+{
+    DatabaseStatement *statement = NULL;
+    GPtrArray *objects = NULL;
+    DatabaseStatementStepResult step = DATABASE_STATEMENT_STEP_ERROR;
+    if (dao == NULL || execution_identifier == NULL) return NULL;
+    statement = database_statement_prepare(dao->database, list_linked_objects_sql);
+    objects = g_ptr_array_new_with_free_func(g_free);
+    if (statement == NULL || objects == NULL ||
+        !database_statement_bind_text(statement, 1, execution_identifier) ||
+        !database_statement_bind_text(statement, 2, execution_identifier))
+        goto failure;
+    while ((step = database_statement_step(statement)) == DATABASE_STATEMENT_STEP_ROW)
+    {
+        char *kind = NULL; char *identifier = NULL; char *disposition = NULL;
+        char *description = NULL;
+        if (!database_statement_column_text(statement, 0, &kind) ||
+            !database_statement_column_text(statement, 1, &identifier) ||
+            !database_statement_column_text(statement, 2, &disposition))
+        { g_free(kind); g_free(identifier); g_free(disposition); goto failure; }
+        description = g_strdup_printf("%s %s — %s", kind, identifier,
+            g_strcmp0(disposition, "created") == 0 ? "créée" : "réutilisée");
+        g_free(kind); g_free(identifier); g_free(disposition);
+        if (description == NULL) goto failure;
+        g_ptr_array_add(objects, description);
+    }
+    if (step != DATABASE_STATEMENT_STEP_DONE) goto failure;
+    database_statement_finalize(statement);
+    return objects;
+failure:
+    osint_execution_dao_set_error(dao, error,
+        "Impossible de lister les objets liés à l'exécution OSINT");
+    database_statement_finalize(statement);
+    g_clear_pointer(&objects, g_ptr_array_unref);
+    return NULL;
 }
 
 static gboolean osint_execution_dao_link(
