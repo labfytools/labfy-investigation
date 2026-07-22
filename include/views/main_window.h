@@ -101,6 +101,9 @@ typedef void (*MainWindowEditEvidenceCallback)(
 /** @brief Callback appelé pour analyser une preuve EML. */
 typedef void (*MainWindowAnalyzeEmlCallback)(const char *evidence_identifier,
     gpointer user_data);
+/** @brief Callback appelé pour analyser un RIB par OCR. */
+typedef void (*MainWindowAnalyzeRibCallback)(const char *evidence_identifier,
+    gpointer user_data);
 
 /**
  * @brief Callback appelé après le déplacement effectif d'un nœud.
@@ -212,6 +215,9 @@ void main_window_set_edit_evidence_callback(
 /** @brief Définit le callback d'analyse locale d'une preuve EML. */
 void main_window_set_analyze_eml_callback(MainWindow *main_window,
     MainWindowAnalyzeEmlCallback callback, gpointer user_data);
+/** @brief Définit le callback d'analyse OCR d'un RIB. */
+void main_window_set_analyze_rib_callback(MainWindow *main_window,
+    MainWindowAnalyzeRibCallback callback, gpointer user_data);
 
 /**
  * @brief Définit le callback de fin de déplacement d'un nœud.

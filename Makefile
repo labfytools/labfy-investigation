@@ -125,6 +125,7 @@ TEST_SOCIAL_ACCOUNT_SERVICE := tests/test_social_account_service
 TEST_SOCIAL_PLATFORM := tests/test_social_platform
 TEST_PERSON_ENTITY_SERVICE := tests/test_person_entity_service
 TEST_EML_ANALYZER := tests/test_eml_analyzer
+TEST_IBAN_ANALYZER := tests/test_iban_analyzer
 
 all: $(TARGET)
 
@@ -647,6 +648,9 @@ $(TEST_PERSON_ENTITY_SERVICE): \
 $(TEST_EML_ANALYZER): tests/test_eml_analyzer.c src/core/eml_analyzer.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_IBAN_ANALYZER): tests/test_iban_analyzer.c src/core/iban_analyzer.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	tests/test_investigation_graph_load_task.c \
 	src/core/investigation_graph_load_task.c \
@@ -726,7 +730,8 @@ test: \
 	$(TEST_SOCIAL_ACCOUNT_SERVICE) \
 	$(TEST_SOCIAL_PLATFORM) \
 	$(TEST_PERSON_ENTITY_SERVICE) \
-	$(TEST_EML_ANALYZER)
+	$(TEST_EML_ANALYZER) \
+	$(TEST_IBAN_ANALYZER)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -786,6 +791,7 @@ test: \
 	@$(TEST_SOCIAL_PLATFORM)
 	@$(TEST_PERSON_ENTITY_SERVICE)
 	@$(TEST_EML_ANALYZER)
+	@$(TEST_IBAN_ANALYZER)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c

@@ -1075,7 +1075,7 @@ static void test_tool_initializer_detect_versions(void)
     g_assert_cmpuint(
         summary.total_count,
         ==,
-        5
+        tool_catalog_get_count()
     );
 
     g_assert_cmpuint(
@@ -1087,7 +1087,7 @@ static void test_tool_initializer_detect_versions(void)
     g_assert_cmpuint(
         summary.missing_count,
         ==,
-        3
+        tool_catalog_get_count() - 2
     );
 
     g_assert_cmpuint(
@@ -1248,7 +1248,7 @@ static void test_tool_initializer_version_failure_is_nonfatal(void)
     g_assert_cmpuint(
         summary.missing_count,
         ==,
-        3
+        tool_catalog_get_count() - 2
     );
 
     g_assert_cmpuint(

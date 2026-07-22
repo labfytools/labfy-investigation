@@ -92,6 +92,7 @@ struct Workspace
     GtkWidget *verify_evidence_button;
     GtkWidget *edit_evidence_button;
     GtkWidget *analyze_eml_button;
+    GtkWidget *analyze_rib_button;
     GtkWidget *evidence_preview_stack;
     GtkWidget *evidence_preview_status;
     GtkWidget *evidence_preview_picture;
@@ -112,6 +113,8 @@ struct Workspace
     gpointer edit_evidence_user_data;
     WorkspaceAnalyzeEmlCallback analyze_eml_callback;
     gpointer analyze_eml_user_data;
+    WorkspaceAnalyzeRibCallback analyze_rib_callback;
+    gpointer analyze_rib_user_data;
 
     WorkspaceGraphNodeMovedCallback
         graph_node_moved_callback;
@@ -1079,6 +1082,15 @@ static void workspace_on_analyze_eml_clicked(GtkButton *button, gpointer data)
         workspace->analyze_eml_callback(workspace->selected_evidence_identifier,
             workspace->analyze_eml_user_data);
 }
+/** @brief Transmet la demande d'analyse OCR du RIB affiché. */
+static void workspace_on_analyze_rib_clicked(GtkButton *button, gpointer data)
+{
+    Workspace *workspace = data; (void) button;
+    if (workspace != NULL && workspace->analyze_rib_callback != NULL &&
+        workspace->selected_evidence_identifier != NULL)
+        workspace->analyze_rib_callback(workspace->selected_evidence_identifier,
+            workspace->analyze_rib_user_data);
+}
 
 Workspace *workspace_new(void)
 {
@@ -1449,6 +1461,13 @@ Workspace *workspace_new(void)
     g_signal_connect(workspace->analyze_eml_button, "clicked",
         G_CALLBACK(workspace_on_analyze_eml_clicked), workspace);
     gtk_box_append(GTK_BOX(evidence_content), workspace->analyze_eml_button);
+    workspace->analyze_rib_button = gtk_button_new_with_label(
+        "Analyser le RIB par OCR");
+    gtk_widget_set_halign(workspace->analyze_rib_button, GTK_ALIGN_START);
+    gtk_widget_set_sensitive(workspace->analyze_rib_button, FALSE);
+    g_signal_connect(workspace->analyze_rib_button, "clicked",
+        G_CALLBACK(workspace_on_analyze_rib_clicked), workspace);
+    gtk_box_append(GTK_BOX(evidence_content), workspace->analyze_rib_button);
 
     evidence_separator =
         gtk_separator_new(
@@ -2433,6 +2452,8 @@ void workspace_set_selected_node(
         gtk_widget_set_sensitive(workspace->edit_evidence_button, FALSE);
     if (workspace->analyze_eml_button != NULL)
         gtk_widget_set_sensitive(workspace->analyze_eml_button, FALSE);
+    if (workspace->analyze_rib_button != NULL)
+        gtk_widget_set_sensitive(workspace->analyze_rib_button, FALSE);
 
     if (node == NULL)
     {
@@ -2598,6 +2619,9 @@ void workspace_set_selected_evidence(
         char *lower = name != NULL ? g_ascii_strdown(name, -1) : NULL;
         gtk_widget_set_sensitive(workspace->analyze_eml_button,
             lower != NULL && g_str_has_suffix(lower, ".eml"));
+        gtk_widget_set_sensitive(workspace->analyze_rib_button,
+            lower != NULL && (g_str_has_suffix(lower, ".jpg") ||
+            g_str_has_suffix(lower, ".jpeg") || g_str_has_suffix(lower, ".png")));
         g_free(lower);
     }
 
@@ -3225,6 +3249,13 @@ void workspace_set_analyze_eml_callback(Workspace *workspace,
     if (workspace == NULL) return;
     workspace->analyze_eml_callback = callback;
     workspace->analyze_eml_user_data = user_data;
+}
+void workspace_set_analyze_rib_callback(Workspace *workspace,
+    WorkspaceAnalyzeRibCallback callback, gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->analyze_rib_callback = callback;
+    workspace->analyze_rib_user_data = user_data;
 }
 
 void workspace_set_graph_node_moved_callback(

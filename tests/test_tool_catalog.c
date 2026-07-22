@@ -56,6 +56,12 @@ static const ExpectedToolCatalogEntry expected_catalog_entries[] =
         .display_name = "OpenSSL",
         .executable_name = "openssl",
         .version_argument = "version"
+    },
+    {
+        .identifier = "ocr.tesseract",
+        .display_name = "Tesseract OCR",
+        .executable_name = "tesseract",
+        .version_argument = "--version"
     }
 };
 

@@ -186,7 +186,8 @@ const EntityRecord *investigation_graph_view_get_selected_entity(
 /**
  * @brief Sélectionne une entité du graphe par son UUID.
  *
- * La vue reste inchangée si l'identifiant est absent du graphe.
+ * Le nœud trouvé est placé au centre de la zone visible. La vue reste
+ * inchangée si l'identifiant est absent du graphe.
  *
  * @param graph_view Vue graphique à modifier.
  * @param entity_identifier UUID de l'entité.

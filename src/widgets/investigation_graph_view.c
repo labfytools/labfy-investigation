@@ -4435,6 +4435,8 @@ gboolean investigation_graph_view_select_entity(
 )
 {
     InvestigationGraphNodeLayout *node_layout = NULL;
+    int viewport_width = 0;
+    int viewport_height = 0;
 
     if (graph_view == NULL ||
         graph_view->node_layouts_by_identifier == NULL ||
@@ -4459,6 +4461,25 @@ gboolean investigation_graph_view_select_entity(
         graph_view,
         node_layout
     );
+
+    if (graph_view->drawing_area != NULL)
+    {
+        viewport_width = gtk_widget_get_width(graph_view->drawing_area);
+        viewport_height = gtk_widget_get_height(graph_view->drawing_area);
+
+        if (viewport_width > 0 && viewport_height > 0)
+        {
+            graph_view->offset_x =
+                ((double) viewport_width / 2.0) -
+                (investigation_graph_view_get_node_center_x(node_layout) *
+                 graph_view->zoom);
+            graph_view->offset_y =
+                ((double) viewport_height / 2.0) -
+                (investigation_graph_view_get_node_center_y(node_layout) *
+                 graph_view->zoom);
+            gtk_widget_queue_draw(graph_view->drawing_area);
+        }
+    }
 
     return TRUE;
 }

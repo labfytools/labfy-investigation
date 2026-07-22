@@ -59,6 +59,11 @@ static const char *const tool_catalog_openssl_version_arguments[] =
     "version",
     NULL
 };
+static const char *const tool_catalog_tesseract_version_arguments[] =
+{
+    "--version",
+    NULL
+};
 
 /**
  * @brief Catalogue statique initial.
@@ -108,6 +113,14 @@ static const ToolCatalogEntry tool_catalog_entries[] =
         .requirement = TOOL_REQUIREMENT_OPTIONAL,
         .version_arguments =
             tool_catalog_openssl_version_arguments,
+        .version_argument_count = 1
+    },
+    {
+        .identifier = "ocr.tesseract",
+        .display_name = "Tesseract OCR",
+        .executable_name = "tesseract",
+        .requirement = TOOL_REQUIREMENT_OPTIONAL,
+        .version_arguments = tool_catalog_tesseract_version_arguments,
         .version_argument_count = 1
     }
 };

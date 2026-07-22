@@ -60,6 +60,9 @@
 #include "views/create_person_dialog.h"
 #include "views/eml_analysis_dialog.h"
 #include "views/manage_entity_evidence_dialog.h"
+#include "views/rib_ocr_review_dialog.h"
+#include "core/rib_ocr.h"
+#include "core/iban_analyzer.h"
 
 #include <gtk/gtk.h>
 #include <errno.h>
@@ -3384,6 +3387,144 @@ static void application_on_analyze_eml_requested(
     }
     eml_processing_result_free(result); evidence_record_free(record);
     evidence_dao_free(dao); g_clear_error(&error);
+}
+
+/** @brief Contexte possédé pendant la révision OCR d'un RIB. */
+typedef struct { Application *application; char *evidence_identifier;
+    char *ocr_text; char *tool_version; } ApplicationRibOcrContext;
+/** @brief Libère le contexte OCR d'un RIB. */
+static void application_rib_ocr_context_free(ApplicationRibOcrContext *context)
+{
+    if (context == NULL) return;
+    g_free(context->evidence_identifier); g_free(context->ocr_text);
+    g_free(context->tool_version); g_free(context);
+}
+/** @brief Crée ou réutilise l'entité IBAN confirmée et la lie à la preuve. */
+static void application_on_rib_ocr_confirmed(const char *iban,
+    gpointer user_data)
+{
+    ApplicationRibOcrContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    Database *database = NULL; EntityDao *entity_dao = NULL;
+    EvidenceEntityDao *link_dao = NULL; GPtrArray *entities = NULL;
+    EntityRecord *record = NULL; const char *entity_identifier = NULL;
+    char *new_identifier = NULL; char *timestamp = NULL; char *description = NULL;
+    GDateTime *now = NULL; GError *error = NULL; gboolean active = FALSE;
+    const InvestigationProject *project = NULL;
+    if (iban == NULL || application == NULL || application->session == NULL)
+        goto cleanup;
+    database = investigation_session_get_database(application->session);
+    entity_dao = entity_dao_new(database, &error);
+    if (entity_dao == NULL) goto failure;
+    entities = entity_dao_list_all(entity_dao, &error);
+    if (entities == NULL) goto failure;
+    for (guint index = 0; index < entities->len; index++)
+    {
+        EntityRecord *candidate = g_ptr_array_index(entities, index);
+        if (g_strcmp0(entity_record_get_type_identifier(candidate), "iban") == 0 &&
+            g_strcmp0(entity_record_get_value(candidate), iban) == 0)
+            entity_identifier = entity_record_get_identifier(candidate);
+    }
+    if (!database_transaction_begin(database)) goto failure;
+    active = TRUE;
+    if (entity_identifier == NULL)
+    {
+        new_identifier = g_uuid_string_random(); now = g_date_time_new_now_utc();
+        timestamp = now != NULL ? g_date_time_format(now,
+            "%Y-%m-%dT%H:%M:%SZ") : NULL;
+        description = g_strdup_printf("IBAN extrait localement par OCR (%s).",
+            context->tool_version != NULL ? context->tool_version : "Tesseract");
+        record = entity_record_new(new_identifier, "iban", iban, "IBAN extrait du RIB",
+            description, 70, timestamp, timestamp, ENTITY_STATUS_ACTIVE, &error);
+        if (record == NULL || !entity_dao_insert(entity_dao, record, &error))
+            goto failure;
+        entity_identifier = new_identifier;
+    }
+    link_dao = evidence_entity_dao_new(database, &error);
+    if (link_dao == NULL) goto failure;
+    {
+        gboolean exists = FALSE;
+        if (!evidence_entity_dao_exists(link_dao, context->evidence_identifier,
+                entity_identifier, &exists, &error) ||
+            (!exists && !evidence_entity_dao_link(link_dao,
+                context->evidence_identifier, entity_identifier, &error)))
+            goto failure;
+    }
+    if (!database_transaction_commit(database)) goto failure;
+    active = FALSE; project = investigation_session_get_project(application->session);
+    g_free(application->pending_entity_selection_identifier);
+    application->pending_entity_selection_identifier =
+        g_strdup(entity_identifier);
+    main_window_set_status(application->main_window,
+        "Entité IBAN créée et reliée à la preuve.");
+    application_start_graph_loading(application,
+        investigation_project_get_database_path(project)); goto cleanup;
+failure:
+    if (active) database_transaction_rollback(database);
+    application_present_error(application, "Intégration du RIB impossible",
+        error != NULL ? error->message : "La transaction a échoué.");
+cleanup:
+    g_clear_error(&error); entity_record_free(record);
+    g_clear_pointer(&entities, g_ptr_array_unref); entity_dao_free(entity_dao);
+    evidence_entity_dao_free(link_dao); g_free(new_identifier);
+    g_free(timestamp); g_free(description); g_clear_pointer(&now, g_date_time_unref);
+    application_rib_ocr_context_free(context);
+}
+/** @brief Exécute localement Tesseract sur la preuve image sélectionnée. */
+static void application_on_analyze_rib_requested(
+    const char *evidence_identifier, gpointer user_data)
+{
+    Application *application = user_data; const InvestigationProject *project = NULL;
+    EvidenceDao *dao = NULL; EvidenceRecord *record = NULL;
+    ApplicationRibOcrContext *context = NULL; GPtrArray *ibans = NULL;
+    char *candidate_path = NULL; char *canonical_root = NULL; char *path = NULL;
+    char *output_path = NULL; GError *error = NULL;
+    char *work_copy_path = NULL; GFile *source_file = NULL; GFile *copy_file = NULL;
+    if (application == NULL || application->session == NULL) return;
+    dao = evidence_dao_new(investigation_session_get_database(application->session), &error);
+    if (dao != NULL) record = evidence_dao_find_by_identifier(dao,
+        evidence_identifier, &error);
+    project = investigation_session_get_project(application->session);
+    if (record == NULL || project == NULL) goto failure;
+    canonical_root = g_canonicalize_filename(
+        investigation_project_get_root_path(project), NULL);
+    candidate_path = g_build_filename(canonical_root,
+        evidence_record_get_relative_path(record), NULL);
+    path = g_canonicalize_filename(candidate_path, NULL);
+    if (path == NULL || !g_str_has_prefix(path, canonical_root) ||
+        (path[strlen(canonical_root)] != G_DIR_SEPARATOR &&
+         path[strlen(canonical_root)] != '\0')) goto failure;
+    work_copy_path = g_strdup_printf("%s/02_Preuves_Traitees/OCR/%s-%s",
+        canonical_root, evidence_identifier,
+        evidence_record_get_original_name(record));
+    source_file = g_file_new_for_path(path);
+    copy_file = g_file_new_for_path(work_copy_path);
+    if (!g_file_copy(source_file, copy_file, G_FILE_COPY_OVERWRITE,
+            NULL, NULL, NULL, &error)) goto failure;
+    context = g_new0(ApplicationRibOcrContext, 1);
+    context->application = application;
+    context->evidence_identifier = g_strdup(evidence_identifier);
+    if (!rib_ocr_extract_text(work_copy_path, &context->ocr_text,
+            &context->tool_version, &error)) goto failure;
+    output_path = g_strdup_printf("%s/02_Preuves_Traitees/OCR/%s-ocr.txt",
+        canonical_root, evidence_identifier);
+    if (!g_file_set_contents(output_path, context->ocr_text, -1, &error))
+        goto failure;
+    ibans = iban_analyzer_extract(context->ocr_text);
+    rib_ocr_review_dialog_present(main_window_get_window(application->main_window),
+        context->ocr_text, ibans->len > 0 ? g_ptr_array_index(ibans, 0) : NULL,
+        application_on_rib_ocr_confirmed, context);
+    context = NULL; goto cleanup;
+failure:
+    application_rib_ocr_context_free(context); context = NULL;
+    application_present_error(application, "Analyse OCR impossible",
+        error != NULL ? error->message :
+        "La preuve n'a pas pu être analysée par Tesseract.");
+cleanup:
+    g_clear_error(&error); g_clear_pointer(&ibans, g_ptr_array_unref);
+    g_free(output_path); g_free(path); g_free(candidate_path); g_free(canonical_root);
+    g_free(work_copy_path); g_clear_object(&source_file); g_clear_object(&copy_file);
+    evidence_record_free(record); evidence_dao_free(dao);
 }
 
 /**
@@ -6955,6 +7096,8 @@ static void application_on_activate(
     );
     main_window_set_analyze_eml_callback(application->main_window,
         application_on_analyze_eml_requested, application);
+    main_window_set_analyze_rib_callback(application->main_window,
+        application_on_analyze_rib_requested, application);
 
     main_window_set_graph_node_moved_callback(
         application->main_window,

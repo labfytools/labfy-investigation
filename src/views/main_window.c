@@ -110,6 +110,8 @@ struct MainWindow
     gpointer edit_evidence_user_data;
     MainWindowAnalyzeEmlCallback analyze_eml_callback;
     gpointer analyze_eml_user_data;
+    MainWindowAnalyzeRibCallback analyze_rib_callback;
+    gpointer analyze_rib_user_data;
 
     MainWindowGraphNodeMovedCallback
         graph_node_moved_callback;
@@ -201,6 +203,14 @@ static void main_window_on_analyze_eml_requested(const char *identifier,
     if (main_window != NULL && main_window->analyze_eml_callback != NULL)
         main_window->analyze_eml_callback(identifier,
             main_window->analyze_eml_user_data);
+}
+/** @brief Relaie la demande d'analyse OCR d'un RIB. */
+static void main_window_on_analyze_rib_requested(const char *identifier,
+    gpointer data)
+{
+    MainWindow *window = data;
+    if (window != NULL && window->analyze_rib_callback != NULL)
+        window->analyze_rib_callback(identifier, window->analyze_rib_user_data);
 }
 
 /**
@@ -963,6 +973,8 @@ MainWindow *main_window_new(
     );
     workspace_set_analyze_eml_callback(main_window->workspace,
         main_window_on_analyze_eml_requested, main_window);
+    workspace_set_analyze_rib_callback(main_window->workspace,
+        main_window_on_analyze_rib_requested, main_window);
 
     workspace_widget = workspace_get_widget(
         main_window->workspace
@@ -1510,6 +1522,13 @@ void main_window_set_analyze_eml_callback(MainWindow *main_window,
     if (main_window == NULL) return;
     main_window->analyze_eml_callback = callback;
     main_window->analyze_eml_user_data = user_data;
+}
+void main_window_set_analyze_rib_callback(MainWindow *main_window,
+    MainWindowAnalyzeRibCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->analyze_rib_callback = callback;
+    main_window->analyze_rib_user_data = user_data;
 }
 
 void main_window_set_tree_selection_callback(
