@@ -138,7 +138,8 @@ Le socle actuel comprend notamment :
 - exécution sécurisée par `GSubprocess` ;
 - exécution d’outils en tâche de fond ;
 - catalogue initial d’outils ;
-- détection de présence et de version.
+- détection de présence et de version ;
+- menu OSINT contextuel préparé pour les entités et relations du graphe.
 
 Les outils actuellement présents dans le catalogue initial sont :
 

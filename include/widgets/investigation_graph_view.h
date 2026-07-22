@@ -16,6 +16,11 @@ G_BEGIN_DECLS
 typedef struct EntityRecord EntityRecord;
 
 /**
+ * @brief Représentation opaque d'une relation métier.
+ */
+typedef struct RelationRecord RelationRecord;
+
+/**
  * @brief Représentation opaque du graphe métier d'une enquête.
  */
 typedef struct InvestigationGraphModel InvestigationGraphModel;
@@ -33,13 +38,17 @@ typedef struct InvestigationGraphView InvestigationGraphView;
 /**
  * @brief Callback appelé lors d'un changement de sélection.
  *
- * entity_record est emprunté au graphe. NULL représente une désélection.
+ * Les enregistrements sont empruntés au graphe et restent valides uniquement
+ * pendant l'appel. Un seul des deux pointeurs est non NULL. Deux pointeurs
+ * NULL représentent une désélection.
  *
  * @param entity_record Entité sélectionnée empruntée, ou NULL.
+ * @param relation_record Relation sélectionnée empruntée, ou NULL.
  * @param user_data Données empruntées fournies par l'appelant.
  */
 typedef void (*InvestigationGraphViewSelectionCallback)(
     const EntityRecord *entity_record,
+    const RelationRecord *relation_record,
     gpointer user_data
 );
 

@@ -5,6 +5,8 @@
 
 #include "widgets/workspace.h"
 
+#include "models/entity_record.h"
+#include "models/relation_record.h"
 #include "widgets/entity_details_panel.h"
 #include "widgets/investigation_graph_view.h"
 
@@ -49,6 +51,10 @@ struct Workspace
     GtkWidget *graph_view_page;
     GtkWidget *graph_toolbar;
     GtkWidget *reset_graph_layout_button;
+    GtkWidget *osint_tools_button;
+    GtkWidget *osint_tools_popover;
+    GtkWidget *osint_tools_context_label;
+    GtkWidget *osint_tools_status_label;
     GtkWidget *graph_help_button;
     GtkWidget *graph_help_popover;
 
@@ -110,6 +116,110 @@ struct Workspace
 
     WorkspaceGraphState graph_state;
 };
+
+/**
+ * @brief Actualise le menu OSINT selon la sélection du graphe.
+ *
+ * Aucun outil n'est encore exposé par ce ticket. Le menu prépare le point
+ * d'entrée contextuel et explique explicitement cet état à l'utilisateur.
+ */
+static void workspace_update_osint_tools_menu(
+    Workspace *workspace,
+    const EntityRecord *entity_record,
+    const RelationRecord *relation_record
+)
+{
+    const char *selection_kind =
+        NULL;
+
+    const char *selection_identifier =
+        NULL;
+
+    char *context_text =
+        NULL;
+
+    if (workspace == NULL ||
+        workspace->osint_tools_button == NULL ||
+        workspace->osint_tools_context_label == NULL ||
+        workspace->osint_tools_status_label == NULL)
+    {
+        return;
+    }
+
+    if (entity_record != NULL)
+    {
+        selection_kind =
+            "Entité";
+
+        selection_identifier =
+            entity_record_get_identifier(
+                entity_record
+            );
+    }
+    else if (relation_record != NULL)
+    {
+        selection_kind =
+            "Relation";
+
+        selection_identifier =
+            relation_record_get_identifier(
+                relation_record
+            );
+    }
+
+    gtk_widget_set_sensitive(
+        workspace->osint_tools_button,
+        selection_identifier != NULL &&
+        selection_identifier[0] != '\0'
+    );
+
+    if (selection_identifier == NULL ||
+        selection_identifier[0] == '\0')
+    {
+        gtk_label_set_text(
+            GTK_LABEL(
+                workspace->osint_tools_context_label
+            ),
+            "Sélectionnez un nœud du graphe."
+        );
+
+        gtk_label_set_text(
+            GTK_LABEL(
+                workspace->osint_tools_status_label
+            ),
+            "Les outils compatibles apparaîtront ici."
+        );
+
+        return;
+    }
+
+    context_text =
+        g_strdup_printf(
+            "%s sélectionnée\n%s",
+            selection_kind,
+            selection_identifier
+        );
+
+    gtk_label_set_text(
+        GTK_LABEL(
+            workspace->osint_tools_context_label
+        ),
+        context_text != NULL
+            ? context_text
+            : selection_kind
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(
+            workspace->osint_tools_status_label
+        ),
+        "Aucun outil OSINT intégré pour le moment."
+    );
+
+    g_free(
+        context_text
+    );
+}
 
 /**
  * @brief Ajoute une ligne de métadonnée dans la grille.
@@ -310,23 +420,32 @@ static void workspace_on_graph_node_moved(
 /**
  * @brief Transmet la sélection du graphe au volet de détails.
  */
-static void workspace_on_graph_entity_selected(
+static void workspace_on_graph_node_selected(
     const EntityRecord *entity_record,
+    const RelationRecord *relation_record,
     gpointer user_data
 )
 {
     Workspace *workspace =
         user_data;
 
-    if (workspace == NULL ||
-        workspace->entity_details_panel == NULL)
+    if (workspace == NULL)
     {
         return;
     }
 
-    entity_details_panel_set_entity(
-        workspace->entity_details_panel,
-        entity_record
+    if (workspace->entity_details_panel != NULL)
+    {
+        entity_details_panel_set_entity(
+            workspace->entity_details_panel,
+            entity_record
+        );
+    }
+
+    workspace_update_osint_tools_menu(
+        workspace,
+        entity_record,
+        relation_record
     );
 }
 
@@ -1092,7 +1211,7 @@ Workspace *workspace_new(void)
 
     investigation_graph_view_set_selection_callback(
         workspace->graph_view,
-        workspace_on_graph_entity_selected,
+        workspace_on_graph_node_selected,
         workspace
     );
 
@@ -1134,8 +1253,41 @@ Workspace *workspace_new(void)
             "view-refresh-symbolic"
         );
 
+    workspace->osint_tools_button =
+        gtk_menu_button_new();
+
+    workspace->osint_tools_popover =
+        gtk_popover_new();
+
+    GtkWidget *osint_tools_content =
+        gtk_box_new(
+            GTK_ORIENTATION_VERTICAL,
+            8
+        );
+
+    GtkWidget *osint_tools_title =
+        gtk_label_new(
+            "Outils OSINT"
+        );
+
+    workspace->osint_tools_context_label =
+        gtk_label_new(
+            "Sélectionnez un nœud du graphe."
+        );
+
+    workspace->osint_tools_status_label =
+        gtk_label_new(
+            "Les outils compatibles apparaîtront ici."
+        );
+
     if (workspace->graph_toolbar == NULL ||
-        workspace->reset_graph_layout_button == NULL)
+        workspace->reset_graph_layout_button == NULL ||
+        workspace->osint_tools_button == NULL ||
+        workspace->osint_tools_popover == NULL ||
+        osint_tools_content == NULL ||
+        osint_tools_title == NULL ||
+        workspace->osint_tools_context_label == NULL ||
+        workspace->osint_tools_status_label == NULL)
     {
         workspace_free(
             workspace
@@ -1184,6 +1336,121 @@ Workspace *workspace_new(void)
         FALSE
     );
 
+    gtk_menu_button_set_label(
+        GTK_MENU_BUTTON(
+            workspace->osint_tools_button
+        ),
+        "Outils OSINT"
+    );
+
+    gtk_widget_add_css_class(
+        workspace->osint_tools_button,
+        "flat"
+    );
+
+    gtk_widget_set_tooltip_text(
+        workspace->osint_tools_button,
+        "Afficher les outils compatibles avec la sélection"
+    );
+
+    gtk_widget_set_sensitive(
+        workspace->osint_tools_button,
+        FALSE
+    );
+
+    gtk_widget_set_margin_start(
+        osint_tools_content,
+        16
+    );
+
+    gtk_widget_set_margin_end(
+        osint_tools_content,
+        16
+    );
+
+    gtk_widget_set_margin_top(
+        osint_tools_content,
+        14
+    );
+
+    gtk_widget_set_margin_bottom(
+        osint_tools_content,
+        14
+    );
+
+    gtk_label_set_xalign(
+        GTK_LABEL(
+            osint_tools_title
+        ),
+        0.0F
+    );
+
+    gtk_widget_add_css_class(
+        osint_tools_title,
+        "heading"
+    );
+
+    gtk_label_set_xalign(
+        GTK_LABEL(
+            workspace->osint_tools_context_label
+        ),
+        0.0F
+    );
+
+    gtk_label_set_selectable(
+        GTK_LABEL(
+            workspace->osint_tools_context_label
+        ),
+        TRUE
+    );
+
+    gtk_label_set_xalign(
+        GTK_LABEL(
+            workspace->osint_tools_status_label
+        ),
+        0.0F
+    );
+
+    gtk_widget_add_css_class(
+        workspace->osint_tools_status_label,
+        "dim-label"
+    );
+
+    gtk_box_append(
+        GTK_BOX(
+            osint_tools_content
+        ),
+        osint_tools_title
+    );
+
+    gtk_box_append(
+        GTK_BOX(
+            osint_tools_content
+        ),
+        workspace->osint_tools_context_label
+    );
+
+    gtk_box_append(
+        GTK_BOX(
+            osint_tools_content
+        ),
+        workspace->osint_tools_status_label
+    );
+
+    gtk_popover_set_child(
+        GTK_POPOVER(
+            workspace->osint_tools_popover
+        ),
+        osint_tools_content
+    );
+
+    gtk_menu_button_set_popover(
+        GTK_MENU_BUTTON(
+            workspace->osint_tools_button
+        ),
+        workspace->osint_tools_popover
+    );
+
     g_signal_connect(
         workspace->reset_graph_layout_button,
         "clicked",
@@ -1198,6 +1465,13 @@ Workspace *workspace_new(void)
             workspace->graph_toolbar
         ),
         workspace->reset_graph_layout_button
+    );
+
+    gtk_box_append(
+        GTK_BOX(
+            workspace->graph_toolbar
+        ),
+        workspace->osint_tools_button
     );
 
     gtk_overlay_add_overlay(

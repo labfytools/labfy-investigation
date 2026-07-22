@@ -42,13 +42,13 @@ typedef void (*WorkspaceVerifyEvidenceCallback)(
  *
  * Les coordonnées sont exprimées dans l'espace logique du graphe.
  *
- * @param entity_identifier UUID de l'entité déplacée.
+ * @param node_identifier UUID du nœud déplacé.
  * @param x Coordonnée horizontale logique.
  * @param y Coordonnée verticale logique.
  * @param user_data Données empruntées fournies par l'appelant.
  */
 typedef void (*WorkspaceGraphNodeMovedCallback)(
-    const char *entity_identifier,
+    const char *node_identifier,
     double x,
     double y,
     gpointer user_data

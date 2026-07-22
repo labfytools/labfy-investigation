@@ -623,6 +623,9 @@ static void investigation_graph_view_set_selected_node(
     const EntityRecord *entity_record =
         NULL;
 
+    const RelationRecord *relation_record =
+        NULL;
+
     if (graph_view == NULL ||
         graph_view->selected_node == node_layout)
     {
@@ -639,6 +642,13 @@ static void investigation_graph_view_set_selected_node(
         entity_record =
             node_layout->entity_record;
     }
+    else if (node_layout != NULL &&
+             node_layout->kind ==
+                INVESTIGATION_GRAPH_NODE_KIND_RELATION)
+    {
+        relation_record =
+            node_layout->relation_record;
+    }
 
     if (graph_view->drawing_area != NULL)
     {
@@ -651,6 +661,7 @@ static void investigation_graph_view_set_selected_node(
     {
         graph_view->selection_callback(
             entity_record,
+            relation_record,
             graph_view->selection_user_data
         );
     }
