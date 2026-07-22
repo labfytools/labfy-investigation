@@ -78,6 +78,12 @@ typedef void (*WorkspaceAddRelationCallback)(
     gpointer user_data
 );
 
+/** @brief Callback appelé pour modifier la relation sélectionnée. */
+typedef void (*WorkspaceEditRelationCallback)(
+    const char *relation_identifier,
+    gpointer user_data
+);
+
 /**
  * @brief Callback appelé lors du déclenchement d'une action OSINT.
  *
@@ -285,6 +291,13 @@ void workspace_set_reset_graph_layout_callback(
 void workspace_set_add_relation_callback(
     Workspace *workspace,
     WorkspaceAddRelationCallback callback,
+    gpointer user_data
+);
+
+/** @brief Définit le callback de modification d'une relation. */
+void workspace_set_edit_relation_callback(
+    Workspace *workspace,
+    WorkspaceEditRelationCallback callback,
     gpointer user_data
 );
 

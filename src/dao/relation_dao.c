@@ -52,6 +52,12 @@ static const char *const relation_dao_insert_sql =
     "    ?"
     ");";
 
+/** @brief Requête de modification des attributs d'une relation. */
+static const char *const relation_dao_update_sql =
+    "UPDATE relations SET "
+    "type_relation = ?, label = ?, justification = ?, confiance = ?, "
+    "updated_at = ?, status = ? WHERE id = ?;";
+
 /**
  * @brief Requête de recherche par UUID.
  */
@@ -1295,6 +1301,65 @@ cleanup:
         statement
     );
 
+    return success;
+}
+
+gboolean relation_dao_update(RelationDao *relation_dao,
+    const RelationRecord *relation_record, GError **error)
+{
+    DatabaseStatement *statement = NULL;
+    const char *status_text = NULL;
+    gboolean success = FALSE;
+
+    g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+    if (relation_dao == NULL || relation_record == NULL)
+    {
+        relation_dao_set_error_literal(error,
+            RELATION_DAO_ERROR_INVALID_ARGUMENT,
+            "La relation à modifier est invalide.");
+        return FALSE;
+    }
+    status_text = relation_dao_status_to_text(
+        relation_record_get_status(relation_record));
+    statement = database_statement_prepare(relation_dao->database,
+        relation_dao_update_sql);
+    if (statement == NULL)
+    {
+        relation_dao_set_database_error(relation_dao, error,
+            RELATION_DAO_ERROR_PREPARE,
+            "Impossible de préparer la modification de la relation");
+        return FALSE;
+    }
+    if (!database_statement_bind_text(statement, 1,
+            relation_record_get_relation_type(relation_record)) ||
+        !relation_dao_bind_optional_text(statement, 2,
+            relation_record_get_label(relation_record)) ||
+        !relation_dao_bind_optional_text(statement, 3,
+            relation_record_get_justification(relation_record)) ||
+        !database_statement_bind_int64(statement, 4,
+            relation_record_get_confidence(relation_record)) ||
+        !database_statement_bind_text(statement, 5,
+            relation_record_get_updated_at(relation_record)) ||
+        status_text == NULL ||
+        !database_statement_bind_text(statement, 6, status_text) ||
+        !database_statement_bind_text(statement, 7,
+            relation_record_get_identifier(relation_record)))
+    {
+        relation_dao_set_database_error(relation_dao, error,
+            RELATION_DAO_ERROR_BIND,
+            "Impossible de lier la modification de la relation");
+        goto cleanup;
+    }
+    if (database_statement_step(statement) != DATABASE_STATEMENT_STEP_DONE)
+    {
+        relation_dao_set_database_error(relation_dao, error,
+            RELATION_DAO_ERROR_EXECUTE,
+            "Impossible de modifier la relation");
+        goto cleanup;
+    }
+    success = TRUE;
+cleanup:
+    database_statement_finalize(statement);
     return success;
 }
 

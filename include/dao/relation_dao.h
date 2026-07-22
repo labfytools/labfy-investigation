@@ -94,6 +94,17 @@ gboolean relation_dao_insert(
 );
 
 /**
+ * @brief Met à jour les champs modifiables d'une relation existante.
+ *
+ * L'identifiant, les extrémités et la date de création sont conservés.
+ */
+gboolean relation_dao_update(
+    RelationDao *relation_dao,
+    const RelationRecord *relation_record,
+    GError **error
+);
+
+/**
  * @brief Recherche une relation par son UUID.
  *
  * Une relation absente retourne NULL sans produire d'erreur.

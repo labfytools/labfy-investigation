@@ -61,6 +61,9 @@ typedef struct
 
     double width;
     double height;
+
+    double relation_offset_x;
+    double relation_offset_y;
 } InvestigationGraphNodeLayout;
 
 /**
@@ -130,6 +133,58 @@ struct InvestigationGraphView
 static const char *investigation_graph_view_get_node_identifier(
     const InvestigationGraphNodeLayout *node_layout
 );
+static double investigation_graph_view_get_node_center_x(
+    const InvestigationGraphNodeLayout *node_layout
+);
+static double investigation_graph_view_get_node_center_y(
+    const InvestigationGraphNodeLayout *node_layout
+);
+
+/** @brief Replace les libellés de relation entre leurs extrémités. */
+static void investigation_graph_view_sync_relation_layouts(
+    InvestigationGraphView *graph_view
+)
+{
+    if (graph_view == NULL || graph_view->node_layouts == NULL ||
+        graph_view->node_layouts_by_identifier == NULL)
+    {
+        return;
+    }
+
+    for (guint i = 0; i < graph_view->node_layouts->len; i++)
+    {
+        InvestigationGraphNodeLayout *relation_layout =
+            g_ptr_array_index(graph_view->node_layouts, i);
+        const RelationRecord *relation_record = NULL;
+        InvestigationGraphNodeLayout *source_layout = NULL;
+        InvestigationGraphNodeLayout *target_layout = NULL;
+
+        if (relation_layout == NULL || relation_layout->kind !=
+            INVESTIGATION_GRAPH_NODE_KIND_RELATION)
+        {
+            continue;
+        }
+        relation_record = relation_layout->relation_record;
+        source_layout = g_hash_table_lookup(
+            graph_view->node_layouts_by_identifier,
+            relation_record_get_source_entity_identifier(relation_record));
+        target_layout = g_hash_table_lookup(
+            graph_view->node_layouts_by_identifier,
+            relation_record_get_target_entity_identifier(relation_record));
+        if (source_layout == NULL || target_layout == NULL)
+        {
+            continue;
+        }
+        relation_layout->x =
+            (investigation_graph_view_get_node_center_x(source_layout) +
+             investigation_graph_view_get_node_center_x(target_layout)) / 2.0 -
+            relation_layout->width / 2.0 + relation_layout->relation_offset_x;
+        relation_layout->y =
+            (investigation_graph_view_get_node_center_y(source_layout) +
+             investigation_graph_view_get_node_center_y(target_layout)) / 2.0 -
+            relation_layout->height / 2.0 + relation_layout->relation_offset_y;
+    }
+}
 
 /**
  * @brief Borne un facteur de zoom aux limites autorisées.
@@ -577,6 +632,8 @@ investigation_graph_view_find_node_at(
         return NULL;
     }
 
+    investigation_graph_view_sync_relation_layouts(graph_view);
+
     layout_position =
         graph_view->node_layouts->len;
 
@@ -608,6 +665,63 @@ investigation_graph_view_find_node_at(
                 node_layout->height)
         {
             return node_layout;
+        }
+    }
+
+    /* Rend également l'arête sélectionnable, avec une tolérance visuelle. */
+    for (layout_position = graph_view->node_layouts->len;
+         layout_position > 0; layout_position--)
+    {
+        InvestigationGraphNodeLayout *relation_layout =
+            g_ptr_array_index(graph_view->node_layouts, layout_position - 1U);
+        const RelationRecord *relation_record = NULL;
+        InvestigationGraphNodeLayout *source_layout = NULL;
+        InvestigationGraphNodeLayout *target_layout = NULL;
+        double source_x = 0.0, source_y = 0.0;
+        double target_x = 0.0, target_y = 0.0;
+        double delta_x = 0.0, delta_y = 0.0, length_squared = 0.0;
+        double projection = 0.0, nearest_x = 0.0, nearest_y = 0.0;
+        double distance_x = 0.0, distance_y = 0.0;
+        double tolerance = 7.0 / graph_view->zoom;
+
+        if (relation_layout == NULL || relation_layout->kind !=
+            INVESTIGATION_GRAPH_NODE_KIND_RELATION)
+        {
+            continue;
+        }
+        relation_record = relation_layout->relation_record;
+        source_layout = g_hash_table_lookup(
+            graph_view->node_layouts_by_identifier,
+            relation_record_get_source_entity_identifier(relation_record));
+        target_layout = g_hash_table_lookup(
+            graph_view->node_layouts_by_identifier,
+            relation_record_get_target_entity_identifier(relation_record));
+        if (source_layout == NULL || target_layout == NULL)
+        {
+            continue;
+        }
+        source_x = investigation_graph_view_get_node_center_x(source_layout);
+        source_y = investigation_graph_view_get_node_center_y(source_layout);
+        target_x = investigation_graph_view_get_node_center_x(target_layout);
+        target_y = investigation_graph_view_get_node_center_y(target_layout);
+        delta_x = target_x - source_x;
+        delta_y = target_y - source_y;
+        length_squared = delta_x * delta_x + delta_y * delta_y;
+        if (length_squared <= 0.0)
+        {
+            continue;
+        }
+        projection = ((logical_x - source_x) * delta_x +
+            (logical_y - source_y) * delta_y) / length_squared;
+        projection = CLAMP(projection, 0.0, 1.0);
+        nearest_x = source_x + projection * delta_x;
+        nearest_y = source_y + projection * delta_y;
+        distance_x = logical_x - nearest_x;
+        distance_y = logical_y - nearest_y;
+        if (distance_x * distance_x + distance_y * distance_y <=
+            tolerance * tolerance)
+        {
+            return relation_layout;
         }
     }
 
@@ -1086,6 +1200,8 @@ static void investigation_graph_view_on_drag_update(
         logical_y -
         graph_view->node_drag_pointer_offset_y;
 
+    investigation_graph_view_sync_relation_layouts(graph_view);
+
     gtk_widget_queue_draw(
         graph_view->drawing_area
     );
@@ -1216,6 +1332,8 @@ static void investigation_graph_view_on_drag_end(
             graph_view->dragged_node->y =
                 logical_y -
                 graph_view->node_drag_pointer_offset_y;
+
+            investigation_graph_view_sync_relation_layouts(graph_view);
         }
     }
 
@@ -2020,6 +2138,9 @@ static gboolean investigation_graph_view_append_relation_layouts(
                 parallel_offset
             );
 
+        relation_layout->relation_offset_x =
+            perpendicular_x * parallel_offset;
+
         relation_layout->y =
             (
                 (source_center_y + target_center_y) /
@@ -2030,6 +2151,9 @@ static gboolean investigation_graph_view_append_relation_layouts(
                 perpendicular_y *
                 parallel_offset
             );
+
+        relation_layout->relation_offset_y =
+            perpendicular_y * parallel_offset;
 
         g_ptr_array_add(
             node_layouts,
@@ -3685,6 +3809,8 @@ static void investigation_graph_view_draw(
 
         return;
     }
+
+    investigation_graph_view_sync_relation_layouts(graph_view);
 
     /*
      * Les coordonnées de disposition restent exprimées dans l'espace logique

@@ -129,6 +129,9 @@ struct MainWindow
     gpointer
         add_relation_user_data;
 
+    MainWindowEditRelationCallback edit_relation_callback;
+    gpointer edit_relation_user_data;
+
     MainWindowOsintActionCallback
         osint_action_callback;
 
@@ -509,6 +512,20 @@ static void main_window_on_add_relation_requested(
     );
 }
 
+/** @brief Relaie la demande de modification d'une relation. */
+static void main_window_on_edit_relation_requested(
+    const char *relation_identifier, gpointer user_data)
+{
+    MainWindow *main_window = user_data;
+    if (main_window == NULL || main_window->edit_relation_callback == NULL ||
+        relation_identifier == NULL)
+    {
+        return;
+    }
+    main_window->edit_relation_callback(relation_identifier,
+        main_window->edit_relation_user_data);
+}
+
 /**
  * @brief Relaie la demande de vérification provenant du Workspace.
  */
@@ -846,6 +863,9 @@ MainWindow *main_window_new(
         main_window_on_add_relation_requested,
         main_window
     );
+
+    workspace_set_edit_relation_callback(main_window->workspace,
+        main_window_on_edit_relation_requested, main_window);
 
     workspace_set_osint_action_callback(
         main_window->workspace,
@@ -1252,6 +1272,14 @@ void main_window_set_graph(
     );
 }
 
+gboolean main_window_select_graph_relation(MainWindow *main_window,
+    const char *relation_identifier)
+{
+    if (main_window == NULL) return FALSE;
+    return workspace_select_graph_relation(main_window->workspace,
+        relation_identifier);
+}
+
 void main_window_set_graph_error(
     MainWindow *main_window,
     const char *message
@@ -1614,6 +1642,14 @@ void main_window_set_add_relation_callback(
         user_data;
 }
 
+void main_window_set_edit_relation_callback(MainWindow *main_window,
+    MainWindowEditRelationCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->edit_relation_callback = callback;
+    main_window->edit_relation_user_data = user_data;
+}
+
 void main_window_set_quit_callback(
     MainWindow *main_window,
     MainWindowQuitCallback callback,
@@ -1765,6 +1801,9 @@ void main_window_free(
             NULL
         );
 
+        workspace_set_edit_relation_callback(main_window->workspace,
+            NULL, NULL);
+
         main_window->graph_node_moved_callback =
             NULL;
 
@@ -1782,6 +1821,9 @@ void main_window_free(
 
         main_window->add_relation_user_data =
             NULL;
+
+        main_window->edit_relation_callback = NULL;
+        main_window->edit_relation_user_data = NULL;
 
         main_window->show_graph_callback =
             NULL;

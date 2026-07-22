@@ -67,6 +67,9 @@ struct Workspace
     GtkWidget *relation_details_panel;
     GtkWidget *relation_details_title_label;
     GtkWidget *relation_details_summary_label;
+    GtkWidget *edit_relation_button;
+    GtkWidget *close_relation_details_button;
+    char *selected_relation_identifier;
 
     GtkWidget *node_page;
 
@@ -118,6 +121,9 @@ struct Workspace
 
     gpointer
         add_relation_user_data;
+
+    WorkspaceEditRelationCallback edit_relation_callback;
+    gpointer edit_relation_user_data;
 
     WorkspaceOsintActionCallback
         osint_action_callback;
@@ -573,6 +579,20 @@ static const char *workspace_get_integrity_status_text(
     }
 }
 
+/** @brief Convertit le statut d'une relation en texte utilisateur. */
+static const char *workspace_get_relation_status_text(RelationStatus status)
+{
+    switch (status)
+    {
+        case RELATION_STATUS_ACTIVE: return "Active";
+        case RELATION_STATUS_ARCHIVED: return "Archivée";
+        case RELATION_STATUS_DELETED: return "Supprimée";
+        case RELATION_STATUS_DISPUTED: return "Contestée";
+        case RELATION_STATUS_UNKNOWN:
+        default: return "Inconnu";
+    }
+}
+
 /**
  * @brief Transmet la sélection du graphe au volet de détails.
  */
@@ -623,6 +643,7 @@ static void workspace_on_graph_node_selected(
         &workspace->osint_selection_context,
         osint_selection_context_free
     );
+    g_clear_pointer(&workspace->selected_relation_identifier, g_free);
 
     if (entity_record != NULL)
     {
@@ -640,6 +661,8 @@ static void workspace_on_graph_node_selected(
 
     if (workspace->relation_details_panel != NULL)
     {
+        gtk_widget_set_can_target(workspace->relation_details_panel,
+            relation_record != NULL);
         gtk_widget_set_visible(
             workspace->relation_details_panel,
             relation_record != NULL
@@ -650,6 +673,8 @@ static void workspace_on_graph_node_selected(
         workspace->relation_details_title_label != NULL &&
         workspace->relation_details_summary_label != NULL)
     {
+        workspace->selected_relation_identifier = g_strdup(
+            relation_record_get_identifier(relation_record));
         const EntityRecord *source_entity =
             investigation_graph_model_find_entity(
                 workspace->graph_model,
@@ -670,11 +695,21 @@ static void workspace_on_graph_node_selected(
             );
         const char *label = relation_record_get_label(relation_record);
         char *summary = g_strdup_printf(
-            "%s → %s\n\nType : %s\nConfiance : %d %%\nUUID : %s",
-            entity_record_get_value(source_entity),
-            entity_record_get_value(target_entity),
+            "%s → %s\n\nType : %s\nConfiance : %d %%\nStatut : %s\n"
+            "Justification : %s\nCréée le : %s\nModifiée le : %s\nUUID : %s",
+            source_entity != NULL ? entity_record_get_value(source_entity) :
+                "Source inconnue",
+            target_entity != NULL ? entity_record_get_value(target_entity) :
+                "Cible inconnue",
             relation_record_get_relation_type(relation_record),
             relation_record_get_confidence(relation_record),
+            workspace_get_relation_status_text(
+                relation_record_get_status(relation_record)),
+            relation_record_get_justification(relation_record) != NULL
+                ? relation_record_get_justification(relation_record)
+                : "Non renseignée",
+            relation_record_get_created_at(relation_record),
+            relation_record_get_updated_at(relation_record),
             relation_record_get_identifier(relation_record)
         );
 
@@ -693,6 +728,31 @@ static void workspace_on_graph_node_selected(
         workspace,
         workspace->osint_selection_context
     );
+}
+
+/** @brief Relaie la demande de modification de la relation affichée. */
+static void workspace_on_edit_relation_clicked(GtkButton *button,
+    gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    (void) button;
+    if (workspace == NULL || workspace->edit_relation_callback == NULL ||
+        workspace->selected_relation_identifier == NULL)
+    {
+        return;
+    }
+    workspace->edit_relation_callback(workspace->selected_relation_identifier,
+        workspace->edit_relation_user_data);
+}
+
+/** @brief Ferme le volet de relation et désélectionne le graphe. */
+static void workspace_on_close_relation_details_clicked(GtkButton *button,
+    gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    (void) button;
+    if (workspace != NULL)
+        investigation_graph_view_clear_selection(workspace->graph_view);
 }
 
 /**
@@ -1493,12 +1553,17 @@ Workspace *workspace_new(void)
     );
     workspace->relation_details_title_label = gtk_label_new(NULL);
     workspace->relation_details_summary_label = gtk_label_new(NULL);
+    workspace->edit_relation_button = gtk_button_new_with_label("Modifier");
+    workspace->close_relation_details_button =
+        gtk_button_new_from_icon_name("window-close-symbolic");
 
     if (workspace->graph_view == NULL ||
         workspace->entity_details_panel == NULL ||
         workspace->relation_details_panel == NULL ||
         workspace->relation_details_title_label == NULL ||
-        workspace->relation_details_summary_label == NULL)
+        workspace->relation_details_summary_label == NULL ||
+        workspace->edit_relation_button == NULL ||
+        workspace->close_relation_details_button == NULL)
     {
         workspace_free(
             workspace
@@ -1514,6 +1579,8 @@ Workspace *workspace_new(void)
     gtk_widget_set_margin_top(workspace->relation_details_panel, 56);
     gtk_widget_set_margin_start(workspace->relation_details_panel, 12);
     gtk_widget_set_margin_bottom(workspace->relation_details_panel, 12);
+    /* `view` fournit le fond opaque du thème, comme le volet d'entité. */
+    gtk_widget_add_css_class(workspace->relation_details_panel, "view");
     gtk_widget_add_css_class(workspace->relation_details_panel, "card");
     gtk_widget_set_margin_start(workspace->relation_details_title_label, 16);
     gtk_widget_set_margin_end(workspace->relation_details_title_label, 16);
@@ -1545,11 +1612,23 @@ Workspace *workspace_new(void)
         GTK_BOX(workspace->relation_details_panel),
         workspace->relation_details_title_label
     );
+    gtk_widget_set_tooltip_text(workspace->close_relation_details_button,
+        "Fermer le volet");
+    gtk_widget_add_css_class(workspace->close_relation_details_button, "flat");
+    gtk_box_append(GTK_BOX(workspace->relation_details_panel),
+        workspace->close_relation_details_button);
     gtk_box_append(
         GTK_BOX(workspace->relation_details_panel),
         workspace->relation_details_summary_label
     );
+    gtk_box_append(GTK_BOX(workspace->relation_details_panel),
+        workspace->edit_relation_button);
+    g_signal_connect(workspace->edit_relation_button, "clicked",
+        G_CALLBACK(workspace_on_edit_relation_clicked), workspace);
+    g_signal_connect(workspace->close_relation_details_button, "clicked",
+        G_CALLBACK(workspace_on_close_relation_details_clicked), workspace);
     gtk_widget_set_visible(workspace->relation_details_panel, FALSE);
+    gtk_widget_set_can_target(workspace->relation_details_panel, FALSE);
 
     investigation_graph_view_set_selection_callback(
         workspace->graph_view,
@@ -2906,6 +2985,14 @@ void workspace_set_add_relation_callback(
         user_data;
 }
 
+void workspace_set_edit_relation_callback(Workspace *workspace,
+    WorkspaceEditRelationCallback callback, gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->edit_relation_callback = callback;
+    workspace->edit_relation_user_data = user_data;
+}
+
 void workspace_reset_graph_layout(
     Workspace *workspace
 )
@@ -2942,6 +3029,7 @@ void workspace_free(Workspace *workspace)
         &workspace->osint_selection_context,
         osint_selection_context_free
     );
+    g_clear_pointer(&workspace->selected_relation_identifier, g_free);
 
     g_clear_pointer(
         &workspace->osint_action_catalog,

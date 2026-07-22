@@ -923,6 +923,7 @@ void entity_details_panel_set_entity(
         ),
         TRUE
     );
+    gtk_widget_set_can_target(details_panel->root_revealer, TRUE);
 
     g_free(
         confidence_text
@@ -1009,6 +1010,8 @@ void entity_details_panel_clear(
             ),
             FALSE
         );
+        /* Le revealer fermé ne doit pas bloquer le canvas sous l'overlay. */
+        gtk_widget_set_can_target(details_panel->root_revealer, FALSE);
     }
 }
 

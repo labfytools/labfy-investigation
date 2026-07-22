@@ -2225,6 +2225,47 @@ static void test_relation_dao_foreign_key_restrict(void)
     );
 }
 
+/** @brief Vérifie la modification des attributs sans changer les extrémités. */
+static void test_relation_dao_update_existing(void)
+{
+    static const char identifier[] =
+        "90000000-0000-4000-8000-000000000001";
+    TestRelationDaoFixture fixture = test_relation_dao_fixture_create();
+    RelationRecord *initial = NULL;
+    RelationRecord *updated = NULL;
+    RelationRecord *stored = NULL;
+    GError *error = NULL;
+
+    test_relation_dao_insert_standard_entities(&fixture);
+    initial = test_relation_dao_create_relation(identifier,
+        TEST_ENTITY_A_IDENTIFIER, TEST_ENTITY_B_IDENTIFIER, "uses",
+        "Ancien libellé", "Ancienne justification", 40,
+        "2026-07-20T20:00:00Z", "2026-07-20T20:00:00Z",
+        RELATION_STATUS_ACTIVE);
+    test_relation_dao_insert_relation(&fixture, initial);
+    updated = test_relation_dao_create_relation(identifier,
+        TEST_ENTITY_A_IDENTIFIER, TEST_ENTITY_B_IDENTIFIER, "controls",
+        "Nouveau libellé", "Nouvelle justification", 90,
+        "2026-07-20T20:00:00Z", "2026-07-22T16:00:00Z",
+        RELATION_STATUS_ACTIVE);
+    assert(relation_dao_update(fixture.relation_dao, updated, &error));
+    assert(error == NULL);
+    stored = relation_dao_find_by_identifier(fixture.relation_dao,
+        identifier, &error);
+    assert(stored != NULL && error == NULL);
+    assert(strcmp(relation_record_get_relation_type(stored), "controls") == 0);
+    assert(strcmp(relation_record_get_label(stored), "Nouveau libellé") == 0);
+    assert(relation_record_get_confidence(stored) == 90);
+    assert(strcmp(relation_record_get_source_entity_identifier(stored),
+        TEST_ENTITY_A_IDENTIFIER) == 0);
+    assert(strcmp(relation_record_get_created_at(stored),
+        "2026-07-20T20:00:00Z") == 0);
+    relation_record_free(stored);
+    relation_record_free(updated);
+    relation_record_free(initial);
+    test_relation_dao_fixture_clear(&fixture);
+}
+
 int main(
     int argc,
     char **argv
@@ -2256,6 +2297,7 @@ int main(
     test_relation_dao_missing_table();
     test_relation_dao_reflexive_schema_constraint();
     test_relation_dao_foreign_key_restrict();
+    test_relation_dao_update_existing();
 
     printf(
         "RelationDao : tous les tests sont valides.\n"

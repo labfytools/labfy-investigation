@@ -14,6 +14,7 @@ G_BEGIN_DECLS
  * @brief Résultat opaque produit par le dialogue.
  */
 typedef struct CreateRelationDialogResult CreateRelationDialogResult;
+typedef struct RelationRecord RelationRecord;
 
 /**
  * @brief Codes d'erreur produits par CreateRelationDialog.
@@ -76,6 +77,21 @@ GQuark create_relation_dialog_error_quark(void);
 gboolean create_relation_dialog_present(
     GtkWindow *parent,
     const char *source_entity_identifier,
+    const GPtrArray *entities,
+    CreateRelationDialogCallback callback,
+    gpointer user_data,
+    GError **error
+);
+
+/**
+ * @brief Présente le dialogue prérempli pour modifier une relation.
+ *
+ * La source et la cible sont conservées ; les champs métier sont modifiables.
+ * Le dialogue ne réalise aucune écriture SQLite.
+ */
+gboolean edit_relation_dialog_present(
+    GtkWindow *parent,
+    const RelationRecord *relation_record,
     const GPtrArray *entities,
     CreateRelationDialogCallback callback,
     gpointer user_data,

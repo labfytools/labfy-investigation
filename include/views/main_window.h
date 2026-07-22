@@ -137,6 +137,12 @@ typedef void (*MainWindowAddRelationCallback)(
     gpointer user_data
 );
 
+/** @brief Callback appelé pour modifier une relation. */
+typedef void (*MainWindowEditRelationCallback)(
+    const char *relation_identifier,
+    gpointer user_data
+);
+
 /**
  * @brief Callback appelé lors du déclenchement d'une action OSINT.
  *
@@ -224,6 +230,13 @@ void main_window_set_reset_graph_layout_callback(
 void main_window_set_add_relation_callback(
     MainWindow *main_window,
     MainWindowAddRelationCallback callback,
+    gpointer user_data
+);
+
+/** @brief Définit le callback de modification d'une relation. */
+void main_window_set_edit_relation_callback(
+    MainWindow *main_window,
+    MainWindowEditRelationCallback callback,
     gpointer user_data
 );
 
@@ -417,6 +430,12 @@ void main_window_set_graph(
     MainWindow *main_window,
     const InvestigationGraphModel *graph_model,
     const InvestigationGraphLayout *graph_layout
+);
+
+/** @brief Sélectionne une relation dans le graphe affiché. */
+gboolean main_window_select_graph_relation(
+    MainWindow *main_window,
+    const char *relation_identifier
 );
 
 /**

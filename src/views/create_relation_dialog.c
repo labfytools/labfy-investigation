@@ -6,6 +6,7 @@
 #include "views/create_relation_dialog.h"
 
 #include "models/entity_record.h"
+#include "models/relation_record.h"
 
 #include <glib.h>
 
@@ -683,9 +684,10 @@ cleanup:
     return valid;
 }
 
-gboolean create_relation_dialog_present(
+static gboolean create_relation_dialog_present_internal(
     GtkWindow *parent,
     const char *source_entity_identifier,
+    const RelationRecord *existing_relation,
     const GPtrArray *entities,
     CreateRelationDialogCallback callback,
     gpointer user_data,
@@ -744,6 +746,9 @@ gboolean create_relation_dialog_present(
         source_entity_identifier;
 
     guint entity_index =
+        0;
+
+    guint selected_target_index =
         0;
 
     g_return_val_if_fail(
@@ -900,6 +905,13 @@ gboolean create_relation_dialog_present(
                 entity_identifier
             );
 
+        if (existing_relation != NULL && g_strcmp0(entity_identifier,
+                relation_record_get_target_entity_identifier(
+                    existing_relation)) == 0)
+        {
+            selected_target_index = state->target_identifiers->len;
+        }
+
         if (display_text == NULL ||
             identifier_copy == NULL)
         {
@@ -971,7 +983,9 @@ gboolean create_relation_dialog_present(
 
     gtk_window_set_title(
         state->window,
-        "Ajouter une relation"
+        existing_relation != NULL
+            ? "Modifier la relation"
+            : "Ajouter une relation"
     );
 
     gtk_window_set_transient_for(
@@ -1030,7 +1044,9 @@ gboolean create_relation_dialog_present(
         GTK_LABEL(
             title_label
         ),
-        "<b>Créer une relation entre deux entités</b>"
+        existing_relation != NULL
+            ? "<b>Modifier la relation</b>"
+            : "<b>Créer une relation entre deux entités</b>"
     );
 
     gtk_label_set_xalign(
@@ -1179,8 +1195,11 @@ gboolean create_relation_dialog_present(
 
     gtk_drop_down_set_selected(
         state->target_drop_down,
-        0
+        selected_target_index
     );
+
+    gtk_widget_set_sensitive(GTK_WIDGET(state->target_drop_down),
+        existing_relation == NULL);
 
     gtk_widget_set_hexpand(
         GTK_WIDGET(
@@ -1220,13 +1239,31 @@ gboolean create_relation_dialog_present(
 
     gtk_spin_button_set_value(
         state->confidence_spin_button,
-        80.0
+        existing_relation != NULL
+            ? relation_record_get_confidence(existing_relation)
+            : 80.0
     );
 
     state->justification_text_view =
         GTK_TEXT_VIEW(
             gtk_text_view_new()
         );
+
+    if (existing_relation != NULL)
+    {
+        const char *relation_type = relation_record_get_relation_type(
+            existing_relation);
+        const char *label = relation_record_get_label(existing_relation);
+        const char *justification = relation_record_get_justification(
+            existing_relation);
+        gtk_editable_set_text(GTK_EDITABLE(state->relation_type_entry),
+            relation_type != NULL ? relation_type : "");
+        gtk_editable_set_text(GTK_EDITABLE(state->label_entry),
+            label != NULL ? label : "");
+        gtk_text_buffer_set_text(gtk_text_view_get_buffer(
+            state->justification_text_view),
+            justification != NULL ? justification : "", -1);
+    }
 
     gtk_text_view_set_wrap_mode(
         state->justification_text_view,
@@ -1418,7 +1455,7 @@ gboolean create_relation_dialog_present(
 
     create_button =
         gtk_button_new_with_label(
-            "Ajouter"
+            existing_relation != NULL ? "Enregistrer" : "Ajouter"
         );
 
     gtk_widget_add_css_class(
@@ -1541,6 +1578,30 @@ gboolean create_relation_dialog_present(
     );
 
     return TRUE;
+}
+
+gboolean create_relation_dialog_present(GtkWindow *parent,
+    const char *source_entity_identifier, const GPtrArray *entities,
+    CreateRelationDialogCallback callback, gpointer user_data, GError **error)
+{
+    return create_relation_dialog_present_internal(parent,
+        source_entity_identifier, NULL, entities, callback, user_data, error);
+}
+
+gboolean edit_relation_dialog_present(GtkWindow *parent,
+    const RelationRecord *relation_record, const GPtrArray *entities,
+    CreateRelationDialogCallback callback, gpointer user_data, GError **error)
+{
+    if (relation_record == NULL)
+    {
+        g_set_error_literal(error, CREATE_RELATION_DIALOG_ERROR,
+            CREATE_RELATION_DIALOG_ERROR_INVALID_ARGUMENT,
+            "La relation à modifier est invalide.");
+        return FALSE;
+    }
+    return create_relation_dialog_present_internal(parent,
+        relation_record_get_source_entity_identifier(relation_record),
+        relation_record, entities, callback, user_data, error);
 }
 
 void create_relation_dialog_result_free(

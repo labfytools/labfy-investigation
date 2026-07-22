@@ -40,6 +40,7 @@
 #include "views/osint_execution_history_dialog.h"
 #include "dao/evidence_dao.h"
 #include "dao/entity_dao.h"
+#include "dao/relation_dao.h"
 #include "dao/osint_execution_dao.h"
 #include "models/evidence_type.h"
 #include "widgets/evidence_list_model.h"
@@ -52,6 +53,7 @@
 #include "core/eml_processing.h"
 #include "core/eml_integration.h"
 #include "database/database.h"
+#include "database/transaction.h"
 #include "views/create_social_account_dialog.h"
 #include "views/create_person_dialog.h"
 #include "views/eml_analysis_dialog.h"
@@ -123,6 +125,7 @@ struct Application
     guint64 graph_load_generation;
 
     char *selected_evidence_identifier;
+    char *pending_relation_selection_identifier;
 };
 
 /**
@@ -736,6 +739,14 @@ static void application_on_graph_loaded(
         application->graph_model,
         application->graph_layout
     );
+
+    if (application->pending_relation_selection_identifier != NULL)
+    {
+        main_window_select_graph_relation(application->main_window,
+            application->pending_relation_selection_identifier);
+        g_clear_pointer(&application->pending_relation_selection_identifier,
+            g_free);
+    }
 
     status_message =
         g_strdup_printf(
@@ -4917,6 +4928,136 @@ cleanup:
 /**
  * @brief Ouvre le dialogue de création depuis la fiche d'une entité.
  */
+/** @brief Contexte conservé pendant l'édition d'une relation. */
+typedef struct
+{
+    Application *application;
+    char *relation_identifier;
+} ApplicationEditRelationContext;
+
+/** @brief Libère le contexte d'édition d'une relation. */
+static void application_edit_relation_context_free(
+    ApplicationEditRelationContext *context)
+{
+    if (context == NULL) return;
+    g_free(context->relation_identifier);
+    g_free(context);
+}
+
+/** @brief Persiste les valeurs validées du dialogue d'édition. */
+static void application_on_edit_relation_completed(
+    CreateRelationDialogResult *result, gpointer user_data)
+{
+    ApplicationEditRelationContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    Database *database = NULL;
+    RelationDao *relation_dao = NULL;
+    RelationRecord *existing = NULL;
+    RelationRecord *updated = NULL;
+    const InvestigationProject *project = NULL;
+    GDateTime *now = NULL;
+    char *timestamp = NULL;
+    GError *error = NULL;
+    gboolean transaction_active = FALSE;
+
+    if (result == NULL || application == NULL || application->session == NULL)
+        goto cleanup;
+    database = investigation_session_get_database(application->session);
+    project = investigation_session_get_project(application->session);
+    relation_dao = relation_dao_new(database, &error);
+    if (relation_dao == NULL) goto failure;
+    existing = relation_dao_find_by_identifier(relation_dao,
+        context->relation_identifier, &error);
+    if (existing == NULL) goto failure;
+    now = g_date_time_new_now_utc();
+    timestamp = now != NULL ? g_date_time_format(now,
+        "%Y-%m-%dT%H:%M:%SZ") : NULL;
+    updated = relation_record_new(
+        relation_record_get_identifier(existing),
+        relation_record_get_source_entity_identifier(existing),
+        relation_record_get_target_entity_identifier(existing),
+        create_relation_dialog_result_get_relation_type(result),
+        create_relation_dialog_result_get_label(result),
+        create_relation_dialog_result_get_justification(result),
+        create_relation_dialog_result_get_confidence(result),
+        relation_record_get_created_at(existing), timestamp,
+        relation_record_get_status(existing), &error);
+    if (updated == NULL || !database_transaction_begin(database)) goto failure;
+    transaction_active = TRUE;
+    if (!relation_dao_update(relation_dao, updated, &error) ||
+        !database_transaction_commit(database))
+        goto failure;
+    transaction_active = FALSE;
+    main_window_set_status(application->main_window,
+        "Relation modifiée. Actualisation du graphe…");
+    g_free(application->pending_relation_selection_identifier);
+    application->pending_relation_selection_identifier = g_strdup(
+        context->relation_identifier);
+    application_start_graph_loading(application,
+        investigation_project_get_database_path(project));
+    goto cleanup;
+
+failure:
+    if (transaction_active) database_transaction_rollback(database);
+    application_present_error(application, "Modification impossible",
+        error != NULL ? error->message :
+        "La relation n'a pas pu être modifiée.");
+cleanup:
+    g_clear_error(&error);
+    g_free(timestamp);
+    if (now != NULL) g_date_time_unref(now);
+    relation_record_free(updated);
+    relation_record_free(existing);
+    relation_dao_free(relation_dao);
+    create_relation_dialog_result_free(result);
+    application_edit_relation_context_free(context);
+}
+
+/** @brief Ouvre le formulaire prérempli de la relation sélectionnée. */
+static void application_on_edit_relation_requested(
+    const char *relation_identifier, gpointer user_data)
+{
+    Application *application = user_data;
+    Database *database = NULL;
+    RelationDao *relation_dao = NULL;
+    EntityDao *entity_dao = NULL;
+    RelationRecord *relation = NULL;
+    GPtrArray *entities = NULL;
+    ApplicationEditRelationContext *context = NULL;
+    GError *error = NULL;
+
+    if (application == NULL || application->session == NULL ||
+        relation_identifier == NULL) return;
+    database = investigation_session_get_database(application->session);
+    relation_dao = relation_dao_new(database, &error);
+    entity_dao = entity_dao_new(database, &error);
+    if (relation_dao != NULL)
+        relation = relation_dao_find_by_identifier(relation_dao,
+            relation_identifier, &error);
+    if (entity_dao != NULL) entities = entity_dao_list_all(entity_dao, &error);
+    if (relation == NULL || entities == NULL) goto failure;
+    context = g_new0(ApplicationEditRelationContext, 1);
+    context->application = application;
+    context->relation_identifier = g_strdup(relation_identifier);
+    if (context->relation_identifier == NULL || !edit_relation_dialog_present(
+            main_window_get_window(application->main_window), relation, entities,
+            application_on_edit_relation_completed, context, &error))
+        goto failure;
+    context = NULL;
+    goto cleanup;
+failure:
+    application_present_error(application, "Modification impossible",
+        error != NULL ? error->message :
+        "Le formulaire de modification n'a pas pu être ouvert.");
+cleanup:
+    application_edit_relation_context_free(context);
+    g_clear_error(&error);
+    g_clear_pointer(&entities, g_ptr_array_unref);
+    relation_record_free(relation);
+    entity_dao_free(entity_dao);
+    relation_dao_free(relation_dao);
+}
+
 static void application_on_add_relation_requested(
     const char *source_entity_identifier,
     gpointer user_data
@@ -6333,6 +6474,9 @@ static void application_on_activate(
         application
     );
 
+    main_window_set_edit_relation_callback(application->main_window,
+        application_on_edit_relation_requested, application);
+
     main_window_set_osint_action_callback(
         application->main_window,
         application_on_osint_action_requested,
@@ -6606,6 +6750,8 @@ void application_free(
         &application->selected_evidence_identifier,
         g_free
     );
+    g_clear_pointer(&application->pending_relation_selection_identifier,
+        g_free);
 
     g_free(
         application
