@@ -7,6 +7,7 @@
 
 #include "models/entity_record.h"
 #include "models/investigation_graph_model.h"
+#include "models/osint_selection_context.h"
 #include "models/relation_record.h"
 #include "widgets/entity_details_panel.h"
 #include "widgets/investigation_graph_view.h"
@@ -118,6 +119,8 @@ struct Workspace
     const InvestigationGraphModel *graph_model;
     const InvestigationGraphLayout *graph_layout;
 
+    OsintSelectionContext *osint_selection_context;
+
     WorkspaceGraphState graph_state;
 };
 
@@ -129,8 +132,7 @@ struct Workspace
  */
 static void workspace_update_osint_tools_menu(
     Workspace *workspace,
-    const EntityRecord *entity_record,
-    const RelationRecord *relation_record
+    const OsintSelectionContext *context
 )
 {
     const char *selection_kind =
@@ -150,25 +152,23 @@ static void workspace_update_osint_tools_menu(
         return;
     }
 
-    if (entity_record != NULL)
+    if (osint_selection_context_get_kind(context) ==
+        OSINT_SELECTION_CONTEXT_KIND_ENTITY)
     {
         selection_kind =
             "Entité";
 
         selection_identifier =
-            entity_record_get_identifier(
-                entity_record
-            );
+            osint_selection_context_get_identifier(context);
     }
-    else if (relation_record != NULL)
+    else if (osint_selection_context_get_kind(context) ==
+             OSINT_SELECTION_CONTEXT_KIND_RELATION)
     {
         selection_kind =
             "Relation";
 
         selection_identifier =
-            relation_record_get_identifier(
-                relation_record
-            );
+            osint_selection_context_get_identifier(context);
     }
 
     gtk_widget_set_sensitive(
@@ -438,6 +438,17 @@ static void workspace_on_graph_node_selected(
         return;
     }
 
+    g_clear_pointer(
+        &workspace->osint_selection_context,
+        osint_selection_context_free
+    );
+
+    if (entity_record != NULL)
+    {
+        workspace->osint_selection_context =
+            osint_selection_context_new_entity(entity_record, NULL);
+    }
+
     if (workspace->entity_details_panel != NULL)
     {
         entity_details_panel_set_entity(
@@ -468,6 +479,14 @@ static void workspace_on_graph_node_selected(
                 workspace->graph_model,
                 relation_record_get_target_entity_identifier(relation_record)
             );
+
+        workspace->osint_selection_context =
+            osint_selection_context_new_relation(
+                relation_record,
+                source_entity,
+                target_entity,
+                NULL
+            );
         const char *label = relation_record_get_label(relation_record);
         char *summary = g_strdup_printf(
             "%s → %s\n\nType : %s\nConfiance : %d %%\nUUID : %s",
@@ -491,8 +510,7 @@ static void workspace_on_graph_node_selected(
 
     workspace_update_osint_tools_menu(
         workspace,
-        entity_record,
-        relation_record
+        workspace->osint_selection_context
     );
 }
 
@@ -2613,6 +2631,11 @@ void workspace_free(Workspace *workspace)
     {
         return;
     }
+
+    g_clear_pointer(
+        &workspace->osint_selection_context,
+        osint_selection_context_free
+    );
 
     investigation_graph_view_set_selection_callback(
         workspace->graph_view,
