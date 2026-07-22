@@ -14,6 +14,7 @@
 #include "models/investigation_graph_model.h"
 #include "models/investigation_record.h"
 #include "models/osint_dns_query.h"
+#include "models/osint_dns_proposal.h"
 #include "core/investigation_tree_builder.h"
 #include "views/create_investigation_dialog.h"
 #include "views/folder_dialog.h"
@@ -161,6 +162,76 @@ typedef struct
     Application *application;
     char *target_value;
 } ApplicationOsintActionContext;
+
+/** @brief Données possédées par l'étape de révision OSINT. */
+typedef struct
+{
+    Application *application;
+    char *proposal_summary;
+} ApplicationOsintReviewContext;
+
+/** @brief Libère les données de révision possédées par le dialogue. */
+static void application_osint_review_context_free(gpointer user_data)
+{
+    ApplicationOsintReviewContext *context = user_data;
+    if (context == NULL) return;
+    g_free(context->proposal_summary);
+    g_free(context);
+}
+
+/** @brief Affiche les propositions sans les intégrer à l'enquête. */
+static void application_on_osint_prepare_integration(gpointer user_data)
+{
+    ApplicationOsintReviewContext *context = user_data;
+    if (context == NULL || context->application == NULL ||
+        context->application->main_window == NULL)
+    {
+        return;
+    }
+
+    application_message_dialog_present_details(
+        main_window_get_window(context->application->main_window),
+        APPLICATION_MESSAGE_DIALOG_INFORMATION,
+        "Propositions DNS à réviser",
+        "Aucune donnée n'a été enregistrée dans l'enquête.",
+        context->proposal_summary
+    );
+}
+
+/** @brief Construit le résumé lisible des propositions DNS. */
+static char *application_build_dns_proposal_summary(GPtrArray *proposals)
+{
+    GString *summary = g_string_new(NULL);
+
+    if (summary == NULL) return NULL;
+    g_string_append_printf(
+        summary,
+        "Propositions détectées : %u\n\n",
+        proposals != NULL ? proposals->len : 0U
+    );
+
+    for (guint index = 0; proposals != NULL && index < proposals->len; index++)
+    {
+        const OsintDnsProposal *proposal = g_ptr_array_index(proposals, index);
+        g_string_append_printf(
+            summary,
+            "%u. Cible : %s\n   Propriétaire : %s\n   Type : %s\n"
+            "   Valeur : %s\n\n",
+            index + 1U,
+            osint_dns_proposal_get_target(proposal),
+            osint_dns_proposal_get_owner(proposal),
+            osint_dns_proposal_get_record_type(proposal),
+            osint_dns_proposal_get_value(proposal)
+        );
+    }
+
+    g_string_append(
+        summary,
+        "Ces propositions sont uniquement préparées pour révision. "
+        "Elles ne sont pas enregistrées dans SQLite."
+    );
+    return g_string_free(summary, FALSE);
+}
 
 /**
  * @brief Libère le contexte d'une action OSINT.
@@ -989,6 +1060,8 @@ static void application_on_dns_lookup_completed(
     char *stderr_text = NULL;
     char *details = NULL;
     char *message = NULL;
+    GPtrArray *proposals = NULL;
+    ApplicationOsintReviewContext *review_context = NULL;
     GError *error = NULL;
 
     if (task == NULL || context == NULL || context->application == NULL)
@@ -999,6 +1072,17 @@ static void application_on_dns_lookup_completed(
     application = context->application;
     if (application->main_window == NULL)
     {
+        return;
+    }
+
+    if (background_task_get_state(task) == BACKGROUND_TASK_STATE_CANCELLED)
+    {
+        application_message_dialog_present(
+            main_window_get_window(application->main_window),
+            APPLICATION_MESSAGE_DIALOG_INFORMATION,
+            "Résolution DNS annulée",
+            "La tâche a été annulée. Aucun résultat n'a été enregistré."
+        );
         return;
     }
 
@@ -1055,20 +1139,45 @@ static void application_on_dns_lookup_completed(
         details = g_strdup("Aucun enregistrement DNS retourné.");
     }
 
+    proposals = osint_dns_proposal_parse(context->target_value, stdout_text);
+    if (tool_process_result_is_success(process_result) &&
+        proposals != NULL && proposals->len > 0U)
+    {
+        review_context = g_try_new0(ApplicationOsintReviewContext, 1);
+        if (review_context != NULL)
+        {
+            review_context->application = application;
+            review_context->proposal_summary =
+                application_build_dns_proposal_summary(proposals);
+        }
+        if (review_context == NULL || review_context->proposal_summary == NULL)
+        {
+            application_osint_review_context_free(review_context);
+            review_context = NULL;
+        }
+    }
+
     message = g_strdup_printf(
-        "Cible : %s — code de sortie : %d",
+        "Cible : %s\nOutil : dns.dig\nCode de sortie : %d\n"
+        "Résultat brut non enregistré dans l'enquête.",
         context->target_value,
         tool_process_result_get_exit_status(process_result)
     );
 
-    application_message_dialog_present_details(
+    application_message_dialog_present_details_action(
         main_window_get_window(application->main_window),
         tool_process_result_is_success(process_result)
             ? APPLICATION_MESSAGE_DIALOG_INFORMATION
             : APPLICATION_MESSAGE_DIALOG_WARNING,
         "Résultat de la résolution DNS",
         message,
-        details
+        details,
+        review_context != NULL ? "Préparer l'intégration" : NULL,
+        review_context != NULL
+            ? application_on_osint_prepare_integration
+            : NULL,
+        review_context,
+        application_osint_review_context_free
     );
 
     g_clear_pointer(&stdout_bytes, g_bytes_unref);
@@ -1077,6 +1186,7 @@ static void application_on_dns_lookup_completed(
     g_free(stderr_text);
     g_free(details);
     g_free(message);
+    g_clear_pointer(&proposals, g_ptr_array_unref);
 }
 
 /**

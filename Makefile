@@ -116,6 +116,7 @@ TEST_GRAPH_NODE_POSITION_DAO := tests/test_graph_node_position_dao
 TEST_OSINT_SELECTION_CONTEXT := tests/test_osint_selection_context
 TEST_OSINT_ACTION_CATALOG := tests/test_osint_action_catalog
 TEST_OSINT_DNS_QUERY := tests/test_osint_dns_query
+TEST_OSINT_DNS_PROPOSAL := tests/test_osint_dns_proposal
 
 all: $(TARGET)
 
@@ -551,6 +552,11 @@ $(TEST_OSINT_DNS_QUERY): \
 	src/models/osint_dns_query.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_OSINT_DNS_PROPOSAL): \
+	tests/test_osint_dns_proposal.c \
+	src/models/osint_dns_proposal.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	tests/test_investigation_graph_load_task.c \
 	src/core/investigation_graph_load_task.c \
@@ -621,7 +627,8 @@ test: \
 	$(TEST_GRAPH_NODE_POSITION_DAO) \
 	$(TEST_OSINT_SELECTION_CONTEXT) \
 	$(TEST_OSINT_ACTION_CATALOG) \
-	$(TEST_OSINT_DNS_QUERY)
+	$(TEST_OSINT_DNS_QUERY) \
+	$(TEST_OSINT_DNS_PROPOSAL)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -672,6 +679,7 @@ test: \
 	@$(TEST_OSINT_SELECTION_CONTEXT)
 	@$(TEST_OSINT_ACTION_CATALOG)
 	@$(TEST_OSINT_DNS_QUERY)
+	@$(TEST_OSINT_DNS_PROPOSAL)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -728,7 +736,8 @@ clean:
 		$(TEST_GRAPH_NODE_POSITION_DAO) \
 		$(TEST_OSINT_SELECTION_CONTEXT) \
 		$(TEST_OSINT_ACTION_CATALOG) \
-		$(TEST_OSINT_DNS_QUERY)
+		$(TEST_OSINT_DNS_QUERY) \
+		$(TEST_OSINT_DNS_PROPOSAL)
 
 -include $(DEP)
 

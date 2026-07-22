@@ -33,6 +33,15 @@ typedef void (*ApplicationMessageDialogConfirmationCallback)(
 );
 
 /**
+ * @brief Callback appelé par l'action facultative d'un dialogue détaillé.
+ *
+ * @param user_data Données associées à l'action.
+ */
+typedef void (*ApplicationMessageDialogActionCallback)(
+    gpointer user_data
+);
+
+/**
  * @brief Affiche une fenêtre modale contenant un message.
  *
  * Les chaînes sont copiées par les widgets GTK.
@@ -67,6 +76,34 @@ void application_message_dialog_present_details(
     const char *title,
     const char *message,
     const char *details
+);
+
+/**
+ * @brief Affiche un message détaillé avec une action facultative.
+ *
+ * Le dialogue devient propriétaire de action_data lorsque l'affichage est
+ * créé. Les données sont libérées avec action_data_destroy à sa fermeture.
+ *
+ * @param parent_window Fenêtre parente, ou NULL.
+ * @param message_type Type de message.
+ * @param title Titre de la fenêtre, ou NULL.
+ * @param message Message principal, ou NULL.
+ * @param details Contenu détaillé, ou NULL.
+ * @param action_label Libellé de l'action, ou NULL.
+ * @param action_callback Callback de l'action, ou NULL.
+ * @param action_data Données transmises au callback.
+ * @param action_data_destroy Destructeur des données, ou NULL.
+ */
+void application_message_dialog_present_details_action(
+    GtkWindow *parent_window,
+    ApplicationMessageDialogType message_type,
+    const char *title,
+    const char *message,
+    const char *details,
+    const char *action_label,
+    ApplicationMessageDialogActionCallback action_callback,
+    gpointer action_data,
+    GDestroyNotify action_data_destroy
 );
 
 /**

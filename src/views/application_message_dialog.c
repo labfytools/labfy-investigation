@@ -35,6 +35,36 @@ typedef struct
     gboolean completed;
 } ApplicationMessageDialogConfirmationContext;
 
+/** @brief Données possédées par l'action d'un dialogue détaillé. */
+typedef struct
+{
+    ApplicationMessageDialogActionCallback callback;
+    gpointer user_data;
+    GDestroyNotify user_data_destroy;
+} ApplicationMessageDialogActionContext;
+
+/** @brief Libère les données possédées par une action détaillée. */
+static void application_message_dialog_action_context_free(gpointer data)
+{
+    ApplicationMessageDialogActionContext *context = data;
+    if (context == NULL) return;
+    if (context->user_data_destroy != NULL)
+        context->user_data_destroy(context->user_data);
+    g_free(context);
+}
+
+/** @brief Déclenche l'action facultative du dialogue détaillé. */
+static void application_message_dialog_on_action_clicked(
+    GtkButton *button,
+    gpointer user_data
+)
+{
+    ApplicationMessageDialogActionContext *context = user_data;
+    (void) button;
+    if (context != NULL && context->callback != NULL)
+        context->callback(context->user_data);
+}
+
 /**
  * @brief Retourne le libellé correspondant au type de message.
  *
@@ -355,12 +385,16 @@ void application_message_dialog_present(
     );
 }
 
-void application_message_dialog_present_details(
+void application_message_dialog_present_details_action(
     GtkWindow *parent_window,
     ApplicationMessageDialogType message_type,
     const char *title,
     const char *message,
-    const char *details
+    const char *details,
+    const char *action_label,
+    ApplicationMessageDialogActionCallback action_callback,
+    gpointer action_data,
+    GDestroyNotify action_data_destroy
 )
 {
     GtkWindow *dialog_window = GTK_WINDOW(gtk_window_new());
@@ -374,6 +408,9 @@ void application_message_dialog_present_details(
     GtkWidget *scrolled_window = gtk_scrolled_window_new();
     GtkWidget *details_view = gtk_text_view_new();
     GtkWidget *close_button = gtk_button_new_with_label("Fermer");
+    GtkWidget *button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *action_button = NULL;
+    ApplicationMessageDialogActionContext *action_context = NULL;
     GtkTextBuffer *details_buffer = gtk_text_view_get_buffer(
         GTK_TEXT_VIEW(details_view)
     );
@@ -426,7 +463,7 @@ void application_message_dialog_present_details(
         details_view
     );
 
-    gtk_widget_set_halign(close_button, GTK_ALIGN_END);
+    gtk_widget_set_halign(button_box, GTK_ALIGN_END);
     g_signal_connect(
         close_button,
         "clicked",
@@ -434,12 +471,63 @@ void application_message_dialog_present_details(
         dialog_window
     );
 
+    if (action_label != NULL && action_label[0] != '\0' &&
+        action_callback != NULL)
+    {
+        action_context = g_new0(ApplicationMessageDialogActionContext, 1);
+        action_context->callback = action_callback;
+        action_context->user_data = action_data;
+        action_context->user_data_destroy = action_data_destroy;
+        g_object_set_data_full(
+            G_OBJECT(dialog_window),
+            "application-message-dialog-action-context",
+            action_context,
+            application_message_dialog_action_context_free
+        );
+        action_button = gtk_button_new_with_label(action_label);
+        gtk_widget_add_css_class(action_button, "suggested-action");
+        g_signal_connect(
+            action_button,
+            "clicked",
+            G_CALLBACK(application_message_dialog_on_action_clicked),
+            action_context
+        );
+        gtk_box_append(GTK_BOX(button_box), action_button);
+    }
+    else if (action_data_destroy != NULL)
+    {
+        action_data_destroy(action_data);
+    }
+
+    gtk_box_append(GTK_BOX(button_box), close_button);
+
     gtk_box_append(GTK_BOX(main_box), title_label);
     gtk_box_append(GTK_BOX(main_box), message_label);
     gtk_box_append(GTK_BOX(main_box), scrolled_window);
-    gtk_box_append(GTK_BOX(main_box), close_button);
+    gtk_box_append(GTK_BOX(main_box), button_box);
     gtk_window_set_child(dialog_window, main_box);
     gtk_window_present(dialog_window);
+}
+
+void application_message_dialog_present_details(
+    GtkWindow *parent_window,
+    ApplicationMessageDialogType message_type,
+    const char *title,
+    const char *message,
+    const char *details
+)
+{
+    application_message_dialog_present_details_action(
+        parent_window,
+        message_type,
+        title,
+        message,
+        details,
+        NULL,
+        NULL,
+        NULL,
+        NULL
+    );
 }
 
 /**

@@ -146,7 +146,8 @@ Le socle actuel comprend notamment :
 - catalogue déterministe des actions compatibles avec la sélection OSINT ;
 - disponibilité des actions OSINT synchronisée avec le registre d’outils ;
 - résolution DNS asynchrone avec `dig` depuis une entité domaine ;
-- affichage sélectionnable des sorties standard et d’erreur, sans persistance.
+- affichage sélectionnable des sorties standard et d’erreur, sans persistance ;
+- révision des réponses DNS sous forme de propositions avant intégration.
 
 Les outils actuellement présents dans le catalogue initial sont :
 
