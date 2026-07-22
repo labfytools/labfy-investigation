@@ -1,3 +1,4 @@
+
 CC = gcc
 
 PKG_CONFIG = pkg-config
@@ -27,6 +28,7 @@ EVIDENCE_RECORD_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 EVIDENCE_TYPE_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 ENTITY_TYPE_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 EVIDENCE_TYPE_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
+GRAPH_NODE_POSITION_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 EVIDENCE_IMPORT_DIALOG_TEST_CFLAGS := \
 	-std=c17 \
 	-Wall \
@@ -107,6 +109,7 @@ TEST_RELATION_SERVICE := tests/test_relation_service
 TEST_INVESTIGATION_GRAPH_MODEL := tests/test_investigation_graph_model
 TEST_INVESTIGATION_GRAPH_LOADER := tests/test_investigation_graph_loader
 TEST_INVESTIGATION_GRAPH_LOAD_TASK := tests/test_investigation_graph_load_task
+TEST_GRAPH_NODE_POSITION_DAO := tests/test_graph_node_position_dao
 
 all: $(TARGET)
 
@@ -510,6 +513,18 @@ $(TEST_INVESTIGATION_GRAPH_LOADER): \
 	$(CC) $(INVESTIGATION_GRAPH_LOADER_TEST_CFLAGS) $^ -o $@ \
 		$(TEST_LDFLAGS) -lsqlite3
 
+$(TEST_GRAPH_NODE_POSITION_DAO): \
+	tests/test_graph_node_position_dao.c \
+	src/dao/graph_node_position_dao.c \
+	src/models/graph_node_position.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(GRAPH_NODE_POSITION_DAO_TEST_CFLAGS) $^ -o $@ \
+		$(TEST_LDFLAGS) -lsqlite3
+
 $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	tests/test_investigation_graph_load_task.c \
 	src/core/investigation_graph_load_task.c \
@@ -576,7 +591,8 @@ test: \
 	$(TEST_RELATION_SERVICE) \
 	$(TEST_INVESTIGATION_GRAPH_MODEL) \
 	$(TEST_INVESTIGATION_GRAPH_LOADER) \
-	$(TEST_INVESTIGATION_GRAPH_LOAD_TASK)
+	$(TEST_INVESTIGATION_GRAPH_LOAD_TASK) \
+	$(TEST_GRAPH_NODE_POSITION_DAO)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -623,6 +639,7 @@ test: \
 	@$(TEST_INVESTIGATION_GRAPH_MODEL)
 	@$(TEST_INVESTIGATION_GRAPH_LOADER)
 	@$(TEST_INVESTIGATION_GRAPH_LOAD_TASK)
+	@$(TEST_GRAPH_NODE_POSITION_DAO)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -675,6 +692,7 @@ clean:
 		$(TEST_RELATION_SERVICE) \
 		$(TEST_INVESTIGATION_GRAPH_MODEL) \
 		$(TEST_INVESTIGATION_GRAPH_LOADER) \
-		$(TEST_INVESTIGATION_GRAPH_LOAD_TASK)
+		$(TEST_INVESTIGATION_GRAPH_LOAD_TASK) \
+		$(TEST_GRAPH_NODE_POSITION_DAO)
 
 .PHONY: clean run test

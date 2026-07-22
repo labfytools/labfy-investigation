@@ -66,6 +66,12 @@ static const char *const graph_node_position_dao_delete_sql =
     "WHERE entity_id = ?;";
 
 /**
+ * @brief Requête de suppression de toutes les positions.
+ */
+static const char *const graph_node_position_dao_delete_all_sql =
+    "DELETE FROM graph_node_positions;";
+
+/**
  * @brief Enregistre une erreur littérale.
  */
 static void graph_node_position_dao_set_error_literal(
@@ -775,6 +781,78 @@ gboolean graph_node_position_dao_delete(
             error,
             GRAPH_NODE_POSITION_DAO_ERROR_EXECUTE,
             "Impossible de supprimer la position du nœud"
+        );
+
+        goto cleanup;
+    }
+
+    success =
+        TRUE;
+
+cleanup:
+
+    database_statement_finalize(
+        statement
+    );
+
+    return success;
+}
+
+gboolean graph_node_position_dao_delete_all(
+    GraphNodePositionDao *position_dao,
+    GError **error
+)
+{
+    DatabaseStatement *statement =
+        NULL;
+
+    gboolean success =
+        FALSE;
+
+    g_return_val_if_fail(
+        error == NULL || *error == NULL,
+        FALSE
+    );
+
+    if (position_dao == NULL ||
+        position_dao->database == NULL)
+    {
+        graph_node_position_dao_set_error_literal(
+            error,
+            GRAPH_NODE_POSITION_DAO_ERROR_INVALID_ARGUMENT,
+            "Le DAO des positions de nœuds est invalide."
+        );
+
+        return FALSE;
+    }
+
+    statement =
+        database_statement_prepare(
+            position_dao->database,
+            graph_node_position_dao_delete_all_sql
+        );
+
+    if (statement == NULL)
+    {
+        graph_node_position_dao_set_database_error(
+            position_dao,
+            error,
+            GRAPH_NODE_POSITION_DAO_ERROR_PREPARE,
+            "Impossible de préparer la suppression des positions"
+        );
+
+        goto cleanup;
+    }
+
+    if (database_statement_step(
+            statement
+        ) != DATABASE_STATEMENT_STEP_DONE)
+    {
+        graph_node_position_dao_set_database_error(
+            position_dao,
+            error,
+            GRAPH_NODE_POSITION_DAO_ERROR_EXECUTE,
+            "Impossible de supprimer les positions du graphe"
         );
 
         goto cleanup;

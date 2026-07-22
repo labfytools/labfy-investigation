@@ -128,6 +128,21 @@ gboolean graph_node_position_dao_delete(
     GError **error
 );
 
+/**
+ * @brief Supprime toutes les positions persistées du graphe.
+ *
+ * Une table déjà vide n'est pas une erreur.
+ *
+ * @param position_dao DAO valide.
+ * @param error Adresse recevant une éventuelle erreur.
+ *
+ * @return TRUE si la requête réussit, sinon FALSE.
+ */
+gboolean graph_node_position_dao_delete_all(
+    GraphNodePositionDao *position_dao,
+    GError **error
+);
+
 G_END_DECLS
 
 #endif
