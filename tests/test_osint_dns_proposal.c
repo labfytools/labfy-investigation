@@ -49,11 +49,44 @@ static void test_invalid_arguments(void)
     g_assert_null(osint_dns_proposal_parse("example.org", NULL));
 }
 
+static void test_entity_mapping_and_normalization(void)
+{
+    const char *output =
+        "example.org. 60 IN A 192.0.2.10\n"
+        "example.org. 60 IN AAAA 2001:0db8:0:0:0:0:0:1\n"
+        "example.org. 60 IN CNAME WWW.Example.ORG.\n"
+        "example.org. 60 IN MX 10 mail.example.org.\n";
+    GPtrArray *proposals = osint_dns_proposal_parse("example.org", output);
+    const OsintDnsProposal *ipv4 = g_ptr_array_index(proposals, 0);
+    const OsintDnsProposal *ipv6 = g_ptr_array_index(proposals, 1);
+    const OsintDnsProposal *domain = g_ptr_array_index(proposals, 2);
+    const OsintDnsProposal *unsupported = g_ptr_array_index(proposals, 3);
+    char *ipv4_value = osint_dns_proposal_dup_normalized_value(ipv4);
+    char *ipv6_value = osint_dns_proposal_dup_normalized_value(ipv6);
+    char *domain_value = osint_dns_proposal_dup_normalized_value(domain);
+
+    g_assert_cmpstr(osint_dns_proposal_get_entity_type(ipv4), ==, "ip_address");
+    g_assert_cmpstr(ipv4_value, ==, "192.0.2.10");
+    g_assert_cmpstr(ipv6_value, ==, "2001:db8::1");
+    g_assert_cmpstr(osint_dns_proposal_get_entity_type(domain), ==, "domain_name");
+    g_assert_cmpstr(domain_value, ==, "www.example.org");
+    g_assert_null(osint_dns_proposal_get_entity_type(unsupported));
+    g_assert_null(osint_dns_proposal_dup_normalized_value(unsupported));
+
+    g_free(ipv4_value);
+    g_free(ipv6_value);
+    g_free(domain_value);
+    g_ptr_array_unref(proposals);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/osint-dns-proposal/recognized", test_parse_recognized_records);
     g_test_add_func("/osint-dns-proposal/ignored", test_ignore_unrecognized_lines);
     g_test_add_func("/osint-dns-proposal/invalid", test_invalid_arguments);
+    g_test_add_func(
+        "/osint-dns-proposal/mapping", test_entity_mapping_and_normalization
+    );
     return g_test_run();
 }

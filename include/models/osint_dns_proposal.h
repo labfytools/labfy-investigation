@@ -75,6 +75,35 @@ const char *osint_dns_proposal_get_target(
     const OsintDnsProposal *proposal
 );
 
+/**
+ * @brief Retourne le type d'entité compatible avec la proposition.
+ *
+ * Les types actuellement pris en charge sont `ip_address` pour A et AAAA,
+ * ainsi que `domain_name` pour CNAME, NS et PTR.
+ *
+ * @param proposal Proposition consultée.
+ *
+ * @return Identifiant statique du type d'entité, ou NULL.
+ */
+const char *osint_dns_proposal_get_entity_type(
+    const OsintDnsProposal *proposal
+);
+
+/**
+ * @brief Normalise la valeur avant recherche ou insertion.
+ *
+ * Les adresses IP sont converties dans leur représentation canonique. Les
+ * noms de domaine sont passés en minuscules et leur point final est retiré.
+ *
+ * @param proposal Proposition consultée.
+ *
+ * @return Nouvelle chaîne à libérer avec g_free(), ou NULL si la proposition
+ *         n'est pas compatible ou si sa valeur est invalide.
+ */
+char *osint_dns_proposal_dup_normalized_value(
+    const OsintDnsProposal *proposal
+);
+
 G_END_DECLS
 
 #endif

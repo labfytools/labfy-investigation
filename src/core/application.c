@@ -24,6 +24,7 @@
 #include "core/background_task.h"
 #include "core/tool_initializer.h"
 #include "core/tool_task.h"
+#include "core/osint_dns_integration.h"
 #include "views/file_dialog.h"
 #include "core/evidence_import_task.h"
 #include "models/evidence_record.h"
@@ -31,6 +32,7 @@
 #include "dao/graph_node_position_dao.h"
 #include "views/evidence_import_dialog.h"
 #include "views/create_relation_dialog.h"
+#include "views/osint_dns_review_dialog.h"
 #include "dao/evidence_dao.h"
 #include "dao/entity_dao.h"
 #include "models/evidence_type.h"
@@ -167,70 +169,99 @@ typedef struct
 typedef struct
 {
     Application *application;
-    char *proposal_summary;
+    GPtrArray *proposals;
 } ApplicationOsintReviewContext;
+
+static void application_start_graph_loading(
+    Application *application,
+    const char *database_path
+);
+
+static void application_present_error(
+    Application *application,
+    const char *title,
+    const char *message
+);
 
 /** @brief Libère les données de révision possédées par le dialogue. */
 static void application_osint_review_context_free(gpointer user_data)
 {
     ApplicationOsintReviewContext *context = user_data;
     if (context == NULL) return;
-    g_free(context->proposal_summary);
+    g_clear_pointer(&context->proposals, g_ptr_array_unref);
     g_free(context);
 }
 
-/** @brief Affiche les propositions sans les intégrer à l'enquête. */
-static void application_on_osint_prepare_integration(gpointer user_data)
+/** @brief Intègre les propositions confirmées puis recharge le graphe. */
+static void application_on_osint_integration_confirmed(
+    GPtrArray *selected_proposals,
+    gpointer user_data
+)
 {
-    ApplicationOsintReviewContext *context = user_data;
-    if (context == NULL || context->application == NULL ||
-        context->application->main_window == NULL)
+    Application *application = user_data;
+    const InvestigationProject *project = NULL;
+    Database *database = NULL;
+    const char *database_path = NULL;
+    guint inserted_count = 0U;
+    guint skipped_count = 0U;
+    char *message = NULL;
+    GError *error = NULL;
+
+    if (application == NULL || application->session == NULL ||
+        application->main_window == NULL)
     {
         return;
     }
 
-    application_message_dialog_present_details(
-        main_window_get_window(context->application->main_window),
-        APPLICATION_MESSAGE_DIALOG_INFORMATION,
-        "Propositions DNS à réviser",
-        "Aucune donnée n'a été enregistrée dans l'enquête.",
-        context->proposal_summary
-    );
-}
-
-/** @brief Construit le résumé lisible des propositions DNS. */
-static char *application_build_dns_proposal_summary(GPtrArray *proposals)
-{
-    GString *summary = g_string_new(NULL);
-
-    if (summary == NULL) return NULL;
-    g_string_append_printf(
-        summary,
-        "Propositions détectées : %u\n\n",
-        proposals != NULL ? proposals->len : 0U
-    );
-
-    for (guint index = 0; proposals != NULL && index < proposals->len; index++)
+    database = investigation_session_get_database(application->session);
+    project = investigation_session_get_project(application->session);
+    database_path = project != NULL
+        ? investigation_project_get_database_path(project) : NULL;
+    if (!osint_dns_integration_apply(
+            database, selected_proposals, &inserted_count, &skipped_count,
+            &error
+        ))
     {
-        const OsintDnsProposal *proposal = g_ptr_array_index(proposals, index);
-        g_string_append_printf(
-            summary,
-            "%u. Cible : %s\n   Propriétaire : %s\n   Type : %s\n"
-            "   Valeur : %s\n\n",
-            index + 1U,
-            osint_dns_proposal_get_target(proposal),
-            osint_dns_proposal_get_owner(proposal),
-            osint_dns_proposal_get_record_type(proposal),
-            osint_dns_proposal_get_value(proposal)
+        application_present_error(
+            application,
+            "Intégration DNS impossible",
+            error != NULL ? error->message
+                          : "La transaction DNS a échoué."
         );
+        g_clear_error(&error);
+        return;
     }
 
-    g_string_append(
-        summary,
-        "Ces propositions sont uniquement préparées pour révision. "
-        "Elles ne sont pas enregistrées dans SQLite."
+    message = g_strdup_printf(
+        "%u entité(s) créée(s), %u proposition(s) ignorée(s).\n\n"
+        "La provenance complète devra être ajoutée par une future migration "
+        "du schéma OSINT.",
+        inserted_count, skipped_count
     );
-    return g_string_free(summary, FALSE);
+    application_message_dialog_present(
+        main_window_get_window(application->main_window),
+        APPLICATION_MESSAGE_DIALOG_INFORMATION,
+        "Intégration DNS terminée",
+        message
+    );
+    g_free(message);
+    if (database_path != NULL && database_path[0] != '\0')
+        application_start_graph_loading(application, database_path);
+}
+
+/** @brief Affiche les propositions et demande une sélection explicite. */
+static void application_on_osint_prepare_integration(gpointer user_data)
+{
+    ApplicationOsintReviewContext *context = user_data;
+    if (context == NULL || context->application == NULL ||
+        context->application->main_window == NULL || context->proposals == NULL)
+        return;
+    osint_dns_review_dialog_present(
+        main_window_get_window(context->application->main_window),
+        context->proposals,
+        application_on_osint_integration_confirmed,
+        context->application
+    );
 }
 
 /**
@@ -1147,10 +1178,9 @@ static void application_on_dns_lookup_completed(
         if (review_context != NULL)
         {
             review_context->application = application;
-            review_context->proposal_summary =
-                application_build_dns_proposal_summary(proposals);
+            review_context->proposals = g_ptr_array_ref(proposals);
         }
-        if (review_context == NULL || review_context->proposal_summary == NULL)
+        if (review_context == NULL || review_context->proposals == NULL)
         {
             application_osint_review_context_free(review_context);
             review_context = NULL;

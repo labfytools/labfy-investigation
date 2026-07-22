@@ -117,6 +117,7 @@ TEST_OSINT_SELECTION_CONTEXT := tests/test_osint_selection_context
 TEST_OSINT_ACTION_CATALOG := tests/test_osint_action_catalog
 TEST_OSINT_DNS_QUERY := tests/test_osint_dns_query
 TEST_OSINT_DNS_PROPOSAL := tests/test_osint_dns_proposal
+TEST_OSINT_DNS_INTEGRATION := tests/test_osint_dns_integration
 
 all: $(TARGET)
 
@@ -554,8 +555,23 @@ $(TEST_OSINT_DNS_QUERY): \
 
 $(TEST_OSINT_DNS_PROPOSAL): \
 	tests/test_osint_dns_proposal.c \
-	src/models/osint_dns_proposal.c
+	src/models/osint_dns_proposal.c \
+	src/models/osint_dns_query.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_OSINT_DNS_INTEGRATION): \
+	tests/test_osint_dns_integration.c \
+	src/core/osint_dns_integration.c \
+	src/models/osint_dns_proposal.c \
+	src/models/osint_dns_query.c \
+	src/models/entity_record.c \
+	src/dao/entity_dao.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
 $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	tests/test_investigation_graph_load_task.c \
@@ -628,7 +644,8 @@ test: \
 	$(TEST_OSINT_SELECTION_CONTEXT) \
 	$(TEST_OSINT_ACTION_CATALOG) \
 	$(TEST_OSINT_DNS_QUERY) \
-	$(TEST_OSINT_DNS_PROPOSAL)
+	$(TEST_OSINT_DNS_PROPOSAL) \
+	$(TEST_OSINT_DNS_INTEGRATION)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -680,6 +697,7 @@ test: \
 	@$(TEST_OSINT_ACTION_CATALOG)
 	@$(TEST_OSINT_DNS_QUERY)
 	@$(TEST_OSINT_DNS_PROPOSAL)
+	@$(TEST_OSINT_DNS_INTEGRATION)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -737,7 +755,8 @@ clean:
 		$(TEST_OSINT_SELECTION_CONTEXT) \
 		$(TEST_OSINT_ACTION_CATALOG) \
 		$(TEST_OSINT_DNS_QUERY) \
-		$(TEST_OSINT_DNS_PROPOSAL)
+		$(TEST_OSINT_DNS_PROPOSAL) \
+		$(TEST_OSINT_DNS_INTEGRATION)
 
 -include $(DEP)
 

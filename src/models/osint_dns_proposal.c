@@ -4,7 +4,9 @@
  ******************************************************************************/
 
 #include "models/osint_dns_proposal.h"
+#include "models/osint_dns_query.h"
 
+#include <gio/gio.h>
 #include <string.h>
 
 struct OsintDnsProposal
@@ -155,3 +157,56 @@ const char *osint_dns_proposal_get_value(const OsintDnsProposal *proposal)
 { return proposal != NULL ? proposal->value : NULL; }
 const char *osint_dns_proposal_get_target(const OsintDnsProposal *proposal)
 { return proposal != NULL ? proposal->target : NULL; }
+
+const char *osint_dns_proposal_get_entity_type(
+    const OsintDnsProposal *proposal
+)
+{
+    const char *record_type = osint_dns_proposal_get_record_type(proposal);
+    if (g_strcmp0(record_type, "A") == 0 ||
+        g_strcmp0(record_type, "AAAA") == 0)
+    {
+        return "ip_address";
+    }
+    if (g_strcmp0(record_type, "CNAME") == 0 ||
+        g_strcmp0(record_type, "NS") == 0 ||
+        g_strcmp0(record_type, "PTR") == 0)
+    {
+        return "domain_name";
+    }
+    return NULL;
+}
+
+char *osint_dns_proposal_dup_normalized_value(
+    const OsintDnsProposal *proposal
+)
+{
+    const char *entity_type = osint_dns_proposal_get_entity_type(proposal);
+    const char *value = osint_dns_proposal_get_value(proposal);
+
+    if (entity_type == NULL || value == NULL) return NULL;
+    if (g_strcmp0(entity_type, "ip_address") == 0)
+    {
+        GInetAddress *address = g_inet_address_new_from_string(value);
+        char *normalized_value = NULL;
+        if (address == NULL) return NULL;
+        normalized_value = g_inet_address_to_string(address);
+        g_object_unref(address);
+        return normalized_value;
+    }
+    if (g_strcmp0(entity_type, "domain_name") == 0)
+    {
+        char *normalized_value = g_ascii_strdown(value, -1);
+        gsize value_length = normalized_value != NULL
+            ? strlen(normalized_value) : 0U;
+        if (value_length > 0U && normalized_value[value_length - 1U] == '.')
+            normalized_value[value_length - 1U] = '\0';
+        if (!osint_dns_query_is_valid_target(normalized_value))
+        {
+            g_free(normalized_value);
+            return NULL;
+        }
+        return normalized_value;
+    }
+    return NULL;
+}
