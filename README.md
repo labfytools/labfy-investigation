@@ -23,16 +23,6 @@ Le projet vise à fournir un environnement local, modulaire et traçable pour or
 
 ---
 
-Labfy Investigation est un poste de travail libre d’investigation numérique et d’OSINT, développé en **C17** avec **GTK4**.
-
-Le projet vise à fournir un environnement local, modulaire et traçable pour organiser une enquête, préserver les preuves originales, analyser des données, corréler des entités et produire des rapports exploitables.
-
-> **État du projet : développement actif**
->
-> Le logiciel n’est pas encore prêt pour un usage opérationnel en production. Les formats internes, l’interface et les mécanismes d’intégration peuvent encore évoluer.
-
----
-
 ## Objectifs
 
 Labfy Investigation doit permettre de :

@@ -27,20 +27,20 @@ struct GraphNodePositionDao
  */
 static const char *const graph_node_position_dao_list_all_sql =
     "SELECT "
-    "    entity_id,"
+    "    node_id,"
     "    x,"
     "    y,"
     "    updated_at "
-    "FROM graph_node_positions "
-    "ORDER BY entity_id ASC;";
+    "FROM graph_layout_positions "
+    "ORDER BY node_id ASC;";
 
 /**
  * @brief Requête d'insertion ou de mise à jour d'une position.
  */
 static const char *const graph_node_position_dao_upsert_sql =
-    "INSERT INTO graph_node_positions"
+    "INSERT INTO graph_layout_positions"
     "("
-    "    entity_id,"
+    "    node_id,"
     "    x,"
     "    y,"
     "    updated_at"
@@ -52,7 +52,7 @@ static const char *const graph_node_position_dao_upsert_sql =
     "    ?,"
     "    ?"
     ")"
-    "ON CONFLICT(entity_id)"
+    "ON CONFLICT(node_id)"
     "DO UPDATE SET "
     "    x = excluded.x,"
     "    y = excluded.y,"
@@ -62,14 +62,14 @@ static const char *const graph_node_position_dao_upsert_sql =
  * @brief Requête de suppression d'une position.
  */
 static const char *const graph_node_position_dao_delete_sql =
-    "DELETE FROM graph_node_positions "
-    "WHERE entity_id = ?;";
+    "DELETE FROM graph_layout_positions "
+    "WHERE node_id = ?;";
 
 /**
  * @brief Requête de suppression de toutes les positions.
  */
 static const char *const graph_node_position_dao_delete_all_sql =
-    "DELETE FROM graph_node_positions;";
+    "DELETE FROM graph_layout_positions;";
 
 /**
  * @brief Enregistre une erreur littérale.
@@ -202,7 +202,7 @@ graph_node_position_dao_read_current_record(
     GraphNodePosition *position =
         NULL;
 
-    char *entity_identifier =
+    char *node_identifier =
         NULL;
 
     char *updated_at =
@@ -233,7 +233,7 @@ graph_node_position_dao_read_current_record(
     if (!database_statement_column_text(
             statement,
             0,
-            &entity_identifier
+            &node_identifier
         ) ||
         !database_statement_column_double(
             statement,
@@ -262,7 +262,7 @@ graph_node_position_dao_read_current_record(
 
     position =
         graph_node_position_new(
-            entity_identifier,
+            node_identifier,
             x,
             y,
             updated_at,
@@ -302,7 +302,7 @@ cleanup:
     );
 
     g_free(
-        entity_identifier
+        node_identifier
     );
 
     return position;
@@ -576,7 +576,7 @@ error:
 
 gboolean graph_node_position_dao_upsert(
     GraphNodePositionDao *position_dao,
-    const char *entity_identifier,
+    const char *node_identifier,
     double x,
     double y,
     GError **error
@@ -598,9 +598,9 @@ gboolean graph_node_position_dao_upsert(
 
     if (position_dao == NULL ||
         position_dao->database == NULL ||
-        entity_identifier == NULL ||
+        node_identifier == NULL ||
         !g_uuid_string_is_valid(
-            entity_identifier
+            node_identifier
         ) ||
         !isfinite(x) ||
         !isfinite(y))
@@ -649,7 +649,7 @@ gboolean graph_node_position_dao_upsert(
     if (!database_statement_bind_text(
             statement,
             1,
-            entity_identifier
+            node_identifier
         ) ||
         !database_statement_bind_double(
             statement,
@@ -707,7 +707,7 @@ cleanup:
 
 gboolean graph_node_position_dao_delete(
     GraphNodePositionDao *position_dao,
-    const char *entity_identifier,
+    const char *node_identifier,
     GError **error
 )
 {
@@ -724,15 +724,15 @@ gboolean graph_node_position_dao_delete(
 
     if (position_dao == NULL ||
         position_dao->database == NULL ||
-        entity_identifier == NULL ||
+        node_identifier == NULL ||
         !g_uuid_string_is_valid(
-            entity_identifier
+            node_identifier
         ))
     {
         graph_node_position_dao_set_error_literal(
             error,
             GRAPH_NODE_POSITION_DAO_ERROR_INVALID_ARGUMENT,
-            "L'identifiant de l'entité est invalide."
+            "L'identifiant du nœud est invalide."
         );
 
         return FALSE;
@@ -759,14 +759,14 @@ gboolean graph_node_position_dao_delete(
     if (!database_statement_bind_text(
             statement,
             1,
-            entity_identifier
+            node_identifier
         ))
     {
         graph_node_position_dao_set_database_error(
             position_dao,
             error,
             GRAPH_NODE_POSITION_DAO_ERROR_BIND,
-            "Impossible de lier l'identifiant de l'entité"
+            "Impossible de lier l'identifiant du nœud"
         );
 
         goto cleanup;

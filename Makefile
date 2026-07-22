@@ -1,4 +1,3 @@
-
 CC = gcc
 
 PKG_CONFIG = pkg-config
@@ -11,6 +10,8 @@ CFLAGS = -std=c17 \
           -Werror \
           -g \
           -Iinclude \
+          -MMD \
+          -MP \
           $(shell $(PKG_CONFIG) --cflags gtk4 sqlite3)
 
 LDFLAGS = $(shell $(PKG_CONFIG) --libs gtk4 sqlite3)
@@ -61,6 +62,8 @@ INVESTIGATION_GRAPH_LOAD_TASK_TEST_CFLAGS := \
 SRC := $(shell find src -name "*.c")
 
 OBJ := $(SRC:.c=.o)
+
+DEP := $(OBJ:.o=.d)
 
 TARGET = labfy-investigation
 
@@ -649,7 +652,7 @@ run: $(TARGET)
 	./$(TARGET)
 
 clean:
-	rm -f $(OBJ) $(TARGET) \
+	rm -f $(OBJ) $(DEP) $(TARGET) \
 		$(TEST_NODE) \
 		$(TEST_TREE_MODEL) \
 		$(TEST_TREE_BUILDER) \
@@ -694,5 +697,7 @@ clean:
 		$(TEST_INVESTIGATION_GRAPH_LOADER) \
 		$(TEST_INVESTIGATION_GRAPH_LOAD_TASK) \
 		$(TEST_GRAPH_NODE_POSITION_DAO)
+
+-include $(DEP)
 
 .PHONY: clean run test

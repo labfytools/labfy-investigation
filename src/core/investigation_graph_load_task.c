@@ -946,7 +946,7 @@ static gboolean investigation_graph_load_task_worker(
 
         if (!investigation_graph_layout_set_position(
                 graph_layout,
-                graph_node_position_get_entity_identifier(
+                graph_node_position_get_node_identifier(
                     position
                 ),
                 graph_node_position_get_x(

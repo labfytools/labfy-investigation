@@ -1170,10 +1170,10 @@ gboolean create_relation_dialog_present(
             )
         );
 
-    g_object_unref(
-        target_labels
-    );
-
+    /*
+     * Le constructeur prend possession de la référence du modèle.
+     * Le dialogue ne doit donc pas appeler g_object_unref() ici.
+     */
     target_labels =
         NULL;
 

@@ -14,7 +14,7 @@
  */
 struct GraphNodePosition
 {
-    char *entity_identifier;
+    char *node_identifier;
 
     double x;
     double y;
@@ -154,7 +154,7 @@ GQuark graph_node_position_error_quark(void)
 }
 
 GraphNodePosition *graph_node_position_new(
-    const char *entity_identifier,
+    const char *node_identifier,
     double x,
     double y,
     const char *updated_at,
@@ -164,7 +164,7 @@ GraphNodePosition *graph_node_position_new(
     GraphNodePosition *position =
         NULL;
 
-    char *entity_identifier_copy =
+    char *node_identifier_copy =
         NULL;
 
     char *updated_at_copy =
@@ -175,22 +175,22 @@ GraphNodePosition *graph_node_position_new(
         NULL
     );
 
-    entity_identifier_copy =
+    node_identifier_copy =
         graph_node_position_duplicate_trimmed(
-            entity_identifier
+            node_identifier
         );
 
-    if (entity_identifier_copy == NULL ||
-        entity_identifier_copy[0] == '\0' ||
+    if (node_identifier_copy == NULL ||
+        node_identifier_copy[0] == '\0' ||
         !g_uuid_string_is_valid(
-            entity_identifier_copy
+            node_identifier_copy
         ))
     {
         g_set_error_literal(
             error,
             GRAPH_NODE_POSITION_ERROR,
             GRAPH_NODE_POSITION_ERROR_INVALID_IDENTIFIER,
-            "L'identifiant de l'entité n'est pas un UUID valide."
+            "L'identifiant du nœud n'est pas un UUID valide."
         );
 
         goto cleanup;
@@ -246,8 +246,8 @@ GraphNodePosition *graph_node_position_new(
         goto cleanup;
     }
 
-    position->entity_identifier =
-        entity_identifier_copy;
+    position->node_identifier =
+        node_identifier_copy;
 
     position->x =
         x;
@@ -258,7 +258,7 @@ GraphNodePosition *graph_node_position_new(
     position->updated_at =
         updated_at_copy;
 
-    entity_identifier_copy =
+    node_identifier_copy =
         NULL;
 
     updated_at_copy =
@@ -271,7 +271,7 @@ cleanup:
     );
 
     g_free(
-        entity_identifier_copy
+        node_identifier_copy
     );
 
     return position;
@@ -291,7 +291,7 @@ void graph_node_position_free(
     );
 
     g_free(
-        position->entity_identifier
+        position->node_identifier
     );
 
     g_free(
@@ -299,12 +299,12 @@ void graph_node_position_free(
     );
 }
 
-const char *graph_node_position_get_entity_identifier(
+const char *graph_node_position_get_node_identifier(
     const GraphNodePosition *position
 )
 {
     return position != NULL
-        ? position->entity_identifier
+        ? position->node_identifier
         : NULL;
 }
 

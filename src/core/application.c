@@ -35,6 +35,7 @@
 #include "widgets/evidence_category_model.h"
 #include "core/evidence_integrity_task.h"
 #include "core/evidence_integrity_verifier.h"
+#include "core/relation_service.h"
 #include "database/database.h"
 
 #include <gtk/gtk.h>
@@ -3341,6 +3342,21 @@ static void application_on_create_relation_completed(
     Application *application =
         user_data;
 
+    const InvestigationProject *project =
+        NULL;
+
+    Database *database =
+        NULL;
+
+    RelationService *relation_service =
+        NULL;
+
+    RelationRecord *relation_record =
+        NULL;
+
+    GDateTime *current_date_time =
+        NULL;
+
     const char *source_identifier =
         NULL;
 
@@ -3350,8 +3366,20 @@ static void application_on_create_relation_completed(
     const char *relation_type =
         NULL;
 
-    char *status_message =
+    const char *database_path =
         NULL;
+
+    char *relation_identifier =
+        NULL;
+
+    char *timestamp =
+        NULL;
+
+    GError *error =
+        NULL;
+
+    gboolean relation_created =
+        FALSE;
 
     if (application == NULL ||
         application->main_window == NULL)
@@ -3373,6 +3401,17 @@ static void application_on_create_relation_completed(
         return;
     }
 
+    if (application->session == NULL)
+    {
+        application_present_error(
+            application,
+            "Ajout de relation impossible",
+            "Aucune enquête n'est actuellement ouverte."
+        );
+
+        goto cleanup;
+    }
+
     source_identifier =
         create_relation_dialog_result_get_source_identifier(
             result
@@ -3388,41 +3427,225 @@ static void application_on_create_relation_completed(
             result
         );
 
-    g_message(
-        "Relation préparée : %s -> %s (%s), confiance %d %%.",
-        source_identifier != NULL
-            ? source_identifier
-            : "(source absente)",
-        target_identifier != NULL
-            ? target_identifier
-            : "(cible absente)",
-        relation_type != NULL
-            ? relation_type
-            : "(type absent)",
-        create_relation_dialog_result_get_confidence(
-            result
-        )
-    );
-
-    status_message =
-        g_strdup_printf(
-            "Relation préparée : %s. "
-            "L'enregistrement SQLite sera branché à l'étape suivante.",
-            relation_type != NULL &&
-            relation_type[0] != '\0'
-                ? relation_type
-                : "(type inconnu)"
+    database =
+        investigation_session_get_database(
+            application->session
         );
+
+    project =
+        investigation_session_get_project(
+            application->session
+        );
+
+    if (database == NULL ||
+        project == NULL)
+    {
+        application_present_error(
+            application,
+            "Ajout de relation impossible",
+            "La session d'enquête est invalide."
+        );
+
+        goto cleanup;
+    }
+
+    database_path =
+        investigation_project_get_database_path(
+            project
+        );
+
+    if (database_path == NULL ||
+        database_path[0] == '\0')
+    {
+        application_present_error(
+            application,
+            "Ajout de relation impossible",
+            "Le chemin de la base SQLite est invalide."
+        );
+
+        goto cleanup;
+    }
+
+    relation_identifier =
+        g_uuid_string_random();
+
+    current_date_time =
+        g_date_time_new_now_utc();
+
+    if (current_date_time != NULL)
+    {
+        timestamp =
+            g_date_time_format(
+                current_date_time,
+                "%Y-%m-%dT%H:%M:%SZ"
+            );
+    }
+
+    if (relation_identifier == NULL ||
+        timestamp == NULL)
+    {
+        application_present_error(
+            application,
+            "Ajout de relation impossible",
+            "Impossible de préparer l'identifiant ou la date "
+            "de la nouvelle relation."
+        );
+
+        goto cleanup;
+    }
+
+    relation_record =
+        relation_record_new(
+            relation_identifier,
+            source_identifier,
+            target_identifier,
+            relation_type,
+            create_relation_dialog_result_get_label(
+                result
+            ),
+            create_relation_dialog_result_get_justification(
+                result
+            ),
+            create_relation_dialog_result_get_confidence(
+                result
+            ),
+            timestamp,
+            timestamp,
+            RELATION_STATUS_ACTIVE,
+            &error
+        );
+
+    if (relation_record == NULL)
+    {
+        application_present_error(
+            application,
+            "Relation invalide",
+            error != NULL
+                ? error->message
+                : "Les informations de la relation sont invalides."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        goto cleanup;
+    }
+
+    relation_service =
+        relation_service_new(
+            database,
+            &error
+        );
+
+    if (relation_service == NULL)
+    {
+        application_present_error(
+            application,
+            "Ajout de relation impossible",
+            error != NULL
+                ? error->message
+                : "Impossible de préparer le service des relations."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        goto cleanup;
+    }
+
+    /*
+     * Aucune preuve n'est associée pendant ce premier parcours.
+     * Le service accepte donc un tableau NULL.
+     */
+    if (!relation_service_create(
+            relation_service,
+            relation_record,
+            NULL,
+            &error
+        ))
+    {
+        g_warning(
+            "Impossible d'enregistrer la relation '%s' : %s",
+            relation_identifier,
+            error != NULL
+                ? error->message
+                : "erreur inconnue"
+        );
+
+        application_present_error(
+            application,
+            "Enregistrement de la relation impossible",
+            error != NULL
+                ? error->message
+                : "La relation n'a pas pu être enregistrée."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        goto cleanup;
+    }
+
+    relation_created =
+        TRUE;
+
+    g_message(
+        "Relation enregistrée : %s -> %s (%s), identifiant %s.",
+        source_identifier,
+        target_identifier,
+        relation_type,
+        relation_identifier
+    );
 
     main_window_set_status(
         application->main_window,
-        status_message != NULL
-            ? status_message
-            : "Relation préparée."
+        "Relation enregistrée. Actualisation du graphe…"
+    );
+
+    /*
+     * Le graphe n'est rechargé qu'après le COMMIT réussi.
+     * En cas d'échec SQLite, l'affichage courant reste intact.
+     */
+    application_start_graph_loading(
+        application,
+        database_path
+    );
+
+cleanup:
+
+    if (!relation_created &&
+        application->main_window != NULL)
+    {
+        main_window_set_status(
+            application->main_window,
+            "La relation n'a pas été enregistrée."
+        );
+    }
+
+    relation_service_free(
+        relation_service
+    );
+
+    relation_record_free(
+        relation_record
+    );
+
+    if (current_date_time != NULL)
+    {
+        g_date_time_unref(
+            current_date_time
+        );
+    }
+
+    g_free(
+        timestamp
     );
 
     g_free(
-        status_message
+        relation_identifier
     );
 
     create_relation_dialog_result_free(

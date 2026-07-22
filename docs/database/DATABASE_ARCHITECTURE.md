@@ -2181,6 +2181,30 @@ des fichiers ou des notes.
 
 ---
 
+## 11.5 Disposition générique du graphe
+
+La disposition visuelle du graphe est un état de présentation et non une
+donnée métier. Elle est stockée dans `graph_layout_positions`, séparément des
+tables `entites` et `relations`.
+
+Chaque ligne associe un UUID de nœud à des coordonnées logiques et à une date
+UTC de mise à jour. Un nœud peut représenter une entité ou une relation. SQLite
+ne proposant pas de clé étrangère polymorphe, l'intégrité de ce stockage est
+assurée par deux triggers qui suppriment la position correspondante lors de la
+suppression physique d'une entité ou d'une relation.
+
+La table historique `graph_node_positions` ne référençait que `entites(id)`.
+À l'ouverture d'une enquête, ses lignes sont copiées de manière idempotente
+vers `graph_layout_positions`, puis retirées de la table historique afin
+qu'une réinitialisation volontaire de la disposition ne puisse pas restaurer
+des coordonnées obsolètes.
+
+Cette stratégie préserve les positions existantes tout en permettant aux
+nœuds de relation de suivre exactement le même cycle de chargement,
+d'enregistrement et de réinitialisation que les nœuds d'entité.
+
+---
+
 # 12. Conclusion
 
 La base de données de Labfy Investigation constitue bien davantage qu'un simple

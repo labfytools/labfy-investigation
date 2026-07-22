@@ -91,12 +91,12 @@ GPtrArray *graph_node_position_dao_list_all(
 );
 
 /**
- * @brief Insère ou met à jour la position d'une entité.
+ * @brief Insère ou met à jour la position d'un nœud.
  *
  * La date updated_at est générée en UTC par le DAO.
  *
  * @param position_dao DAO valide.
- * @param entity_identifier UUID de l'entité.
+ * @param node_identifier UUID du nœud (entité ou relation).
  * @param x Coordonnée horizontale logique.
  * @param y Coordonnée verticale logique.
  * @param error Adresse recevant une éventuelle erreur.
@@ -105,26 +105,26 @@ GPtrArray *graph_node_position_dao_list_all(
  */
 gboolean graph_node_position_dao_upsert(
     GraphNodePositionDao *position_dao,
-    const char *entity_identifier,
+    const char *node_identifier,
     double x,
     double y,
     GError **error
 );
 
 /**
- * @brief Supprime la position persistée d'une entité.
+ * @brief Supprime la position persistée d'un nœud.
  *
  * L'absence de position n'est pas une erreur.
  *
  * @param position_dao DAO valide.
- * @param entity_identifier UUID de l'entité.
+ * @param node_identifier UUID du nœud (entité ou relation).
  * @param error Adresse recevant une éventuelle erreur.
  *
  * @return TRUE si la requête réussit, sinon FALSE.
  */
 gboolean graph_node_position_dao_delete(
     GraphNodePositionDao *position_dao,
-    const char *entity_identifier,
+    const char *node_identifier,
     GError **error
 );
 

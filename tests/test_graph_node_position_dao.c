@@ -156,7 +156,7 @@ static void test_graph_node_position_dao_fixture_clear(
  */
 static void test_graph_node_position_dao_insert_entity(
     Database *database,
-    const char *entity_identifier,
+    const char *node_identifier,
     const char *entity_value
 )
 {
@@ -168,7 +168,7 @@ static void test_graph_node_position_dao_insert_entity(
     );
 
     g_assert_nonnull(
-        entity_identifier
+        node_identifier
     );
 
     g_assert_nonnull(
@@ -208,7 +208,7 @@ static void test_graph_node_position_dao_insert_entity(
         database_statement_bind_text(
             statement,
             1,
-            entity_identifier
+            node_identifier
         )
     );
 
@@ -254,7 +254,7 @@ static int64_t test_graph_node_position_dao_count_rows(
         database_statement_prepare(
             database,
             "SELECT COUNT(*) "
-            "FROM graph_node_positions;"
+            "FROM graph_layout_positions;"
         );
 
     g_assert_nonnull(
@@ -454,19 +454,16 @@ static void test_graph_node_position_dao_upsert_insert(void)
     GError *error =
         NULL;
 
-    const char *entity_identifier =
+    const char *node_identifier =
         "10000000-0000-4000-8000-000000000001";
 
-    test_graph_node_position_dao_insert_entity(
-        fixture.database,
-        entity_identifier,
-        "entite-position-1"
-    );
+    /* Un nœud générique peut être une relation et n'a pas à exister dans
+     * la table entites. */
 
     g_assert_true(
         graph_node_position_dao_upsert(
             fixture.position_dao,
-            entity_identifier,
+            node_identifier,
             120.5,
             -42.25,
             &error
@@ -516,11 +513,11 @@ static void test_graph_node_position_dao_upsert_insert(void)
     );
 
     g_assert_cmpstr(
-        graph_node_position_get_entity_identifier(
+        graph_node_position_get_node_identifier(
             position
         ),
         ==,
-        entity_identifier
+        node_identifier
     );
 
     g_assert_cmpfloat(
@@ -578,19 +575,19 @@ static void test_graph_node_position_dao_upsert_update(void)
     GError *error =
         NULL;
 
-    const char *entity_identifier =
+    const char *node_identifier =
         "20000000-0000-4000-8000-000000000002";
 
     test_graph_node_position_dao_insert_entity(
         fixture.database,
-        entity_identifier,
+        node_identifier,
         "entite-position-2"
     );
 
     g_assert_true(
         graph_node_position_dao_upsert(
             fixture.position_dao,
-            entity_identifier,
+            node_identifier,
             10.0,
             20.0,
             &error
@@ -604,7 +601,7 @@ static void test_graph_node_position_dao_upsert_update(void)
     g_assert_true(
         graph_node_position_dao_upsert(
             fixture.position_dao,
-            entity_identifier,
+            node_identifier,
             -300.75,
             450.5,
             &error
@@ -855,7 +852,7 @@ static void test_graph_node_position_dao_list_order(void)
         );
 
     g_assert_cmpstr(
-        graph_node_position_get_entity_identifier(
+        graph_node_position_get_node_identifier(
             first_position
         ),
         ==,
@@ -863,7 +860,7 @@ static void test_graph_node_position_dao_list_order(void)
     );
 
     g_assert_cmpstr(
-        graph_node_position_get_entity_identifier(
+        graph_node_position_get_node_identifier(
             second_position
         ),
         ==,
@@ -887,19 +884,19 @@ static void test_graph_node_position_dao_delete_existing(void)
     GError *error =
         NULL;
 
-    const char *entity_identifier =
+    const char *node_identifier =
         "60000000-0000-4000-8000-000000000006";
 
     test_graph_node_position_dao_insert_entity(
         fixture.database,
-        entity_identifier,
+        node_identifier,
         "entite-position-6"
     );
 
     g_assert_true(
         graph_node_position_dao_upsert(
             fixture.position_dao,
-            entity_identifier,
+            node_identifier,
             60.0,
             70.0,
             &error
@@ -913,7 +910,7 @@ static void test_graph_node_position_dao_delete_existing(void)
     g_assert_true(
         graph_node_position_dao_delete(
             fixture.position_dao,
-            entity_identifier,
+            node_identifier,
             &error
         )
     );

@@ -42,11 +42,11 @@ GQuark graph_node_position_error_quark(void);
  *
  * Toutes les chaînes sont copiées.
  *
- * entity_identifier doit être un UUID valide.
+ * node_identifier doit être un UUID valide.
  * x et y doivent être des nombres finis.
  * updated_at doit respecter le format UTC YYYY-MM-DDTHH:MM:SSZ.
  *
- * @param entity_identifier UUID de l'entité.
+ * @param node_identifier UUID du nœud (entité ou relation).
  * @param x Coordonnée horizontale logique.
  * @param y Coordonnée verticale logique.
  * @param updated_at Date UTC de dernière modification.
@@ -55,7 +55,7 @@ GQuark graph_node_position_error_quark(void);
  * @return Nouvelle position, ou NULL lorsque les données sont invalides.
  */
 GraphNodePosition *graph_node_position_new(
-    const char *entity_identifier,
+    const char *node_identifier,
     double x,
     double y,
     const char *updated_at,
@@ -74,7 +74,7 @@ void graph_node_position_free(
 );
 
 /**
- * @brief Retourne l'UUID de l'entité.
+ * @brief Retourne l'UUID du nœud (entité ou relation).
  *
  * La chaîne retournée appartient au modèle.
  *
@@ -82,7 +82,7 @@ void graph_node_position_free(
  *
  * @return UUID emprunté, ou NULL.
  */
-const char *graph_node_position_get_entity_identifier(
+const char *graph_node_position_get_node_identifier(
     const GraphNodePosition *position
 );
 

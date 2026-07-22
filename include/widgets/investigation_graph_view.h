@@ -47,16 +47,16 @@ typedef void (*InvestigationGraphViewSelectionCallback)(
  * @brief Callback appelé après le déplacement effectif d'un nœud.
  *
  * Les coordonnées sont exprimées dans l'espace logique du graphe.
- * entity_identifier est emprunté au modèle et reste valable uniquement
+ * node_identifier est emprunté au modèle et reste valable uniquement
  * pendant l'appel.
  *
- * @param entity_identifier UUID de l'entité déplacée.
+ * @param node_identifier UUID du nœud déplacé (entité ou relation).
  * @param x Coordonnée horizontale logique du coin supérieur gauche.
  * @param y Coordonnée verticale logique du coin supérieur gauche.
  * @param user_data Données empruntées fournies par l'appelant.
  */
 typedef void (*InvestigationGraphViewNodeMovedCallback)(
-    const char *entity_identifier,
+    const char *node_identifier,
     double x,
     double y,
     gpointer user_data

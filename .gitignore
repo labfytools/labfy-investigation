@@ -1,6 +1,7 @@
 # Build
 labfy-investigation
 *.o
+*.d
 
 # Executables de tests
 /tests/test_*

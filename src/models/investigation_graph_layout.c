@@ -8,7 +8,7 @@
 #include <math.h>
 
 /**
- * @brief Coordonnées privées associées à une entité.
+ * @brief Coordonnées privées associées à un nœud.
  */
 typedef struct
 {
@@ -22,7 +22,7 @@ typedef struct
  */
 struct InvestigationGraphLayout
 {
-    GHashTable *positions_by_entity_identifier;
+    GHashTable *positions_by_node_identifier;
 };
 
 /**
@@ -48,16 +48,16 @@ static void investigation_graph_layout_set_error_literal(
 }
 
 /**
- * @brief Vérifie un identifiant d'entité.
+ * @brief Vérifie un identifiant de nœud.
  */
 static gboolean investigation_graph_layout_identifier_is_valid(
-    const char *entity_identifier
+    const char *node_identifier
 )
 {
-    return entity_identifier != NULL &&
-           entity_identifier[0] != '\0' &&
+    return node_identifier != NULL &&
+           node_identifier[0] != '\0' &&
            g_uuid_string_is_valid(
-               entity_identifier
+               node_identifier
            );
 }
 
@@ -84,7 +84,7 @@ InvestigationGraphLayout *investigation_graph_layout_new(void)
         return NULL;
     }
 
-    layout->positions_by_entity_identifier =
+    layout->positions_by_node_identifier =
         g_hash_table_new_full(
             g_str_hash,
             g_str_equal,
@@ -92,7 +92,7 @@ InvestigationGraphLayout *investigation_graph_layout_new(void)
             g_free
         );
 
-    if (layout->positions_by_entity_identifier == NULL)
+    if (layout->positions_by_node_identifier == NULL)
     {
         investigation_graph_layout_free(
             layout
@@ -106,7 +106,7 @@ InvestigationGraphLayout *investigation_graph_layout_new(void)
 
 gboolean investigation_graph_layout_set_position(
     InvestigationGraphLayout *layout,
-    const char *entity_identifier,
+    const char *node_identifier,
     double x,
     double y,
     GError **error
@@ -115,7 +115,7 @@ gboolean investigation_graph_layout_set_position(
     InvestigationGraphLayoutPosition *position =
         NULL;
 
-    char *entity_identifier_copy =
+    char *node_identifier_copy =
         NULL;
 
     g_return_val_if_fail(
@@ -124,7 +124,7 @@ gboolean investigation_graph_layout_set_position(
     );
 
     if (layout == NULL ||
-        layout->positions_by_entity_identifier == NULL)
+        layout->positions_by_node_identifier == NULL)
     {
         investigation_graph_layout_set_error_literal(
             error,
@@ -136,13 +136,13 @@ gboolean investigation_graph_layout_set_position(
     }
 
     if (!investigation_graph_layout_identifier_is_valid(
-            entity_identifier
+            node_identifier
         ))
     {
         investigation_graph_layout_set_error_literal(
             error,
             INVESTIGATION_GRAPH_LAYOUT_ERROR_INVALID_IDENTIFIER,
-            "L'identifiant de l'entité n'est pas un UUID valide."
+            "L'identifiant du nœud n'est pas un UUID valide."
         );
 
         return FALSE;
@@ -160,9 +160,9 @@ gboolean investigation_graph_layout_set_position(
         return FALSE;
     }
 
-    entity_identifier_copy =
+    node_identifier_copy =
         g_strdup(
-            entity_identifier
+            node_identifier
         );
 
     position =
@@ -171,7 +171,7 @@ gboolean investigation_graph_layout_set_position(
             1
         );
 
-    if (entity_identifier_copy == NULL ||
+    if (node_identifier_copy == NULL ||
         position == NULL)
     {
         g_free(
@@ -179,7 +179,7 @@ gboolean investigation_graph_layout_set_position(
         );
 
         g_free(
-            entity_identifier_copy
+            node_identifier_copy
         );
 
         investigation_graph_layout_set_error_literal(
@@ -198,8 +198,8 @@ gboolean investigation_graph_layout_set_position(
         y;
 
     g_hash_table_replace(
-        layout->positions_by_entity_identifier,
-        entity_identifier_copy,
+        layout->positions_by_node_identifier,
+        node_identifier_copy,
         position
     );
 
@@ -208,7 +208,7 @@ gboolean investigation_graph_layout_set_position(
 
 gboolean investigation_graph_layout_get_position(
     const InvestigationGraphLayout *layout,
-    const char *entity_identifier,
+    const char *node_identifier,
     double *x,
     double *y
 )
@@ -217,9 +217,9 @@ gboolean investigation_graph_layout_get_position(
         NULL;
 
     if (layout == NULL ||
-        layout->positions_by_entity_identifier == NULL ||
+        layout->positions_by_node_identifier == NULL ||
         !investigation_graph_layout_identifier_is_valid(
-            entity_identifier
+            node_identifier
         ))
     {
         return FALSE;
@@ -227,8 +227,8 @@ gboolean investigation_graph_layout_get_position(
 
     position =
         g_hash_table_lookup(
-            layout->positions_by_entity_identifier,
-            entity_identifier
+            layout->positions_by_node_identifier,
+            node_identifier
         );
 
     if (position == NULL)
@@ -253,21 +253,21 @@ gboolean investigation_graph_layout_get_position(
 
 gboolean investigation_graph_layout_remove_position(
     InvestigationGraphLayout *layout,
-    const char *entity_identifier
+    const char *node_identifier
 )
 {
     if (layout == NULL ||
-        layout->positions_by_entity_identifier == NULL ||
+        layout->positions_by_node_identifier == NULL ||
         !investigation_graph_layout_identifier_is_valid(
-            entity_identifier
+            node_identifier
         ))
     {
         return FALSE;
     }
 
     return g_hash_table_remove(
-        layout->positions_by_entity_identifier,
-        entity_identifier
+        layout->positions_by_node_identifier,
+        node_identifier
     );
 }
 
@@ -276,13 +276,13 @@ void investigation_graph_layout_clear(
 )
 {
     if (layout == NULL ||
-        layout->positions_by_entity_identifier == NULL)
+        layout->positions_by_node_identifier == NULL)
     {
         return;
     }
 
     g_hash_table_remove_all(
-        layout->positions_by_entity_identifier
+        layout->positions_by_node_identifier
     );
 }
 
@@ -291,13 +291,13 @@ guint investigation_graph_layout_get_count(
 )
 {
     if (layout == NULL ||
-        layout->positions_by_entity_identifier == NULL)
+        layout->positions_by_node_identifier == NULL)
     {
         return 0U;
     }
 
     return g_hash_table_size(
-        layout->positions_by_entity_identifier
+        layout->positions_by_node_identifier
     );
 }
 
@@ -311,7 +311,7 @@ void investigation_graph_layout_free(
     }
 
     g_clear_pointer(
-        &layout->positions_by_entity_identifier,
+        &layout->positions_by_node_identifier,
         g_hash_table_unref
     );
 

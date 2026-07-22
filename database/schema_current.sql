@@ -57,3 +57,45 @@ CREATE TABLE IF NOT EXISTS graph_node_positions
         length(trim(updated_at)) > 0
     )
 );
+
+/*
+ * Disposition générique du graphe.
+ *
+ * Contrairement à graph_node_positions, cette table accepte aussi les UUID
+ * des relations. L'ancienne table reste présente pour assurer la compatibilité
+ * avec les enquêtes créées avant l'introduction des nœuds de relation.
+ */
+CREATE TABLE IF NOT EXISTS graph_layout_positions
+(
+    node_id    TEXT PRIMARY KEY,
+    x          REAL NOT NULL,
+    y          REAL NOT NULL,
+    updated_at TEXT NOT NULL,
+
+    CHECK (length(trim(node_id)) > 0),
+    CHECK (length(updated_at) = 20)
+);
+
+/* Migration idempotente des positions d'entités déjà enregistrées. */
+INSERT OR IGNORE INTO graph_layout_positions(node_id, x, y, updated_at)
+SELECT entity_id, x, y, updated_at
+FROM graph_node_positions;
+
+/* Évite qu'une réinitialisation future ne réimporte des coordonnées obsolètes. */
+DELETE FROM graph_node_positions;
+
+/* Une clé étrangère polymorphe n'existe pas dans SQLite : ces triggers
+ * suppriment donc les positions devenues orphelines. */
+CREATE TRIGGER IF NOT EXISTS graph_layout_positions_delete_entity
+AFTER DELETE ON entites
+FOR EACH ROW
+BEGIN
+    DELETE FROM graph_layout_positions WHERE node_id = OLD.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS graph_layout_positions_delete_relation
+AFTER DELETE ON relations
+FOR EACH ROW
+BEGIN
+    DELETE FROM graph_layout_positions WHERE node_id = OLD.id;
+END;
