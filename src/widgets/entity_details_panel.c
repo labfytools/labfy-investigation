@@ -31,6 +31,8 @@ struct EntityDetailsPanel
     GtkWidget *entity_identifier_label;
     GtkWidget *person_role_box;
     GtkDropDown *person_role_dropdown;
+    GtkSpinButton *person_confidence_spin;
+    GtkWidget *person_confidence_button;
 
     char *selected_entity_identifier;
 
@@ -46,7 +48,25 @@ struct EntityDetailsPanel
     EntityDetailsPanelPersonRoleCallback person_role_callback;
     gpointer person_role_user_data;
     gboolean updating_person_role;
+    EntityDetailsPanelPersonConfidenceCallback person_confidence_callback;
+    gpointer person_confidence_user_data;
 };
+
+/** @brief Relaie la confiance explicitement enregistrée par l'utilisateur. */
+static void entity_details_panel_on_person_confidence_clicked(
+    GtkButton *button, gpointer user_data)
+{
+    EntityDetailsPanel *details_panel = user_data;
+    (void) button;
+    if (details_panel == NULL ||
+        details_panel->person_confidence_callback == NULL ||
+        details_panel->selected_entity_identifier == NULL) return;
+    details_panel->person_confidence_callback(
+        details_panel->selected_entity_identifier,
+        gtk_spin_button_get_value_as_int(
+            details_panel->person_confidence_spin),
+        details_panel->person_confidence_user_data);
+}
 
 /** @brief Relaie une catégorie choisie explicitement par l'utilisateur. */
 static void entity_details_panel_on_person_role_changed(GObject *object,
@@ -734,9 +754,22 @@ EntityDetailsPanel *entity_details_panel_new(void)
         gtk_label_new("Catégorie dans l’enquête"));
     gtk_box_append(GTK_BOX(details_panel->person_role_box),
         GTK_WIDGET(details_panel->person_role_dropdown));
+    details_panel->person_confidence_spin = GTK_SPIN_BUTTON(
+        gtk_spin_button_new_with_range(0.0, 100.0, 1.0));
+    details_panel->person_confidence_button = gtk_button_new_with_label(
+        "Enregistrer la confiance");
+    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+        gtk_label_new("Niveau de confiance (%)"));
+    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+        GTK_WIDGET(details_panel->person_confidence_spin));
+    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+        details_panel->person_confidence_button);
     gtk_box_append(GTK_BOX(details_box), details_panel->person_role_box);
     g_signal_connect(details_panel->person_role_dropdown, "notify::selected",
         G_CALLBACK(entity_details_panel_on_person_role_changed), details_panel);
+    g_signal_connect(details_panel->person_confidence_button, "clicked",
+        G_CALLBACK(entity_details_panel_on_person_confidence_clicked),
+        details_panel);
 
     if (details_panel->entity_value_label == NULL ||
         details_panel->entity_type_label == NULL ||
@@ -861,6 +894,8 @@ void entity_details_panel_set_entity(
     details_panel->updating_person_role = TRUE;
     gtk_drop_down_set_selected(details_panel->person_role_dropdown,
         (guint) entity_record_get_person_role(entity_record));
+    gtk_spin_button_set_value(details_panel->person_confidence_spin,
+        entity_record_get_confidence(entity_record));
     details_panel->updating_person_role = FALSE;
 
     entity_details_panel_update_add_relation_button(
@@ -1115,6 +1150,15 @@ void entity_details_panel_set_person_role_callback(
     if (details_panel == NULL) return;
     details_panel->person_role_callback = callback;
     details_panel->person_role_user_data = user_data;
+}
+
+void entity_details_panel_set_person_confidence_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelPersonConfidenceCallback callback, gpointer user_data)
+{
+    if (details_panel == NULL) return;
+    details_panel->person_confidence_callback = callback;
+    details_panel->person_confidence_user_data = user_data;
 }
 
 gboolean entity_details_panel_is_open(

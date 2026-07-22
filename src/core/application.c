@@ -5004,6 +5004,35 @@ static void application_on_person_role_changed(const char *entity_identifier,
         investigation_project_get_database_path(project));
 }
 
+/** @brief Enregistre la confiance choisie dans la fiche personne. */
+static void application_on_person_confidence_changed(
+    const char *entity_identifier, gint confidence, gpointer user_data)
+{
+    Application *application = user_data;
+    Database *database = NULL;
+    const InvestigationProject *project = NULL;
+    GError *error = NULL;
+    if (application == NULL || application->session == NULL) return;
+    database = investigation_session_get_database(application->session);
+    project = investigation_session_get_project(application->session);
+    if (!person_entity_service_update_confidence(database, entity_identifier,
+            confidence, &error))
+    {
+        application_present_error(application, "Confiance non enregistrée",
+            error != NULL ? error->message :
+            "Impossible de modifier la confiance de cette personne.");
+        g_clear_error(&error);
+        return;
+    }
+    g_free(application->pending_entity_selection_identifier);
+    application->pending_entity_selection_identifier =
+        g_strdup(entity_identifier);
+    main_window_set_status(application->main_window,
+        "Confiance enregistrée. Actualisation du graphe…");
+    application_start_graph_loading(application,
+        investigation_project_get_database_path(project));
+}
+
 /** @brief Libère le contexte d'édition d'une relation. */
 static void application_edit_relation_context_free(
     ApplicationEditRelationContext *context)
@@ -6674,6 +6703,8 @@ static void application_on_activate(
         application_on_relation_selected, application);
     main_window_set_person_role_callback(application->main_window,
         application_on_person_role_changed, application);
+    main_window_set_person_confidence_callback(application->main_window,
+        application_on_person_confidence_changed, application);
 
     main_window_set_osint_action_callback(
         application->main_window,

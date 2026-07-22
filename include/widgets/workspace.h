@@ -94,6 +94,9 @@ typedef void (*WorkspaceRelationSelectedCallback)(
 /** @brief Callback appelé pour catégoriser une personne. */
 typedef void (*WorkspacePersonRoleCallback)(const char *entity_identifier,
     PersonRole role, gpointer user_data);
+/** @brief Callback appelé pour modifier la confiance d'une personne. */
+typedef void (*WorkspacePersonConfidenceCallback)(
+    const char *entity_identifier, gint confidence, gpointer user_data);
 
 /**
  * @brief Callback appelé lors du déclenchement d'une action OSINT.
@@ -348,6 +351,9 @@ void workspace_set_relation_evidences(
 /** @brief Définit le callback de catégorisation d'une personne. */
 void workspace_set_person_role_callback(Workspace *workspace,
     WorkspacePersonRoleCallback callback, gpointer user_data);
+/** @brief Définit le callback de confiance d'une personne. */
+void workspace_set_person_confidence_callback(Workspace *workspace,
+    WorkspacePersonConfidenceCallback callback, gpointer user_data);
 
 /**
  * @brief Affiche l'état de chargement du graphe.

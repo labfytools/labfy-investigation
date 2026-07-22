@@ -32,5 +32,15 @@ gboolean person_entity_service_create(Database *database,
 /** @brief Enregistre le rôle d'une personne existante. */
 gboolean person_entity_service_update_role(Database *database,
     const char *entity_identifier, PersonRole role, GError **error);
+/**
+ * @brief Enregistre le niveau de confiance d'une personne existante.
+ * @param database Connexion ouverte empruntée.
+ * @param entity_identifier UUID de la personne.
+ * @param confidence Valeur comprise entre 0 et 100.
+ * @param error Destination facultative d'une erreur.
+ * @return TRUE lorsque la modification est validée.
+ */
+gboolean person_entity_service_update_confidence(Database *database,
+    const char *entity_identifier, gint confidence, GError **error);
 G_END_DECLS
 #endif

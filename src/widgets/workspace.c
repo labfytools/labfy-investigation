@@ -136,6 +136,8 @@ struct Workspace
     gpointer edit_relation_user_data;
     WorkspacePersonRoleCallback person_role_callback;
     gpointer person_role_user_data;
+    WorkspacePersonConfidenceCallback person_confidence_callback;
+    gpointer person_confidence_user_data;
 
     WorkspaceOsintActionCallback
         osint_action_callback;
@@ -880,6 +882,16 @@ static void workspace_on_person_role_changed(const char *entity_identifier,
     if (workspace != NULL && workspace->person_role_callback != NULL)
         workspace->person_role_callback(entity_identifier, role,
             workspace->person_role_user_data);
+}
+
+/** @brief Relaie la modification de confiance d'une personne. */
+static void workspace_on_person_confidence_changed(
+    const char *entity_identifier, gint confidence, gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    if (workspace != NULL && workspace->person_confidence_callback != NULL)
+        workspace->person_confidence_callback(entity_identifier, confidence,
+            workspace->person_confidence_user_data);
 }
 
 /**
@@ -1801,6 +1813,9 @@ Workspace *workspace_new(void)
     entity_details_panel_set_person_role_callback(
         workspace->entity_details_panel, workspace_on_person_role_changed,
         workspace);
+    entity_details_panel_set_person_confidence_callback(
+        workspace->entity_details_panel,
+        workspace_on_person_confidence_changed, workspace);
 
     gtk_overlay_set_child(
         GTK_OVERLAY(
@@ -3256,6 +3271,14 @@ void workspace_set_person_role_callback(Workspace *workspace,
     if (workspace == NULL) return;
     workspace->person_role_callback = callback;
     workspace->person_role_user_data = user_data;
+}
+
+void workspace_set_person_confidence_callback(Workspace *workspace,
+    WorkspacePersonConfidenceCallback callback, gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->person_confidence_callback = callback;
+    workspace->person_confidence_user_data = user_data;
 }
 
 void workspace_reset_graph_layout(

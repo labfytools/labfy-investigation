@@ -133,6 +133,8 @@ struct MainWindow
     gpointer edit_relation_user_data;
     MainWindowPersonRoleCallback person_role_callback;
     gpointer person_role_user_data;
+    MainWindowPersonConfidenceCallback person_confidence_callback;
+    gpointer person_confidence_user_data;
 
     MainWindowOsintActionCallback
         osint_action_callback;
@@ -538,6 +540,17 @@ static void main_window_on_person_role_changed(const char *entity_identifier,
             main_window->person_role_user_data);
 }
 
+/** @brief Relaie la modification de confiance d'une personne. */
+static void main_window_on_person_confidence_changed(
+    const char *entity_identifier, gint confidence, gpointer user_data)
+{
+    MainWindow *main_window = user_data;
+    if (main_window != NULL &&
+        main_window->person_confidence_callback != NULL)
+        main_window->person_confidence_callback(entity_identifier, confidence,
+            main_window->person_confidence_user_data);
+}
+
 /**
  * @brief Relaie la demande de vérification provenant du Workspace.
  */
@@ -880,6 +893,8 @@ MainWindow *main_window_new(
         main_window_on_edit_relation_requested, main_window);
     workspace_set_person_role_callback(main_window->workspace,
         main_window_on_person_role_changed, main_window);
+    workspace_set_person_confidence_callback(main_window->workspace,
+        main_window_on_person_confidence_changed, main_window);
 
     workspace_set_osint_action_callback(
         main_window->workspace,
@@ -1693,6 +1708,14 @@ void main_window_set_person_role_callback(MainWindow *main_window,
     if (main_window == NULL) return;
     main_window->person_role_callback = callback;
     main_window->person_role_user_data = user_data;
+}
+
+void main_window_set_person_confidence_callback(MainWindow *main_window,
+    MainWindowPersonConfidenceCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->person_confidence_callback = callback;
+    main_window->person_confidence_user_data = user_data;
 }
 
 void main_window_set_quit_callback(

@@ -152,6 +152,9 @@ typedef void (*MainWindowRelationSelectedCallback)(
 /** @brief Callback appelé pour catégoriser une personne. */
 typedef void (*MainWindowPersonRoleCallback)(const char *entity_identifier,
     PersonRole role, gpointer user_data);
+/** @brief Callback appelé pour modifier la confiance d'une personne. */
+typedef void (*MainWindowPersonConfidenceCallback)(
+    const char *entity_identifier, gint confidence, gpointer user_data);
 
 /**
  * @brief Callback appelé lors du déclenchement d'une action OSINT.
@@ -266,6 +269,9 @@ void main_window_set_relation_evidences(
 /** @brief Définit le callback de catégorisation d'une personne. */
 void main_window_set_person_role_callback(MainWindow *main_window,
     MainWindowPersonRoleCallback callback, gpointer user_data);
+/** @brief Définit le callback de confiance d'une personne. */
+void main_window_set_person_confidence_callback(MainWindow *main_window,
+    MainWindowPersonConfidenceCallback callback, gpointer user_data);
 
 /**
  * @brief Définit le callback de déclenchement des actions OSINT.

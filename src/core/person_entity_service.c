@@ -17,6 +17,68 @@ static gboolean person_entity_service_status_valid(const char *status)
         g_strcmp0(status, "confirmed") == 0;
 }
 
+gboolean person_entity_service_update_confidence(Database *database,
+    const char *entity_identifier, gint confidence, GError **error)
+{
+    static const char validate_sql[] =
+        "SELECT 1 FROM entites e JOIN types_entite t ON t.id=e.type_id "
+        "WHERE e.id=? AND t.code='person';";
+    static const char sql[] =
+        "UPDATE entites SET confiance=?, updated_at=? WHERE id=? AND "
+        "type_id=(SELECT id FROM types_entite WHERE code='person');";
+    DatabaseStatement *statement = NULL;
+    GDateTime *now = NULL;
+    char *timestamp = NULL;
+    gboolean active = FALSE, success = FALSE;
+    g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+    if (database == NULL || entity_identifier == NULL ||
+        !g_uuid_string_is_valid(entity_identifier) || confidence < 0 ||
+        confidence > 100)
+    {
+        g_set_error_literal(error, g_quark_from_static_string(
+            "person-entity-service-error"), 4,
+            "La personne ou le niveau de confiance est invalide.");
+        return FALSE;
+    }
+    statement = database_statement_prepare(database, validate_sql);
+    if (statement == NULL || !database_statement_bind_text(statement, 1,
+            entity_identifier) || database_statement_step(statement) !=
+            DATABASE_STATEMENT_STEP_ROW)
+    {
+        database_statement_finalize(statement);
+        g_set_error_literal(error, g_quark_from_static_string(
+            "person-entity-service-error"), 4,
+            "La personne sélectionnée n'existe pas.");
+        return FALSE;
+    }
+    database_statement_finalize(statement); statement = NULL;
+    now = g_date_time_new_now_utc();
+    timestamp = now != NULL ? g_date_time_format(now,
+        "%Y-%m-%dT%H:%M:%SZ") : NULL;
+    if (timestamp == NULL || !database_transaction_begin(database))
+        goto cleanup;
+    active = TRUE;
+    statement = database_statement_prepare(database, sql);
+    if (statement == NULL ||
+        !database_statement_bind_int64(statement, 1, confidence) ||
+        !database_statement_bind_text(statement, 2, timestamp) ||
+        !database_statement_bind_text(statement, 3, entity_identifier) ||
+        database_statement_step(statement) != DATABASE_STATEMENT_STEP_DONE)
+        goto cleanup;
+    database_statement_finalize(statement); statement = NULL;
+    if (!database_transaction_commit(database)) goto cleanup;
+    active = FALSE; success = TRUE;
+cleanup:
+    database_statement_finalize(statement);
+    if (!success && active) database_transaction_rollback(database);
+    if (!success && error != NULL && *error == NULL)
+        g_set_error_literal(error, g_quark_from_static_string(
+            "person-entity-service-error"), 5,
+            "Le niveau de confiance n'a pas pu être enregistré.");
+    g_free(timestamp); g_clear_pointer(&now, g_date_time_unref);
+    return success;
+}
+
 gboolean person_entity_service_update_role(Database *database,
     const char *entity_identifier, PersonRole role, GError **error)
 {

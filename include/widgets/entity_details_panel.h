@@ -53,6 +53,13 @@ typedef void (*EntityDetailsPanelPersonRoleCallback)(
     gpointer user_data
 );
 
+/** @brief Callback appelé pour enregistrer la confiance d'une personne. */
+typedef void (*EntityDetailsPanelPersonConfidenceCallback)(
+    const char *entity_identifier,
+    gint confidence,
+    gpointer user_data
+);
+
 /**
  * @brief Crée un volet de détails fermé.
  *
@@ -132,6 +139,19 @@ void entity_details_panel_set_add_relation_callback(
 void entity_details_panel_set_person_role_callback(
     EntityDetailsPanel *details_panel,
     EntityDetailsPanelPersonRoleCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de modification de la confiance d'une personne.
+ *
+ * @param details_panel Volet à configurer.
+ * @param callback Callback à appeler, ou NULL.
+ * @param user_data Données empruntées du callback.
+ */
+void entity_details_panel_set_person_confidence_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelPersonConfidenceCallback callback,
     gpointer user_data
 );
 
