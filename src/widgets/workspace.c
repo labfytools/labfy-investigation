@@ -2045,6 +2045,22 @@ void workspace_set_selected_evidence(
     );
 }
 
+gboolean workspace_select_graph_entity(
+    Workspace *workspace,
+    const char *entity_identifier
+)
+{
+    if (workspace == NULL || workspace->graph_view == NULL)
+    {
+        return FALSE;
+    }
+
+    return investigation_graph_view_select_entity(
+        workspace->graph_view,
+        entity_identifier
+    );
+}
+
 void workspace_set_graph_loading(
     Workspace *workspace
 )

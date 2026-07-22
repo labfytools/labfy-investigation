@@ -9,6 +9,7 @@
 #include "core/investigation_tree_model.h"
 #include "widgets/investigation_tree_view.h"
 #include "widgets/evidence_category_model.h"
+#include "models/investigation_graph_model.h"
 
 #include <gtk/gtk.h>
 
@@ -31,6 +32,20 @@ typedef struct Sidebar Sidebar;
  */
 typedef void (*SidebarEvidenceSelectionCallback)(
     const char *evidence_identifier,
+    gpointer user_data
+);
+
+/**
+ * @brief Callback appelé lorsqu'une entité est sélectionnée.
+ *
+ * L'identifiant est emprunté et valide uniquement pendant l'appel.
+ * Une sélection vide transmet NULL.
+ *
+ * @param entity_identifier UUID de l'entité, ou NULL.
+ * @param user_data Données privées fournies par l'appelant.
+ */
+typedef void (*SidebarEntitySelectionCallback)(
+    const char *entity_identifier,
     gpointer user_data
 );
 
@@ -110,6 +125,32 @@ void sidebar_set_evidence_model(
 void sidebar_set_evidence_selection_callback(
     Sidebar *sidebar,
     SidebarEvidenceSelectionCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Installe les entités du graphe dans la barre latérale.
+ *
+ * La Sidebar emprunte graph_model. Passer NULL vide la liste.
+ *
+ * @param sidebar Barre latérale à actualiser.
+ * @param graph_model Graphe emprunté, ou NULL.
+ */
+void sidebar_set_entity_model(
+    Sidebar *sidebar,
+    const InvestigationGraphModel *graph_model
+);
+
+/**
+ * @brief Définit le callback de sélection d'une entité.
+ *
+ * @param sidebar Barre latérale à configurer.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void sidebar_set_entity_selection_callback(
+    Sidebar *sidebar,
+    SidebarEntitySelectionCallback callback,
     gpointer user_data
 );
 

@@ -184,6 +184,21 @@ const EntityRecord *investigation_graph_view_get_selected_entity(
 );
 
 /**
+ * @brief Sélectionne une entité du graphe par son UUID.
+ *
+ * La vue reste inchangée si l'identifiant est absent du graphe.
+ *
+ * @param graph_view Vue graphique à modifier.
+ * @param entity_identifier UUID de l'entité.
+ *
+ * @return TRUE lorsque l'entité est trouvée et sélectionnée.
+ */
+gboolean investigation_graph_view_select_entity(
+    InvestigationGraphView *graph_view,
+    const char *entity_identifier
+);
+
+/**
  * @brief Supprime la sélection courante.
  *
  * Le callback reçoit NULL seulement si une sélection existait.

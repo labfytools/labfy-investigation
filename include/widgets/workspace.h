@@ -128,6 +128,21 @@ void workspace_set_selected_evidence(
 );
 
 /**
+ * @brief Sélectionne une entité dans le graphe affiché.
+ *
+ * La sélection actualise également le volet de détails et le contexte OSINT.
+ *
+ * @param workspace Zone de travail.
+ * @param entity_identifier UUID de l'entité à sélectionner.
+ *
+ * @return TRUE lorsque l'entité est trouvée et sélectionnée.
+ */
+gboolean workspace_select_graph_entity(
+    Workspace *workspace,
+    const char *entity_identifier
+);
+
+/**
  * @brief Définit le callback de vérification de la preuve affichée.
  *
  * Le Workspace emprunte callback et user_data.

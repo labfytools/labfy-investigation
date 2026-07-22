@@ -126,6 +126,29 @@ struct MainWindow
 };
 
 /**
+ * @brief Ouvre dans le workspace l'entité choisie dans la sidebar.
+ */
+static void main_window_on_sidebar_entity_selected(
+    const char *entity_identifier,
+    gpointer user_data
+)
+{
+    MainWindow *main_window = user_data;
+
+    if (main_window == NULL ||
+        entity_identifier == NULL ||
+        entity_identifier[0] == '\0')
+    {
+        return;
+    }
+
+    workspace_select_graph_entity(
+        main_window->workspace,
+        entity_identifier
+    );
+}
+
+/**
  * @brief Transmet la demande de création d'une enquête au contrôleur.
  *
  * @param button Bouton ayant reçu le clic.
@@ -663,6 +686,12 @@ MainWindow *main_window_new(
         return NULL;
     }
 
+    sidebar_set_entity_selection_callback(
+        main_window->sidebar,
+        main_window_on_sidebar_entity_selected,
+        main_window
+    );
+
     workspace_set_verify_evidence_callback(
         main_window->workspace,
         main_window_on_verify_evidence_requested,
@@ -1040,6 +1069,11 @@ void main_window_set_graph_loading(
         FALSE
     );
 
+    sidebar_set_entity_model(
+        main_window->sidebar,
+        NULL
+    );
+
     workspace_set_graph_loading(
         main_window->workspace
     );
@@ -1060,6 +1094,11 @@ void main_window_set_graph(
         main_window->workspace,
         graph_model,
         graph_layout
+    );
+
+    sidebar_set_entity_model(
+        main_window->sidebar,
+        graph_model
     );
 
     gtk_widget_set_sensitive(
@@ -1083,6 +1122,11 @@ void main_window_set_graph_error(
         FALSE
     );
 
+    sidebar_set_entity_model(
+        main_window->sidebar,
+        NULL
+    );
+
     workspace_set_graph_error(
         main_window->workspace,
         message
@@ -1101,6 +1145,11 @@ void main_window_clear_graph(
     gtk_widget_set_sensitive(
         main_window->show_graph_button,
         FALSE
+    );
+
+    sidebar_set_entity_model(
+        main_window->sidebar,
+        NULL
     );
 
     workspace_clear_graph(
@@ -1436,6 +1485,17 @@ void main_window_free(
             main_window->sidebar,
             NULL
         );
+
+        sidebar_set_entity_selection_callback(
+            main_window->sidebar,
+            NULL,
+            NULL
+        );
+
+        sidebar_set_entity_model(
+            main_window->sidebar,
+            NULL
+        );
     }
 
     /*
@@ -1526,4 +1586,3 @@ void main_window_free(
         main_window
     );
 }
-

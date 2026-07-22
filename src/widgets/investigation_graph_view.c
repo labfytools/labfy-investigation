@@ -4257,6 +4257,40 @@ const EntityRecord *investigation_graph_view_get_selected_entity(
     return graph_view->selected_node->entity_record;
 }
 
+gboolean investigation_graph_view_select_entity(
+    InvestigationGraphView *graph_view,
+    const char *entity_identifier
+)
+{
+    InvestigationGraphNodeLayout *node_layout = NULL;
+
+    if (graph_view == NULL ||
+        graph_view->node_layouts_by_identifier == NULL ||
+        entity_identifier == NULL ||
+        !g_uuid_string_is_valid(entity_identifier))
+    {
+        return FALSE;
+    }
+
+    node_layout = g_hash_table_lookup(
+        graph_view->node_layouts_by_identifier,
+        entity_identifier
+    );
+
+    if (node_layout == NULL ||
+        node_layout->kind != INVESTIGATION_GRAPH_NODE_KIND_ENTITY)
+    {
+        return FALSE;
+    }
+
+    investigation_graph_view_set_selected_node(
+        graph_view,
+        node_layout
+    );
+
+    return TRUE;
+}
+
 void investigation_graph_view_clear_selection(
     InvestigationGraphView *graph_view
 )

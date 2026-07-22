@@ -130,6 +130,7 @@ Le socle actuel comprend notamment :
 - arborescence des fichiers ;
 - fenêtre principale GTK4 ;
 - barre latérale et espace de travail ;
+- navigation et recherche locale des entités dans la barre latérale ;
 - affichage graphique des erreurs ;
 - tâches asynchrones annulables ;
 - gestionnaire de tâches ;
