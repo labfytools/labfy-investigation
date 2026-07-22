@@ -58,6 +58,7 @@ struct Sidebar
     GtkWidget *root_widget;
     GtkWidget *title_label;
 
+    GtkWidget *page_switcher_scrolled_window;
     GtkWidget *page_switcher;
     GtkWidget *stack;
 
@@ -353,7 +354,11 @@ Sidebar *sidebar_new(void)
     sidebar->page_switcher =
         gtk_stack_switcher_new();
 
-    if (sidebar->page_switcher == NULL)
+    sidebar->page_switcher_scrolled_window =
+        gtk_scrolled_window_new();
+
+    if (sidebar->page_switcher == NULL ||
+        sidebar->page_switcher_scrolled_window == NULL)
     {
         sidebar_free(
             sidebar
@@ -372,27 +377,75 @@ Sidebar *sidebar_new(void)
     );
 
     gtk_widget_set_hexpand(
-        sidebar->page_switcher,
+        sidebar->page_switcher_scrolled_window,
         TRUE
     );
 
     gtk_widget_set_halign(
         sidebar->page_switcher,
-        GTK_ALIGN_CENTER
-    );
-
-    gtk_widget_set_margin_start(
-        sidebar->page_switcher,
-        8
-    );
-
-    gtk_widget_set_margin_end(
-        sidebar->page_switcher,
-        8
+        GTK_ALIGN_START
     );
 
     gtk_widget_set_margin_bottom(
         sidebar->page_switcher,
+        12
+    );
+
+    gtk_scrolled_window_set_min_content_height(
+        GTK_SCROLLED_WINDOW(
+            sidebar->page_switcher_scrolled_window
+        ),
+        48
+    );
+
+    gtk_scrolled_window_set_policy(
+        GTK_SCROLLED_WINDOW(
+            sidebar->page_switcher_scrolled_window
+        ),
+        GTK_POLICY_AUTOMATIC,
+        GTK_POLICY_NEVER
+    );
+
+    gtk_scrolled_window_set_has_frame(
+        GTK_SCROLLED_WINDOW(
+            sidebar->page_switcher_scrolled_window
+        ),
+        FALSE
+    );
+
+    gtk_scrolled_window_set_overlay_scrolling(
+        GTK_SCROLLED_WINDOW(
+            sidebar->page_switcher_scrolled_window
+        ),
+        FALSE
+    );
+
+    gtk_scrolled_window_set_placement(
+        GTK_SCROLLED_WINDOW(
+            sidebar->page_switcher_scrolled_window
+        ),
+        GTK_CORNER_TOP_LEFT
+    );
+
+    gtk_scrolled_window_set_child(
+        GTK_SCROLLED_WINDOW(
+            sidebar->page_switcher_scrolled_window
+        ),
+        sidebar->page_switcher
+    );
+
+    gtk_widget_set_margin_start(
+        sidebar->page_switcher_scrolled_window,
+        8
+    );
+
+    gtk_widget_set_margin_end(
+        sidebar->page_switcher_scrolled_window,
+        8
+    );
+
+    gtk_widget_set_margin_bottom(
+        sidebar->page_switcher_scrolled_window,
         8
     );
 
@@ -400,7 +453,7 @@ Sidebar *sidebar_new(void)
         GTK_BOX(
             sidebar->root_widget
         ),
-        sidebar->page_switcher
+        sidebar->page_switcher_scrolled_window
     );
 
     /*
