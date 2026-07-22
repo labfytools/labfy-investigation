@@ -122,6 +122,19 @@ typedef void (*MainWindowAddRelationCallback)(
 );
 
 /**
+ * @brief Callback appelé lors du déclenchement d'une action OSINT.
+ *
+ * @param action_identifier Identifiant stable de l'action.
+ * @param target_value Valeur métier ciblée.
+ * @param user_data Données privées fournies par l'appelant.
+ */
+typedef void (*MainWindowOsintActionCallback)(
+    const char *action_identifier,
+    const char *target_value,
+    gpointer user_data
+);
+
+/**
  * @brief Définit le callback de vérification d'une preuve.
  *
  * MainWindow relaie la demande provenant du Workspace.
@@ -178,6 +191,21 @@ void main_window_set_reset_graph_layout_callback(
 void main_window_set_add_relation_callback(
     MainWindow *main_window,
     MainWindowAddRelationCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de déclenchement des actions OSINT.
+ *
+ * MainWindow relaie uniquement la demande provenant du Workspace.
+ *
+ * @param main_window Fenêtre principale.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void main_window_set_osint_action_callback(
+    MainWindow *main_window,
+    MainWindowOsintActionCallback callback,
     gpointer user_data
 );
 

@@ -13,6 +13,7 @@
 #include "models/investigation_graph_layout.h"
 #include "models/investigation_graph_model.h"
 #include "models/investigation_record.h"
+#include "models/osint_dns_query.h"
 #include "core/investigation_tree_builder.h"
 #include "views/create_investigation_dialog.h"
 #include "views/folder_dialog.h"
@@ -21,6 +22,7 @@
 #include "core/task_manager.h"
 #include "core/background_task.h"
 #include "core/tool_initializer.h"
+#include "core/tool_task.h"
 #include "views/file_dialog.h"
 #include "core/evidence_import_task.h"
 #include "models/evidence_record.h"
@@ -150,6 +152,33 @@ typedef struct
     char *evidence_identifier;
     char *original_name;
 } ApplicationEvidenceIntegrityContext;
+
+/**
+ * @brief Contexte conservé jusqu'à la fin d'une action OSINT.
+ */
+typedef struct
+{
+    Application *application;
+    char *target_value;
+} ApplicationOsintActionContext;
+
+/**
+ * @brief Libère le contexte d'une action OSINT.
+ */
+static void application_osint_action_context_free(
+    gpointer user_data
+)
+{
+    ApplicationOsintActionContext *context = user_data;
+
+    if (context == NULL)
+    {
+        return;
+    }
+
+    g_free(context->target_value);
+    g_free(context);
+}
 
 /**
  * @brief Libère le contexte du dialogue de métadonnées.
@@ -912,6 +941,261 @@ static void application_start_tool_initialization(
             &error
         );
     }
+}
+
+/**
+ * @brief Convertit une sortie binaire d'outil en texte UTF-8 affichable.
+ *
+ * @param bytes Octets empruntés, ou NULL.
+ *
+ * @return Nouvelle chaîne UTF-8, jamais NULL.
+ */
+static char *application_osint_output_to_utf8(
+    GBytes *bytes
+)
+{
+    gconstpointer data = NULL;
+    gsize data_size = 0;
+
+    if (bytes == NULL)
+    {
+        return g_strdup("");
+    }
+
+    data = g_bytes_get_data(bytes, &data_size);
+    if (data == NULL || data_size == 0U)
+    {
+        return g_strdup("");
+    }
+
+    return g_utf8_make_valid(data, (gssize) data_size);
+}
+
+/**
+ * @brief Présente le résultat final d'une résolution DNS.
+ */
+static void application_on_dns_lookup_completed(
+    BackgroundTask *task,
+    gpointer user_data
+)
+{
+    ApplicationOsintActionContext *context = user_data;
+    Application *application = NULL;
+    const ToolTaskResult *task_result = NULL;
+    const ToolProcessResult *process_result = NULL;
+    GBytes *stdout_bytes = NULL;
+    GBytes *stderr_bytes = NULL;
+    char *stdout_text = NULL;
+    char *stderr_text = NULL;
+    char *details = NULL;
+    char *message = NULL;
+    GError *error = NULL;
+
+    if (task == NULL || context == NULL || context->application == NULL)
+    {
+        return;
+    }
+
+    application = context->application;
+    if (application->main_window == NULL)
+    {
+        return;
+    }
+
+    if (background_task_get_state(task) != BACKGROUND_TASK_STATE_COMPLETED)
+    {
+        error = background_task_dup_error(task);
+        application_present_error(
+            application,
+            "Résolution DNS impossible",
+            error != NULL
+                ? error->message
+                : "L'exécution de dig a été annulée ou a échoué."
+        );
+        g_clear_error(&error);
+        return;
+    }
+
+    task_result = tool_task_result_from_background_task(task);
+    process_result = tool_task_result_get_process_result(task_result);
+    if (process_result == NULL)
+    {
+        application_present_error(
+            application,
+            "Résolution DNS incomplète",
+            "La tâche s'est terminée sans résultat exploitable."
+        );
+        return;
+    }
+
+    stdout_bytes = tool_process_result_ref_stdout(process_result);
+    stderr_bytes = tool_process_result_ref_stderr(process_result);
+    stdout_text = application_osint_output_to_utf8(stdout_bytes);
+    stderr_text = application_osint_output_to_utf8(stderr_bytes);
+
+    if (stdout_text != NULL && stdout_text[0] != '\0' &&
+        stderr_text != NULL && stderr_text[0] != '\0')
+    {
+        details = g_strdup_printf(
+            "Sortie standard :\n%s\n\nSortie d'erreur :\n%s",
+            stdout_text,
+            stderr_text
+        );
+    }
+    else if (stdout_text != NULL && stdout_text[0] != '\0')
+    {
+        details = g_strdup(stdout_text);
+    }
+    else if (stderr_text != NULL && stderr_text[0] != '\0')
+    {
+        details = g_strdup(stderr_text);
+    }
+    else
+    {
+        details = g_strdup("Aucun enregistrement DNS retourné.");
+    }
+
+    message = g_strdup_printf(
+        "Cible : %s — code de sortie : %d",
+        context->target_value,
+        tool_process_result_get_exit_status(process_result)
+    );
+
+    application_message_dialog_present_details(
+        main_window_get_window(application->main_window),
+        tool_process_result_is_success(process_result)
+            ? APPLICATION_MESSAGE_DIALOG_INFORMATION
+            : APPLICATION_MESSAGE_DIALOG_WARNING,
+        "Résultat de la résolution DNS",
+        message,
+        details
+    );
+
+    g_clear_pointer(&stdout_bytes, g_bytes_unref);
+    g_clear_pointer(&stderr_bytes, g_bytes_unref);
+    g_free(stdout_text);
+    g_free(stderr_text);
+    g_free(details);
+    g_free(message);
+}
+
+/**
+ * @brief Prépare et démarre une résolution DNS avec dig.
+ */
+static void application_start_dns_lookup(
+    Application *application,
+    const char *target_value
+)
+{
+    ToolRegistry *tool_registry = NULL;
+    ToolTask *tool_task = NULL;
+    BackgroundTask *background_task = NULL;
+    ApplicationOsintActionContext *context = NULL;
+    const char *arguments[] = {"+noall", "+answer", target_value, NULL};
+    GError *error = NULL;
+
+    if (application == NULL || application->task_manager == NULL ||
+        application->tool_initializer == NULL || target_value == NULL ||
+        !osint_dns_query_is_valid_target(target_value))
+    {
+        if (application != NULL)
+        {
+            application_present_error(
+                application,
+                "Résolution DNS impossible",
+                "Le nom de domaine sélectionné est invalide."
+            );
+        }
+        return;
+    }
+
+    tool_registry = tool_initializer_get_registry(application->tool_initializer);
+    tool_task = tool_task_new(
+        tool_registry,
+        "dns.dig",
+        "Résolution DNS",
+        arguments,
+        NULL,
+        &error
+    );
+
+    if (tool_task == NULL)
+    {
+        application_present_error(
+            application,
+            "Résolution DNS impossible",
+            error != NULL ? error->message : "Impossible de préparer dig."
+        );
+        g_clear_error(&error);
+        return;
+    }
+
+    context = g_try_new0(ApplicationOsintActionContext, 1);
+    if (context != NULL)
+    {
+        context->application = application;
+        context->target_value = g_strdup(target_value);
+    }
+
+    if (context == NULL || context->target_value == NULL)
+    {
+        application_osint_action_context_free(context);
+        tool_task_free(tool_task);
+        application_present_error(
+            application,
+            "Résolution DNS impossible",
+            "Impossible de conserver le contexte de l'action."
+        );
+        return;
+    }
+
+    background_task = tool_task_get_background_task(tool_task);
+    if (!task_manager_add(application->task_manager, background_task, &error) ||
+        !tool_task_start(
+            tool_task,
+            application_on_dns_lookup_completed,
+            context,
+            application_osint_action_context_free,
+            &error
+        ))
+    {
+        task_manager_remove(application->task_manager, background_task);
+        application_osint_action_context_free(context);
+        application_present_error(
+            application,
+            "Résolution DNS impossible",
+            error != NULL ? error->message : "Impossible de démarrer dig."
+        );
+        g_clear_error(&error);
+        tool_task_free(tool_task);
+        return;
+    }
+
+    tool_task_free(tool_task);
+}
+
+/**
+ * @brief Traite une action OSINT relayée par la fenêtre principale.
+ */
+static void application_on_osint_action_requested(
+    const char *action_identifier,
+    const char *target_value,
+    gpointer user_data
+)
+{
+    Application *application = user_data;
+
+    if (g_strcmp0(action_identifier, "dns-preview") == 0)
+    {
+        application_start_dns_lookup(application, target_value);
+        return;
+    }
+
+    application_present_error(
+        application,
+        "Action OSINT inconnue",
+        "Cette action n'est pas encore prise en charge."
+    );
 }
 
 /**
@@ -5099,6 +5383,12 @@ static void application_on_activate(
     main_window_set_add_relation_callback(
         application->main_window,
         application_on_add_relation_requested,
+        application
+    );
+
+    main_window_set_osint_action_callback(
+        application->main_window,
+        application_on_osint_action_requested,
         application
     );
 

@@ -144,7 +144,9 @@ Le socle actuel comprend notamment :
 - menu OSINT contextuel préparé pour les entités et relations du graphe ;
 - contexte de sélection OSINT indépendant de GTK et validé par des tests ;
 - catalogue déterministe des actions compatibles avec la sélection OSINT ;
-- disponibilité des actions OSINT synchronisée avec le registre d’outils.
+- disponibilité des actions OSINT synchronisée avec le registre d’outils ;
+- résolution DNS asynchrone avec `dig` depuis une entité domaine ;
+- affichage sélectionnable des sorties standard et d’erreur, sans persistance.
 
 Les outils actuellement présents dans le catalogue initial sont :
 

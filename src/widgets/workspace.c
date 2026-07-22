@@ -112,6 +112,12 @@ struct Workspace
     gpointer
         add_relation_user_data;
 
+    WorkspaceOsintActionCallback
+        osint_action_callback;
+
+    gpointer
+        osint_action_user_data;
+
     GtkWidget *node_name_label;
     GtkWidget *node_path_label;
     GtkWidget *node_type_label;
@@ -128,34 +134,62 @@ struct Workspace
 };
 
 /**
- * @brief Confirme localement le déclenchement de l'action de démonstration.
+ * @brief Traite localement l'aperçu ou relaie une action OSINT exécutable.
  */
-static void workspace_on_osint_demo_action_clicked(
+static void workspace_on_osint_action_clicked(
     GtkButton *button,
     gpointer user_data
 )
 {
     Workspace *workspace = user_data;
-    const char *action_label = g_object_get_data(
+    const char *action_identifier = g_object_get_data(
         G_OBJECT(button),
-        "osint-action-label"
+        "osint-action-identifier"
     );
-    char *status_text = NULL;
+    const char *target_value = NULL;
 
     if (workspace == NULL || workspace->osint_tools_status_label == NULL)
     {
         return;
     }
 
-    status_text = g_strdup_printf(
-        "%s : démonstration locale, aucun outil exécuté.",
-        action_label != NULL ? action_label : "Action OSINT"
+    if (g_strcmp0(action_identifier, "selection-preview") == 0)
+    {
+        gtk_label_set_text(
+            GTK_LABEL(workspace->osint_tools_status_label),
+            "Aperçu local : aucun outil externe exécuté."
+        );
+        return;
+    }
+
+    target_value = osint_selection_context_get_value(
+        workspace->osint_selection_context
     );
+
+    if (workspace->osint_action_callback == NULL ||
+        action_identifier == NULL || target_value == NULL)
+    {
+        gtk_label_set_text(
+            GTK_LABEL(workspace->osint_tools_status_label),
+            "Impossible de transmettre cette action OSINT."
+        );
+        return;
+    }
+
     gtk_label_set_text(
         GTK_LABEL(workspace->osint_tools_status_label),
-        status_text != NULL ? status_text : "Aucun outil exécuté."
+        "Exécution lancée ; suivez sa progression dans les tâches."
     );
-    g_free(status_text);
+
+    gtk_popover_popdown(
+        GTK_POPOVER(workspace->osint_tools_popover)
+    );
+
+    workspace->osint_action_callback(
+        action_identifier,
+        target_value,
+        workspace->osint_action_user_data
+    );
 }
 
 /**
@@ -282,15 +316,16 @@ static void workspace_update_osint_tools_menu(
                 ? osint_action_get_description(action)
                 : osint_action_get_unavailable_reason(action)
         );
-        g_object_set_data(
+        g_object_set_data_full(
             G_OBJECT(action_button),
-            "osint-action-label",
-            (gpointer) osint_action_get_label(action)
+            "osint-action-identifier",
+            g_strdup(osint_action_get_identifier(action)),
+            g_free
         );
         g_signal_connect(
             action_button,
             "clicked",
-            G_CALLBACK(workspace_on_osint_demo_action_clicked),
+            G_CALLBACK(workspace_on_osint_action_clicked),
             workspace
         );
         gtk_box_append(
@@ -2350,6 +2385,21 @@ void workspace_set_osint_tool_state(
         workspace,
         workspace->osint_selection_context
     );
+}
+
+void workspace_set_osint_action_callback(
+    Workspace *workspace,
+    WorkspaceOsintActionCallback callback,
+    gpointer user_data
+)
+{
+    if (workspace == NULL)
+    {
+        return;
+    }
+
+    workspace->osint_action_callback = callback;
+    workspace->osint_action_user_data = user_data;
 }
 
 void workspace_set_graph_loading(

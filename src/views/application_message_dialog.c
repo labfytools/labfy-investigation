@@ -355,6 +355,93 @@ void application_message_dialog_present(
     );
 }
 
+void application_message_dialog_present_details(
+    GtkWindow *parent_window,
+    ApplicationMessageDialogType message_type,
+    const char *title,
+    const char *message,
+    const char *details
+)
+{
+    GtkWindow *dialog_window = GTK_WINDOW(gtk_window_new());
+    GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    GtkWidget *title_label = gtk_label_new(
+        application_message_dialog_get_safe_title(message_type, title)
+    );
+    GtkWidget *message_label = gtk_label_new(
+        application_message_dialog_get_safe_message(message)
+    );
+    GtkWidget *scrolled_window = gtk_scrolled_window_new();
+    GtkWidget *details_view = gtk_text_view_new();
+    GtkWidget *close_button = gtk_button_new_with_label("Fermer");
+    GtkTextBuffer *details_buffer = gtk_text_view_get_buffer(
+        GTK_TEXT_VIEW(details_view)
+    );
+
+    gtk_window_set_title(
+        dialog_window,
+        application_message_dialog_get_safe_title(message_type, title)
+    );
+    gtk_window_set_default_size(dialog_window, 760, 520);
+    gtk_window_set_modal(dialog_window, TRUE);
+    gtk_window_set_destroy_with_parent(dialog_window, TRUE);
+    if (parent_window != NULL)
+    {
+        gtk_window_set_transient_for(dialog_window, parent_window);
+    }
+
+    gtk_widget_set_margin_start(main_box, 20);
+    gtk_widget_set_margin_end(main_box, 20);
+    gtk_widget_set_margin_top(main_box, 20);
+    gtk_widget_set_margin_bottom(main_box, 20);
+
+    gtk_widget_set_halign(title_label, GTK_ALIGN_START);
+    gtk_label_set_xalign(GTK_LABEL(title_label), 0.0F);
+    gtk_widget_add_css_class(title_label, "title-2");
+
+    gtk_widget_set_halign(message_label, GTK_ALIGN_FILL);
+    gtk_label_set_xalign(GTK_LABEL(message_label), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(message_label), TRUE);
+
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(details_view), FALSE);
+    gtk_text_view_set_cursor_visible(GTK_TEXT_VIEW(details_view), TRUE);
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(details_view), TRUE);
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(details_view), GTK_WRAP_NONE);
+    gtk_text_buffer_set_text(
+        details_buffer,
+        details != NULL && details[0] != '\0'
+            ? details
+            : APPLICATION_MESSAGE_DIALOG_DEFAULT_MESSAGE,
+        -1
+    );
+
+    gtk_scrolled_window_set_policy(
+        GTK_SCROLLED_WINDOW(scrolled_window),
+        GTK_POLICY_AUTOMATIC,
+        GTK_POLICY_AUTOMATIC
+    );
+    gtk_widget_set_vexpand(scrolled_window, TRUE);
+    gtk_scrolled_window_set_child(
+        GTK_SCROLLED_WINDOW(scrolled_window),
+        details_view
+    );
+
+    gtk_widget_set_halign(close_button, GTK_ALIGN_END);
+    g_signal_connect(
+        close_button,
+        "clicked",
+        G_CALLBACK(application_message_dialog_on_close_clicked),
+        dialog_window
+    );
+
+    gtk_box_append(GTK_BOX(main_box), title_label);
+    gtk_box_append(GTK_BOX(main_box), message_label);
+    gtk_box_append(GTK_BOX(main_box), scrolled_window);
+    gtk_box_append(GTK_BOX(main_box), close_button);
+    gtk_window_set_child(dialog_window, main_box);
+    gtk_window_present(dialog_window);
+}
+
 /**
  * @brief Libère le contexte associé à une fenêtre de confirmation.
  */

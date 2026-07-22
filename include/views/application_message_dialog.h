@@ -50,6 +50,26 @@ void application_message_dialog_present(
 );
 
 /**
+ * @brief Affiche un message accompagné d'un contenu textuel défilable.
+ *
+ * Le contenu détaillé est affiché dans une zone monospace sélectionnable.
+ * Les chaînes sont copiées par les widgets GTK.
+ *
+ * @param parent_window Fenêtre parente, ou NULL.
+ * @param message_type Type de message.
+ * @param title Titre de la fenêtre, ou NULL.
+ * @param message Message principal, ou NULL.
+ * @param details Contenu détaillé, ou NULL.
+ */
+void application_message_dialog_present_details(
+    GtkWindow *parent_window,
+    ApplicationMessageDialogType message_type,
+    const char *title,
+    const char *message,
+    const char *details
+);
+
+/**
  * @brief Affiche un dialogue modal demandant une confirmation.
  *
  * Le bouton d'annulation transmet FALSE. Le bouton de confirmation transmet

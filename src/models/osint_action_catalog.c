@@ -84,7 +84,7 @@ OsintActionCatalog *osint_action_catalog_new_defaults(void)
     );
     dns_action = osint_action_new(
         "dns-preview", "Résolution DNS",
-        "Préfiguration de l'adaptateur DNS.",
+        "Exécute dig sur le nom de domaine sélectionné.",
         OSINT_SELECTION_CONTEXT_KIND_ENTITY, "domain_name", "dns.dig", FALSE,
         "L'outil requis n'a pas encore été vérifié."
     );

@@ -79,6 +79,21 @@ typedef void (*WorkspaceAddRelationCallback)(
 );
 
 /**
+ * @brief Callback appelé lors du déclenchement d'une action OSINT.
+ *
+ * Les chaînes sont empruntées et uniquement valides pendant l'appel.
+ *
+ * @param action_identifier Identifiant stable de l'action.
+ * @param target_value Valeur métier ciblée par l'action.
+ * @param user_data Données empruntées fournies par l'appelant.
+ */
+typedef void (*WorkspaceOsintActionCallback)(
+    const char *action_identifier,
+    const char *target_value,
+    gpointer user_data
+);
+
+/**
  * @brief Crée une nouvelle zone de travail.
  *
  * @return Une nouvelle zone de travail, ou NULL en cas d'échec.
@@ -169,6 +184,22 @@ void workspace_set_osint_tool_state(
     const char *tool_identifier,
     OsintActionToolState state,
     const char *version
+);
+
+/**
+ * @brief Définit le callback de déclenchement des actions OSINT.
+ *
+ * Le Workspace ne lance aucun outil externe. Il relaie uniquement l'action
+ * et la valeur du contexte courant vers la couche applicative.
+ *
+ * @param workspace Zone de travail.
+ * @param callback Callback facultatif.
+ * @param user_data Données empruntées transmises au callback.
+ */
+void workspace_set_osint_action_callback(
+    Workspace *workspace,
+    WorkspaceOsintActionCallback callback,
+    gpointer user_data
 );
 
 /**
