@@ -155,7 +155,9 @@ Le socle actuel comprend notamment :
 - provenance OSINT SQLite V3 conservant les arguments, sorties brutes,
   empreinte SHA-256 et liaisons vers les entités et relations intégrées ;
 - historique OSINT contextuel en lecture seule avec détail des exécutions,
-  sorties standard et d'erreur, et objets créés ou réutilisés.
+  sorties standard et d'erreur, et objets créés ou réutilisés ;
+- vérification manuelle de l'intégrité des sorties OSINT enregistrées, sans
+  réécriture de l'empreinte ou des données contrôlées.
 
 Les outils actuellement présents dans le catalogue initial sont :
 

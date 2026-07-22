@@ -1130,6 +1130,12 @@ l'entité ou la relation sélectionnée. La vue est strictement en lecture seule
 et expose les métadonnées, les sorties brutes rendues en UTF-8, l'empreinte et
 les objets liés avec leur disposition `created` ou `reused`.
 
+Depuis ce détail, une vérification explicite recalcule l'empreinte SHA-256 à
+partir des BLOB `stdout_raw` et `stderr_raw`, séparés par l'octet nul défini
+lors de l'enregistrement. Le résultat indique si les sorties sont intactes,
+altérées ou impossibles à vérifier. Ce contrôle est strictement en lecture
+seule : aucune sortie ni empreinte persistée n'est corrigée automatiquement.
+
 ---
 
 # 6. Tables de liaison

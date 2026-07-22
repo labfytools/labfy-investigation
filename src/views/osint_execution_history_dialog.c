@@ -5,12 +5,15 @@
 
 #include "views/osint_execution_history_dialog.h"
 
+#include "core/osint_execution_integrity.h"
 #include "models/osint_execution_record.h"
 
 typedef struct
 {
     GtkWindow *window;
     GtkTextBuffer *details_buffer;
+    GtkWidget *integrity_label;
+    const OsintExecutionRecord *current_record;
     GPtrArray *records;
     GHashTable *linked_objects;
 } OsintExecutionHistoryDialogContext;
@@ -96,11 +99,42 @@ static void osint_execution_history_dialog_on_record_clicked(
     if (context == NULL || encoded_index == 0U ||
         encoded_index > context->records->len) return;
     record = g_ptr_array_index(context->records, encoded_index - 1U);
+    context->current_record = record;
+    gtk_label_set_text(GTK_LABEL(context->integrity_label),
+        "Intégrité : non vérifiée");
+    gtk_widget_remove_css_class(context->integrity_label, "error");
     linked_objects = g_hash_table_lookup(context->linked_objects,
         osint_execution_record_get_identifier(record));
     details = osint_execution_history_dialog_build_details(record, linked_objects);
     gtk_text_buffer_set_text(context->details_buffer, details, -1);
     g_free(details);
+}
+
+/** @brief Recalcule et affiche l'intégrité de l'exécution sélectionnée. */
+static void osint_execution_history_dialog_on_verify_clicked(
+    GtkButton *button, gpointer user_data
+)
+{
+    OsintExecutionHistoryDialogContext *context = user_data;
+    GBytes *stdout_raw = NULL; GBytes *stderr_raw = NULL;
+    OsintExecutionIntegrityStatus status;
+    const char *status_text = "Intégrité : vérification impossible";
+    (void) button;
+    if (context == NULL || context->current_record == NULL) return;
+    stdout_raw = osint_execution_record_ref_stdout(context->current_record);
+    stderr_raw = osint_execution_record_ref_stderr(context->current_record);
+    status = osint_execution_integrity_verify(
+        stdout_raw, stderr_raw,
+        osint_execution_record_get_output_sha256(context->current_record));
+    if (status == OSINT_EXECUTION_INTEGRITY_INTACT)
+        status_text = "Intégrité : intacte";
+    else if (status == OSINT_EXECUTION_INTEGRITY_ALTERED)
+        status_text = "Intégrité : altérée";
+    gtk_label_set_text(GTK_LABEL(context->integrity_label), status_text);
+    if (status == OSINT_EXECUTION_INTEGRITY_INTACT)
+        gtk_widget_remove_css_class(context->integrity_label, "error");
+    else gtk_widget_add_css_class(context->integrity_label, "error");
+    g_bytes_unref(stdout_raw); g_bytes_unref(stderr_raw);
 }
 
 void osint_execution_history_dialog_present(
@@ -111,6 +145,7 @@ void osint_execution_history_dialog_present(
     GtkWidget *main_box = NULL; GtkWidget *content_box = NULL;
     GtkWidget *history_scroll = NULL; GtkWidget *history_box = NULL;
     GtkWidget *details_scroll = NULL; GtkWidget *details_view = NULL;
+    GtkWidget *button_box = NULL; GtkWidget *verify_button = NULL;
     GtkWidget *close_button = NULL;
     if (records == NULL || records->len == 0U || linked_objects == NULL) return;
     context = g_new0(OsintExecutionHistoryDialogContext, 1);
@@ -160,12 +195,22 @@ void osint_execution_history_dialog_present(
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(details_scroll), details_view);
     gtk_box_append(GTK_BOX(content_box), history_scroll);
     gtk_box_append(GTK_BOX(content_box), details_scroll);
+    button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(button_box, GTK_ALIGN_END);
+    context->integrity_label = gtk_label_new("Intégrité : non vérifiée");
+    gtk_widget_set_hexpand(context->integrity_label, TRUE);
+    gtk_widget_set_halign(context->integrity_label, GTK_ALIGN_START);
+    verify_button = gtk_button_new_with_label("Vérifier l'intégrité");
+    g_signal_connect(verify_button, "clicked",
+        G_CALLBACK(osint_execution_history_dialog_on_verify_clicked), context);
     close_button = gtk_button_new_with_label("Fermer");
-    gtk_widget_set_halign(close_button, GTK_ALIGN_END);
     g_signal_connect_swapped(close_button, "clicked",
         G_CALLBACK(gtk_window_destroy), context->window);
+    gtk_box_append(GTK_BOX(button_box), verify_button);
+    gtk_box_append(GTK_BOX(button_box), close_button);
     gtk_box_append(GTK_BOX(main_box), content_box);
-    gtk_box_append(GTK_BOX(main_box), close_button);
+    gtk_box_append(GTK_BOX(main_box), context->integrity_label);
+    gtk_box_append(GTK_BOX(main_box), button_box);
     gtk_window_set_child(context->window, main_box);
     osint_execution_history_dialog_on_record_clicked(
         GTK_BUTTON(gtk_widget_get_first_child(history_box)), context);

@@ -26,6 +26,7 @@
 #include "core/tool_initializer.h"
 #include "core/tool_task.h"
 #include "core/osint_dns_integration.h"
+#include "core/osint_execution_integrity.h"
 #include "views/file_dialog.h"
 #include "core/evidence_import_task.h"
 #include "models/evidence_record.h"
@@ -1103,29 +1104,6 @@ static char *application_osint_create_timestamp(void)
     return timestamp;
 }
 
-/** @brief Calcule l'empreinte déterministe de stdout et stderr bruts. */
-static char *application_osint_hash_outputs(GBytes *stdout_raw, GBytes *stderr_raw)
-{
-    GChecksum *checksum = g_checksum_new(G_CHECKSUM_SHA256);
-    gconstpointer data = NULL;
-    gsize data_size = 0U;
-    const guint8 separator = 0U;
-    char *digest = NULL;
-    if (checksum == NULL || stdout_raw == NULL || stderr_raw == NULL)
-    {
-        g_clear_pointer(&checksum, g_checksum_free);
-        return NULL;
-    }
-    data = g_bytes_get_data(stdout_raw, &data_size);
-    if (data_size > 0U) g_checksum_update(checksum, data, data_size);
-    g_checksum_update(checksum, &separator, 1U);
-    data = g_bytes_get_data(stderr_raw, &data_size);
-    if (data_size > 0U) g_checksum_update(checksum, data, data_size);
-    digest = g_strdup(g_checksum_get_string(checksum));
-    g_checksum_free(checksum);
-    return digest;
-}
-
 /** @brief Persiste une exécution DNS terminée et retourne son UUID. */
 static char *application_persist_dns_execution(
     ApplicationOsintActionContext *context,
@@ -1157,7 +1135,7 @@ static char *application_persist_dns_execution(
     arguments = g_strdup_printf(
         "[\"+noall\",\"+answer\",\"%s\"]", context->target_value
     );
-    sha256 = application_osint_hash_outputs(stdout_raw, stderr_raw);
+    sha256 = osint_execution_integrity_calculate(stdout_raw, stderr_raw);
     record = osint_execution_record_new(
         identifier, "dns.dig",
         tool_info != NULL ? tool_info_get_detected_version(tool_info) : NULL,
