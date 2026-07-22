@@ -86,6 +86,12 @@ typedef void (*MainWindowVerifyEvidenceCallback)(
     gpointer user_data
 );
 
+/** @brief Callback appelé pour modifier les métadonnées d'une preuve. */
+typedef void (*MainWindowEditEvidenceCallback)(
+    const char *evidence_identifier,
+    gpointer user_data
+);
+
 /**
  * @brief Callback appelé après le déplacement effectif d'un nœud.
  *
@@ -148,6 +154,18 @@ typedef void (*MainWindowOsintActionCallback)(
 void main_window_set_verify_evidence_callback(
     MainWindow *main_window,
     MainWindowVerifyEvidenceCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de modification de la preuve sélectionnée.
+ * @param main_window Fenêtre principale.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void main_window_set_edit_evidence_callback(
+    MainWindow *main_window,
+    MainWindowEditEvidenceCallback callback,
     gpointer user_data
 );
 

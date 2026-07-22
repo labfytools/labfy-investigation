@@ -138,6 +138,8 @@ Le socle actuel comprend notamment :
 - panneau d’activité GTK ;
 - import groupé de preuves avec confirmation globale, révision individuelle,
   copie contrôlée, empreinte SHA-256 et bilan détaillé ;
+- correction du type, de la source et de la description d'une preuve avec
+  contrôle d'intégrité et déplacement cohérent de sa copie interne ;
 - registre d’outils externes ;
 - exécution sécurisée par `GSubprocess` ;
 - exécution d’outils en tâche de fond ;

@@ -24,7 +24,7 @@
 /**
  * @brief Position initiale de la séparation horizontale.
  */
-#define MAIN_WINDOW_SIDEBAR_POSITION 320
+#define MAIN_WINDOW_SIDEBAR_POSITION 640
 
 /**
  * @brief Position initiale de la séparation verticale.
@@ -99,6 +99,9 @@ struct MainWindow
     gpointer
         verify_evidence_user_data;
 
+    MainWindowEditEvidenceCallback edit_evidence_callback;
+    gpointer edit_evidence_user_data;
+
     MainWindowGraphNodeMovedCallback
         graph_node_moved_callback;
 
@@ -154,6 +157,17 @@ static void main_window_on_osint_action_requested(
         target_value,
         main_window->osint_action_user_data
     );
+}
+
+/** @brief Relaie la modification d'une preuve vers l'application. */
+static void main_window_on_edit_evidence_requested(
+    const char *evidence_identifier, gpointer user_data
+)
+{
+    MainWindow *main_window = user_data;
+    if (main_window == NULL || main_window->edit_evidence_callback == NULL) return;
+    main_window->edit_evidence_callback(
+        evidence_identifier, main_window->edit_evidence_user_data);
 }
 
 /**
@@ -782,6 +796,12 @@ MainWindow *main_window_new(
         main_window
     );
 
+    workspace_set_edit_evidence_callback(
+        main_window->workspace,
+        main_window_on_edit_evidence_requested,
+        main_window
+    );
+
     workspace_widget = workspace_get_widget(
         main_window->workspace
     );
@@ -1295,6 +1315,16 @@ void main_window_set_osint_action_callback(
 
     main_window->osint_action_callback = callback;
     main_window->osint_action_user_data = user_data;
+}
+
+void main_window_set_edit_evidence_callback(
+    MainWindow *main_window, MainWindowEditEvidenceCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL) return;
+    main_window->edit_evidence_callback = callback;
+    main_window->edit_evidence_user_data = user_data;
 }
 
 void main_window_set_tree_selection_callback(

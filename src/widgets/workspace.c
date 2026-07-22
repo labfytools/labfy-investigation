@@ -85,6 +85,7 @@ struct Workspace
     GtkWidget *evidence_identifier_label;
     GtkWidget *evidence_sha256_label;
     GtkWidget *verify_evidence_button;
+    GtkWidget *edit_evidence_button;
 
     char *selected_evidence_identifier;
 
@@ -93,6 +94,9 @@ struct Workspace
 
     gpointer
         verify_evidence_user_data;
+
+    WorkspaceEditEvidenceCallback edit_evidence_callback;
+    gpointer edit_evidence_user_data;
 
     WorkspaceGraphNodeMovedCallback
         graph_node_moved_callback;
@@ -834,6 +838,20 @@ static void workspace_on_verify_evidence_clicked(
     );
 }
 
+/** @brief Transmet la demande de modification de la preuve affichée. */
+static void workspace_on_edit_evidence_clicked(
+    GtkButton *button, gpointer user_data
+)
+{
+    Workspace *workspace = user_data;
+    (void) button;
+    if (workspace == NULL || workspace->edit_evidence_callback == NULL ||
+        workspace->selected_evidence_identifier == NULL) return;
+    workspace->edit_evidence_callback(
+        workspace->selected_evidence_identifier,
+        workspace->edit_evidence_user_data);
+}
+
 Workspace *workspace_new(void)
 {
     GtkWidget *evidence_content = NULL;
@@ -1152,6 +1170,16 @@ Workspace *workspace_new(void)
         GTK_BOX(evidence_content),
         workspace->verify_evidence_button
     );
+
+    workspace->edit_evidence_button = gtk_button_new_with_label(
+        "Modifier les métadonnées");
+    gtk_widget_set_halign(workspace->edit_evidence_button, GTK_ALIGN_START);
+    gtk_widget_set_sensitive(workspace->edit_evidence_button, FALSE);
+    gtk_widget_set_tooltip_text(workspace->edit_evidence_button,
+        "Corriger le classement sans modifier le fichier original");
+    g_signal_connect(workspace->edit_evidence_button, "clicked",
+        G_CALLBACK(workspace_on_edit_evidence_clicked), workspace);
+    gtk_box_append(GTK_BOX(evidence_content), workspace->edit_evidence_button);
 
     evidence_separator =
         gtk_separator_new(
@@ -2079,6 +2107,8 @@ void workspace_set_selected_node(
             FALSE
         );
     }
+    if (workspace->edit_evidence_button != NULL)
+        gtk_widget_set_sensitive(workspace->edit_evidence_button, FALSE);
 
     if (node == NULL)
     {
@@ -2233,6 +2263,7 @@ void workspace_set_selected_evidence(
         workspace->verify_evidence_button,
         TRUE
     );
+    gtk_widget_set_sensitive(workspace->edit_evidence_button, TRUE);
 
     size_bytes =
         evidence_record_get_size_bytes(
@@ -2772,6 +2803,16 @@ void workspace_set_verify_evidence_callback(
 
     workspace->verify_evidence_user_data =
         user_data;
+}
+
+void workspace_set_edit_evidence_callback(
+    Workspace *workspace, WorkspaceEditEvidenceCallback callback,
+    gpointer user_data
+)
+{
+    if (workspace == NULL) return;
+    workspace->edit_evidence_callback = callback;
+    workspace->edit_evidence_user_data = user_data;
 }
 
 void workspace_set_graph_node_moved_callback(

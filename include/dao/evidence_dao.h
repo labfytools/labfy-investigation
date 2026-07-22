@@ -145,6 +145,34 @@ gboolean evidence_dao_update_integrity_status(
 );
 
 /**
+ * @brief Met à jour le classement et les métadonnées éditables d'une preuve.
+ *
+ * L'UUID, le nom interne, la taille, l'empreinte et la date d'import restent
+ * inchangés. La transaction éventuelle reste sous la responsabilité de
+ * l'appelant.
+ *
+ * @param evidence_dao DAO valide.
+ * @param identifier UUID de la preuve.
+ * @param type_identifier Nouveau code de type.
+ * @param relative_path Nouveau chemin relatif du fichier.
+ * @param source Nouvelle source, ou NULL.
+ * @param description Nouvelle description, ou NULL.
+ * @param updated_at Date UTC de modification.
+ * @param error Adresse recevant une éventuelle erreur.
+ * @return TRUE si la mise à jour réussit.
+ */
+gboolean evidence_dao_update_metadata(
+    EvidenceDao *evidence_dao,
+    const char *identifier,
+    const char *type_identifier,
+    const char *relative_path,
+    const char *source,
+    const char *description,
+    const char *updated_at,
+    GError **error
+);
+
+/**
  * @brief Compte les preuves persistées.
  *
  * @param evidence_dao DAO valide.

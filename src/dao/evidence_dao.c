@@ -156,6 +156,11 @@ static const char *const evidence_dao_update_integrity_status_sql =
     "SET integrity_status = ? "
     "WHERE id = ?;";
 
+/** @brief Requête de mise à jour des métadonnées éditables. */
+static const char *const evidence_dao_update_metadata_sql =
+    "UPDATE preuves SET type_id=(SELECT id FROM types_preuve WHERE code=?),"
+    "relative_path=?,source=?,description=?,updated_at=? WHERE id=?;";
+
 /**
  * @brief Enregistre une erreur littérale.
  */
@@ -1341,6 +1346,49 @@ cleanup:
         statement
     );
 
+    return success;
+}
+
+gboolean evidence_dao_update_metadata(
+    EvidenceDao *evidence_dao, const char *identifier,
+    const char *type_identifier, const char *relative_path,
+    const char *source, const char *description, const char *updated_at,
+    GError **error
+)
+{
+    DatabaseStatement *statement = NULL;
+    gboolean success = FALSE;
+    g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+    if (evidence_dao == NULL || evidence_dao->database == NULL ||
+        identifier == NULL || !g_uuid_string_is_valid(identifier) ||
+        type_identifier == NULL || type_identifier[0] == '\0' ||
+        relative_path == NULL || relative_path[0] == '\0' ||
+        g_path_is_absolute(relative_path) || updated_at == NULL ||
+        strlen(updated_at) != 20U)
+    {
+        evidence_dao_set_error_literal(error,
+            EVIDENCE_DAO_ERROR_INVALID_ARGUMENT,
+            "Les métadonnées de reclassement sont invalides.");
+        return FALSE;
+    }
+    statement = database_statement_prepare(
+        evidence_dao->database, evidence_dao_update_metadata_sql);
+    if (statement == NULL) goto cleanup;
+    success = database_statement_bind_text(statement, 1, type_identifier) &&
+        database_statement_bind_text(statement, 2, relative_path) &&
+        (source != NULL ? database_statement_bind_text(statement, 3, source)
+                        : database_statement_bind_null(statement, 3)) &&
+        (description != NULL
+            ? database_statement_bind_text(statement, 4, description)
+            : database_statement_bind_null(statement, 4)) &&
+        database_statement_bind_text(statement, 5, updated_at) &&
+        database_statement_bind_text(statement, 6, identifier) &&
+        database_statement_step(statement) == DATABASE_STATEMENT_STEP_DONE;
+cleanup:
+    if (!success) evidence_dao_set_database_error(evidence_dao, error,
+        EVIDENCE_DAO_ERROR_EXECUTE,
+        "Impossible de mettre à jour les métadonnées de la preuve");
+    database_statement_finalize(statement);
     return success;
 }
 

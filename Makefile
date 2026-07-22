@@ -120,6 +120,7 @@ TEST_OSINT_DNS_PROPOSAL := tests/test_osint_dns_proposal
 TEST_OSINT_DNS_INTEGRATION := tests/test_osint_dns_integration
 TEST_OSINT_EXECUTION_DAO := tests/test_osint_execution_dao
 TEST_OSINT_EXECUTION_INTEGRITY := tests/test_osint_execution_integrity
+TEST_EVIDENCE_RECLASSIFICATION := tests/test_evidence_reclassification
 
 all: $(TARGET)
 
@@ -595,6 +596,19 @@ $(TEST_OSINT_EXECUTION_INTEGRITY): \
 	src/core/osint_execution_integrity.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_EVIDENCE_RECLASSIFICATION): \
+	tests/test_evidence_reclassification.c \
+	src/core/evidence_reclassification.c \
+	src/core/file_hash.c \
+	src/dao/evidence_dao.c \
+	src/models/evidence_record.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
 $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	tests/test_investigation_graph_load_task.c \
 	src/core/investigation_graph_load_task.c \
@@ -669,7 +683,8 @@ test: \
 	$(TEST_OSINT_DNS_PROPOSAL) \
 	$(TEST_OSINT_DNS_INTEGRATION) \
 	$(TEST_OSINT_EXECUTION_DAO) \
-	$(TEST_OSINT_EXECUTION_INTEGRITY)
+	$(TEST_OSINT_EXECUTION_INTEGRITY) \
+	$(TEST_EVIDENCE_RECLASSIFICATION)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -724,6 +739,7 @@ test: \
 	@$(TEST_OSINT_DNS_INTEGRATION)
 	@$(TEST_OSINT_EXECUTION_DAO)
 	@$(TEST_OSINT_EXECUTION_INTEGRITY)
+	@$(TEST_EVIDENCE_RECLASSIFICATION)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -784,7 +800,8 @@ clean:
 		$(TEST_OSINT_DNS_PROPOSAL) \
 		$(TEST_OSINT_DNS_INTEGRATION) \
 		$(TEST_OSINT_EXECUTION_DAO) \
-		$(TEST_OSINT_EXECUTION_INTEGRITY)
+		$(TEST_OSINT_EXECUTION_INTEGRITY) \
+		$(TEST_EVIDENCE_RECLASSIFICATION)
 
 -include $(DEP)
 

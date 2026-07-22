@@ -27,12 +27,14 @@
 #include "core/tool_task.h"
 #include "core/osint_dns_integration.h"
 #include "core/osint_execution_integrity.h"
+#include "core/evidence_reclassification.h"
 #include "views/file_dialog.h"
 #include "core/evidence_import_task.h"
 #include "models/evidence_record.h"
 #include "dao/evidence_type_dao.h"
 #include "dao/graph_node_position_dao.h"
 #include "views/evidence_import_dialog.h"
+#include "views/evidence_metadata_dialog.h"
 #include "views/create_relation_dialog.h"
 #include "views/osint_dns_review_dialog.h"
 #include "views/osint_execution_history_dialog.h"
@@ -158,6 +160,20 @@ typedef struct
     Application *application;
     char *file_path;
 } ApplicationEvidenceDialogContext;
+
+/** @brief Contexte possédé pendant l'édition d'une preuve. */
+typedef struct
+{
+    Application *application;
+    char *evidence_identifier;
+} ApplicationEvidenceMetadataContext;
+
+/** @brief Données d'actualisation différée après reclassement. */
+typedef struct
+{
+    Application *application;
+    char *root_path;
+} ApplicationEvidenceRefreshContext;
 
 /**
  * @brief Contexte conservé jusqu'à la fin d'une vérification.
@@ -3138,6 +3154,131 @@ static const char *application_get_evidence_subdirectory(
     return "Documents";
 }
 
+/** @brief Libère le contexte d'édition des métadonnées. */
+static void application_evidence_metadata_context_free(
+    ApplicationEvidenceMetadataContext *context
+)
+{
+    if (context == NULL) return;
+    g_free(context->evidence_identifier); g_free(context);
+}
+
+/** @brief Actualise les vues après la destruction du dialogue d'édition. */
+static gboolean application_refresh_after_evidence_reclassification(
+    gpointer user_data
+)
+{
+    ApplicationEvidenceRefreshContext *context = user_data;
+    GError *error = NULL;
+    if (context != NULL && context->application != NULL &&
+        context->application->main_window != NULL)
+    {
+        application_refresh_investigation_tree(
+            context->application, context->root_path);
+        application_refresh_evidence_models(context->application, &error);
+        main_window_set_selected_evidence(
+            context->application->main_window, NULL);
+        application_message_dialog_present(
+            main_window_get_window(context->application->main_window),
+            APPLICATION_MESSAGE_DIALOG_INFORMATION, "Preuve reclassée",
+            "Les métadonnées et le dossier ont été mis à jour. Le SHA-256 est inchangé.");
+    }
+    g_clear_error(&error);
+    if (context != NULL) { g_free(context->root_path); g_free(context); }
+    return G_SOURCE_REMOVE;
+}
+
+/** @brief Applique le reclassement confirmé puis actualise les vues. */
+static void application_on_evidence_metadata_edited(
+    EvidenceMetadataDialogResult *result, gpointer user_data
+)
+{
+    ApplicationEvidenceMetadataContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    const InvestigationProject *project = NULL;
+    const char *root_path = NULL; const char *subdirectory = NULL;
+    char *relative_directory = NULL; GError *error = NULL;
+    if (result == NULL)
+    {
+        application_evidence_metadata_context_free(context);
+        return;
+    }
+    if (application == NULL || application->session == NULL) goto cleanup;
+    project = investigation_session_get_project(application->session);
+    root_path = project != NULL ? investigation_project_get_root_path(project) : NULL;
+    subdirectory = application_get_evidence_subdirectory(
+        evidence_metadata_dialog_result_get_type_identifier(result));
+    relative_directory = g_build_filename(
+        APPLICATION_EVIDENCE_ROOT_DIRECTORY, subdirectory, NULL);
+    if (!evidence_reclassification_apply(
+            investigation_session_get_database(application->session), root_path,
+            context->evidence_identifier,
+            evidence_metadata_dialog_result_get_type_identifier(result),
+            relative_directory,
+            evidence_metadata_dialog_result_get_source(result),
+            evidence_metadata_dialog_result_get_description(result), &error))
+    {
+        application_present_error(application, "Modification impossible",
+            error != NULL ? error->message : "Le reclassement a échoué.");
+        g_clear_error(&error); goto cleanup;
+    }
+    {
+        ApplicationEvidenceRefreshContext *refresh_context =
+            g_new0(ApplicationEvidenceRefreshContext, 1);
+        refresh_context->application = application;
+        refresh_context->root_path = g_strdup(root_path);
+        g_timeout_add(50U,
+            application_refresh_after_evidence_reclassification,
+            refresh_context);
+    }
+cleanup:
+    g_free(relative_directory);
+    evidence_metadata_dialog_result_free(result);
+    application_evidence_metadata_context_free(context);
+}
+
+/** @brief Charge et présente les métadonnées éditables d'une preuve. */
+static void application_on_edit_evidence_requested(
+    const char *evidence_identifier, gpointer user_data
+)
+{
+    Application *application = user_data; Database *database = NULL;
+    EvidenceDao *evidence_dao = NULL; EvidenceTypeDao *type_dao = NULL;
+    EvidenceRecord *record = NULL; GPtrArray *types = NULL;
+    ApplicationEvidenceMetadataContext *context = NULL; GError *error = NULL;
+    if (application == NULL || application->session == NULL ||
+        evidence_identifier == NULL) return;
+    database = investigation_session_get_database(application->session);
+    evidence_dao = evidence_dao_new(database, &error);
+    type_dao = evidence_type_dao_new(database, &error);
+    if (evidence_dao != NULL)
+        record = evidence_dao_find_by_identifier(
+            evidence_dao, evidence_identifier, &error);
+    if (type_dao != NULL) types = evidence_type_dao_list_all(type_dao, &error);
+    if (record == NULL || types == NULL || types->len == 0U)
+    {
+        application_present_error(application, "Modification impossible",
+            error != NULL ? error->message : "Les métadonnées sont indisponibles.");
+        goto cleanup;
+    }
+    context = g_new0(ApplicationEvidenceMetadataContext, 1);
+    context->application = application;
+    context->evidence_identifier = g_strdup(evidence_identifier);
+    if (!evidence_metadata_dialog_present(
+            main_window_get_window(application->main_window), record, types,
+            application_on_evidence_metadata_edited, context))
+    {
+        application_evidence_metadata_context_free(context);
+        context = NULL;
+        application_present_error(application, "Modification impossible",
+            "Le dialogue de métadonnées n'a pas pu être créé.");
+    }
+cleanup:
+    g_clear_error(&error); g_clear_pointer(&types, g_ptr_array_unref);
+    evidence_record_free(record); evidence_type_dao_free(type_dao);
+    evidence_dao_free(evidence_dao);
+}
+
 /**
  * @brief Prépare et démarre l’import asynchrone d’un fichier.
  */
@@ -5949,6 +6090,12 @@ static void application_on_activate(
     main_window_set_verify_evidence_callback(
         application->main_window,
         application_on_verify_evidence_requested,
+        application
+    );
+
+    main_window_set_edit_evidence_callback(
+        application->main_window,
+        application_on_edit_evidence_requested,
         application
     );
 

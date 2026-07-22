@@ -95,6 +95,12 @@ typedef void (*WorkspaceOsintActionCallback)(
     gpointer user_data
 );
 
+/** @brief Callback appelé pour modifier les métadonnées d'une preuve. */
+typedef void (*WorkspaceEditEvidenceCallback)(
+    const char *evidence_identifier,
+    gpointer user_data
+);
+
 /**
  * @brief Crée une nouvelle zone de travail.
  *
@@ -201,6 +207,18 @@ void workspace_set_osint_tool_state(
 void workspace_set_osint_action_callback(
     Workspace *workspace,
     WorkspaceOsintActionCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de modification de la preuve sélectionnée.
+ * @param workspace Zone de travail.
+ * @param callback Callback facultatif.
+ * @param user_data Données empruntées transmises au callback.
+ */
+void workspace_set_edit_evidence_callback(
+    Workspace *workspace,
+    WorkspaceEditEvidenceCallback callback,
     gpointer user_data
 );
 

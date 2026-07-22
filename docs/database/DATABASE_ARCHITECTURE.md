@@ -766,6 +766,13 @@ importé séparément. Les imports sont exécutés séquentiellement afin d'évi
 les écritures SQLite concurrentes. L'échec d'un fichier n'annule pas les
 preuves déjà importées et apparaît dans le bilan final.
 
+Le classement, la source et la description peuvent être corrigés après
+l'import. Un changement de type déplace la copie interne vers le dossier
+adapté dans la même opération logique que la mise à jour SQLite. L'empreinte
+et la taille sont vérifiées avant et après ; un échec annule la transaction et
+restaure le chemin initial. L'UUID, le nom interne et la date d'import restent
+inchangés.
+
 ---
 
 ## 4.6 entites
