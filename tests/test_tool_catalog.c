@@ -62,6 +62,12 @@ static const ExpectedToolCatalogEntry expected_catalog_entries[] =
         .display_name = "Tesseract OCR",
         .executable_name = "tesseract",
         .version_argument = "--version"
+    },
+    {
+        .identifier = "metadata.exiftool",
+        .display_name = "ExifTool",
+        .executable_name = "exiftool",
+        .version_argument = "-ver"
     }
 };
 

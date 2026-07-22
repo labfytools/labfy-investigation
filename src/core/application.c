@@ -63,6 +63,8 @@
 #include "views/rib_ocr_review_dialog.h"
 #include "core/rib_ocr.h"
 #include "core/iban_analyzer.h"
+#include "core/exiftool_metadata.h"
+#include "views/metadata_analysis_dialog.h"
 
 #include <gtk/gtk.h>
 #include <errno.h>
@@ -3525,6 +3527,101 @@ cleanup:
     g_free(output_path); g_free(path); g_free(candidate_path); g_free(canonical_root);
     g_free(work_copy_path); g_clear_object(&source_file); g_clear_object(&copy_file);
     evidence_record_free(record); evidence_dao_free(dao);
+}
+
+/** @brief Analyse avec ExifTool une copie de travail de la preuve. */
+static void application_on_extract_metadata_requested(
+    const char *evidence_identifier, gpointer user_data)
+{
+    Application *application = user_data;
+    const InvestigationProject *project = NULL;
+    EvidenceDao *dao = NULL;
+    EvidenceRecord *record = NULL;
+    char *canonical_root = NULL;
+    char *candidate_path = NULL;
+    char *source_path = NULL;
+    char *output_directory = NULL;
+    char *copy_name = NULL;
+    char *copy_path = NULL;
+    char *json_name = NULL;
+    char *json_path = NULL;
+    char *summary = NULL;
+    char *json = NULL;
+    char *version = NULL;
+    GFile *source_file = NULL;
+    GFile *copy_file = NULL;
+    GError *error = NULL;
+
+    if (application == NULL || application->session == NULL ||
+        evidence_identifier == NULL) return;
+    dao = evidence_dao_new(
+        investigation_session_get_database(application->session), &error);
+    if (dao != NULL)
+        record = evidence_dao_find_by_identifier(dao, evidence_identifier,
+            &error);
+    project = investigation_session_get_project(application->session);
+    if (record == NULL || project == NULL) goto failure;
+    canonical_root = g_canonicalize_filename(
+        investigation_project_get_root_path(project), NULL);
+    candidate_path = g_build_filename(canonical_root,
+        evidence_record_get_relative_path(record), NULL);
+    source_path = g_canonicalize_filename(candidate_path, NULL);
+    if (source_path == NULL || !g_str_has_prefix(source_path, canonical_root) ||
+        (source_path[strlen(canonical_root)] != G_DIR_SEPARATOR &&
+         source_path[strlen(canonical_root)] != '\0'))
+    {
+        g_set_error_literal(&error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+            "Le chemin de la preuve sort du dossier de l'enquête.");
+        goto failure;
+    }
+    output_directory = g_build_filename(canonical_root,
+        "02_Preuves_Traitees", "Extractions", "Metadata", NULL);
+    if (g_mkdir_with_parents(output_directory, 0750) != 0)
+    {
+        g_set_error(&error, G_IO_ERROR, g_io_error_from_errno(errno),
+            "Impossible de créer le dossier des métadonnées : %s",
+            g_strerror(errno));
+        goto failure;
+    }
+    copy_name = g_strdup_printf("%s-%s", evidence_identifier,
+        evidence_record_get_original_name(record));
+    copy_path = g_build_filename(output_directory, copy_name, NULL);
+    source_file = g_file_new_for_path(source_path);
+    copy_file = g_file_new_for_path(copy_path);
+    if (!g_file_copy(source_file, copy_file, G_FILE_COPY_OVERWRITE,
+            NULL, NULL, NULL, &error)) goto failure;
+    if (!exiftool_metadata_extract(copy_path, &summary, &json, &version,
+            &error)) goto failure;
+    json_name = g_strdup_printf("%s-exiftool.json", evidence_identifier);
+    json_path = g_build_filename(output_directory, json_name, NULL);
+    if (!g_file_set_contents(json_path, json, -1, &error)) goto failure;
+    metadata_analysis_dialog_present(
+        main_window_get_window(application->main_window), summary, json_path,
+        version);
+    main_window_set_status(application->main_window,
+        "Métadonnées extraites localement et sortie JSON conservée.");
+    goto cleanup;
+failure:
+    application_present_error(application, "Extraction impossible",
+        error != NULL ? error->message :
+        "La preuve n'a pas pu être analysée avec ExifTool.");
+cleanup:
+    g_clear_error(&error);
+    g_clear_object(&source_file);
+    g_clear_object(&copy_file);
+    g_free(canonical_root);
+    g_free(candidate_path);
+    g_free(source_path);
+    g_free(output_directory);
+    g_free(copy_name);
+    g_free(copy_path);
+    g_free(json_name);
+    g_free(json_path);
+    g_free(summary);
+    g_free(json);
+    g_free(version);
+    evidence_record_free(record);
+    evidence_dao_free(dao);
 }
 
 /**
@@ -7098,6 +7195,8 @@ static void application_on_activate(
         application_on_analyze_eml_requested, application);
     main_window_set_analyze_rib_callback(application->main_window,
         application_on_analyze_rib_requested, application);
+    main_window_set_extract_metadata_callback(application->main_window,
+        application_on_extract_metadata_requested, application);
 
     main_window_set_graph_node_moved_callback(
         application->main_window,

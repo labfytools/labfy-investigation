@@ -64,6 +64,11 @@ static const char *const tool_catalog_tesseract_version_arguments[] =
     "--version",
     NULL
 };
+static const char *const tool_catalog_exiftool_version_arguments[] =
+{
+    "-ver",
+    NULL
+};
 
 /**
  * @brief Catalogue statique initial.
@@ -121,6 +126,14 @@ static const ToolCatalogEntry tool_catalog_entries[] =
         .executable_name = "tesseract",
         .requirement = TOOL_REQUIREMENT_OPTIONAL,
         .version_arguments = tool_catalog_tesseract_version_arguments,
+        .version_argument_count = 1
+    },
+    {
+        .identifier = "metadata.exiftool",
+        .display_name = "ExifTool",
+        .executable_name = "exiftool",
+        .requirement = TOOL_REQUIREMENT_OPTIONAL,
+        .version_arguments = tool_catalog_exiftool_version_arguments,
         .version_argument_count = 1
     }
 };
