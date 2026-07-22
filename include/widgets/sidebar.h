@@ -50,6 +50,17 @@ typedef void (*SidebarEntitySelectionCallback)(
 );
 
 /**
+ * @brief Callback appelé lorsqu'une relation est sélectionnée.
+ *
+ * @param relation_identifier UUID emprunté de la relation, ou NULL.
+ * @param user_data Données privées fournies par l'appelant.
+ */
+typedef void (*SidebarRelationSelectionCallback)(
+    const char *relation_identifier,
+    gpointer user_data
+);
+
+/**
  * @brief Crée un nouveau panneau de navigation latéral.
  *
  * @return Un nouveau panneau latéral, ou NULL en cas d'échec.
@@ -129,14 +140,14 @@ void sidebar_set_evidence_selection_callback(
 );
 
 /**
- * @brief Installe les entités du graphe dans la barre latérale.
+ * @brief Installe les entités et relations du graphe dans la barre latérale.
  *
  * La Sidebar emprunte graph_model. Passer NULL vide la liste.
  *
  * @param sidebar Barre latérale à actualiser.
  * @param graph_model Graphe emprunté, ou NULL.
  */
-void sidebar_set_entity_model(
+void sidebar_set_graph_model(
     Sidebar *sidebar,
     const InvestigationGraphModel *graph_model
 );
@@ -151,6 +162,19 @@ void sidebar_set_entity_model(
 void sidebar_set_entity_selection_callback(
     Sidebar *sidebar,
     SidebarEntitySelectionCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de sélection d'une relation.
+ *
+ * @param sidebar Barre latérale à configurer.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void sidebar_set_relation_selection_callback(
+    Sidebar *sidebar,
+    SidebarRelationSelectionCallback callback,
     gpointer user_data
 );
 

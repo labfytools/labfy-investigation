@@ -4291,6 +4291,35 @@ gboolean investigation_graph_view_select_entity(
     return TRUE;
 }
 
+gboolean investigation_graph_view_select_relation(
+    InvestigationGraphView *graph_view,
+    const char *relation_identifier
+)
+{
+    InvestigationGraphNodeLayout *node_layout = NULL;
+
+    if (graph_view == NULL ||
+        graph_view->node_layouts_by_identifier == NULL ||
+        relation_identifier == NULL ||
+        !g_uuid_string_is_valid(relation_identifier))
+    {
+        return FALSE;
+    }
+
+    node_layout = g_hash_table_lookup(
+        graph_view->node_layouts_by_identifier,
+        relation_identifier
+    );
+    if (node_layout == NULL ||
+        node_layout->kind != INVESTIGATION_GRAPH_NODE_KIND_RELATION)
+    {
+        return FALSE;
+    }
+
+    investigation_graph_view_set_selected_node(graph_view, node_layout);
+    return TRUE;
+}
+
 void investigation_graph_view_clear_selection(
     InvestigationGraphView *graph_view
 )

@@ -199,6 +199,19 @@ gboolean investigation_graph_view_select_entity(
 );
 
 /**
+ * @brief Sélectionne une relation du graphe par son UUID.
+ *
+ * @param graph_view Vue graphique à modifier.
+ * @param relation_identifier UUID de la relation.
+ *
+ * @return TRUE lorsque la relation est trouvée et sélectionnée.
+ */
+gboolean investigation_graph_view_select_relation(
+    InvestigationGraphView *graph_view,
+    const char *relation_identifier
+);
+
+/**
  * @brief Supprime la sélection courante.
  *
  * Le callback reçoit NULL seulement si une sélection existait.

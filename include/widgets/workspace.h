@@ -143,6 +143,19 @@ gboolean workspace_select_graph_entity(
 );
 
 /**
+ * @brief Sélectionne une relation dans le graphe affiché.
+ *
+ * @param workspace Zone de travail.
+ * @param relation_identifier UUID de la relation à sélectionner.
+ *
+ * @return TRUE lorsque la relation est trouvée et sélectionnée.
+ */
+gboolean workspace_select_graph_relation(
+    Workspace *workspace,
+    const char *relation_identifier
+);
+
+/**
  * @brief Définit le callback de vérification de la preuve affichée.
  *
  * Le Workspace emprunte callback et user_data.

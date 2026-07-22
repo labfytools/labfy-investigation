@@ -35,6 +35,12 @@
     "entity"
 
 /**
+ * @brief Identifiant de la page contenant les relations.
+ */
+#define SIDEBAR_PAGE_RELATION \
+    "relation"
+
+/**
  * @brief État vide de l'onglet Preuves.
  */
 #define SIDEBAR_EVIDENCE_STATE_EMPTY \
@@ -77,6 +83,14 @@ struct Sidebar
     GtkWidget *entity_empty_label;
     GtkWidget *entity_no_result_label;
 
+    GtkWidget *relation_page;
+    GtkWidget *relation_search_entry;
+    GtkWidget *relation_count_label;
+    GtkWidget *relation_scrolled_window;
+    GtkWidget *relation_list_box;
+    GtkWidget *relation_empty_label;
+    GtkWidget *relation_no_result_label;
+
     InvestigationTreeView *tree_view;
     EvidenceTreeView *evidence_tree_view;
 
@@ -89,7 +103,139 @@ struct Sidebar
         entity_selection_callback;
 
     gpointer entity_selection_user_data;
+
+    SidebarRelationSelectionCallback
+        relation_selection_callback;
+
+    gpointer relation_selection_user_data;
+
+    const InvestigationGraphModel *graph_model;
 };
+
+/**
+ * @brief Vérifie si un texte contient une recherche sans distinction de casse.
+ */
+static gboolean sidebar_text_contains_search(
+    const char *text,
+    const char *search_text
+)
+{
+    char *normalized_text = NULL;
+    char *normalized_search = NULL;
+    gboolean matches = FALSE;
+
+    if (text == NULL || search_text == NULL)
+    {
+        return FALSE;
+    }
+
+    normalized_text = g_utf8_casefold(text, -1);
+    normalized_search = g_utf8_casefold(search_text, -1);
+    matches = normalized_text != NULL && normalized_search != NULL &&
+        strstr(normalized_text, normalized_search) != NULL;
+    g_free(normalized_search);
+    g_free(normalized_text);
+
+    return matches;
+}
+
+/**
+ * @brief Filtre une ligne de relation avec le texte courant.
+ */
+static gboolean sidebar_filter_relation_row(
+    GtkListBoxRow *row,
+    gpointer user_data
+)
+{
+    Sidebar *sidebar = user_data;
+    const RelationRecord *relation_record = NULL;
+    const EntityRecord *source_entity = NULL;
+    const EntityRecord *target_entity = NULL;
+    const char *search_text = NULL;
+
+    if (sidebar == NULL || row == NULL)
+    {
+        return FALSE;
+    }
+
+    search_text = gtk_editable_get_text(
+        GTK_EDITABLE(sidebar->relation_search_entry)
+    );
+    if (search_text == NULL || search_text[0] == '\0')
+    {
+        return TRUE;
+    }
+
+    relation_record = g_object_get_data(G_OBJECT(row), "relation-record");
+    if (relation_record == NULL || sidebar->graph_model == NULL)
+    {
+        return FALSE;
+    }
+
+    source_entity = investigation_graph_model_find_entity(
+        sidebar->graph_model,
+        relation_record_get_source_entity_identifier(relation_record)
+    );
+    target_entity = investigation_graph_model_find_entity(
+        sidebar->graph_model,
+        relation_record_get_target_entity_identifier(relation_record)
+    );
+
+    return sidebar_text_contains_search(
+               relation_record_get_label(relation_record), search_text) ||
+           sidebar_text_contains_search(
+               relation_record_get_relation_type(relation_record), search_text) ||
+           sidebar_text_contains_search(
+               entity_record_get_value(source_entity), search_text) ||
+           sidebar_text_contains_search(
+               entity_record_get_value(target_entity), search_text);
+}
+
+/**
+ * @brief Réapplique le filtre local des relations.
+ */
+static void sidebar_on_relation_search_changed(
+    GtkSearchEntry *search_entry,
+    gpointer user_data
+)
+{
+    Sidebar *sidebar = user_data;
+    (void) search_entry;
+
+    if (sidebar != NULL && sidebar->relation_list_box != NULL)
+    {
+        gtk_list_box_invalidate_filter(GTK_LIST_BOX(sidebar->relation_list_box));
+    }
+}
+
+/**
+ * @brief Relaie la sélection provenant de la liste des relations.
+ */
+static void sidebar_on_relation_row_selected(
+    GtkListBox *list_box,
+    GtkListBoxRow *row,
+    gpointer user_data
+)
+{
+    Sidebar *sidebar = user_data;
+    const RelationRecord *relation_record = NULL;
+    (void) list_box;
+
+    if (sidebar == NULL || sidebar->relation_selection_callback == NULL)
+    {
+        return;
+    }
+
+    if (row != NULL)
+    {
+        relation_record = g_object_get_data(G_OBJECT(row), "relation-record");
+    }
+
+    sidebar->relation_selection_callback(
+        relation_record_get_identifier(relation_record),
+        sidebar->relation_selection_user_data
+    );
+}
 
 /**
  * @brief Filtre une ligne d'entité avec le texte de recherche courant.
@@ -901,6 +1047,92 @@ Sidebar *sidebar_new(void)
     );
 
     /*
+     * Page Relations : recherche locale et liste verticale défilable.
+     */
+    sidebar->relation_page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    sidebar->relation_search_entry = gtk_search_entry_new();
+    sidebar->relation_count_label = gtk_label_new("0 relation");
+    sidebar->relation_scrolled_window = gtk_scrolled_window_new();
+    sidebar->relation_list_box = gtk_list_box_new();
+    sidebar->relation_empty_label = gtk_label_new(
+        "Aucune relation active dans cette enquête."
+    );
+    sidebar->relation_no_result_label = gtk_label_new(
+        "Aucune relation ne correspond à la recherche."
+    );
+
+    if (sidebar->relation_page == NULL ||
+        sidebar->relation_search_entry == NULL ||
+        sidebar->relation_count_label == NULL ||
+        sidebar->relation_scrolled_window == NULL ||
+        sidebar->relation_list_box == NULL ||
+        sidebar->relation_empty_label == NULL ||
+        sidebar->relation_no_result_label == NULL)
+    {
+        sidebar_free(sidebar);
+        return NULL;
+    }
+
+    gtk_widget_set_margin_start(sidebar->relation_search_entry, 8);
+    gtk_widget_set_margin_end(sidebar->relation_search_entry, 8);
+    gtk_search_entry_set_placeholder_text(
+        GTK_SEARCH_ENTRY(sidebar->relation_search_entry),
+        "Rechercher une relation"
+    );
+    gtk_widget_set_halign(sidebar->relation_count_label, GTK_ALIGN_START);
+    gtk_widget_set_margin_start(sidebar->relation_count_label, 12);
+    gtk_widget_add_css_class(sidebar->relation_count_label, "dim-label");
+    gtk_widget_set_hexpand(sidebar->relation_scrolled_window, TRUE);
+    gtk_widget_set_vexpand(sidebar->relation_scrolled_window, TRUE);
+    gtk_scrolled_window_set_policy(
+        GTK_SCROLLED_WINDOW(sidebar->relation_scrolled_window),
+        GTK_POLICY_NEVER,
+        GTK_POLICY_AUTOMATIC
+    );
+    gtk_scrolled_window_set_child(
+        GTK_SCROLLED_WINDOW(sidebar->relation_scrolled_window),
+        sidebar->relation_list_box
+    );
+    gtk_list_box_set_filter_func(
+        GTK_LIST_BOX(sidebar->relation_list_box),
+        sidebar_filter_relation_row,
+        sidebar,
+        NULL
+    );
+    gtk_label_set_wrap(GTK_LABEL(sidebar->relation_no_result_label), TRUE);
+    gtk_widget_set_margin_top(sidebar->relation_no_result_label, 20);
+    gtk_list_box_set_placeholder(
+        GTK_LIST_BOX(sidebar->relation_list_box),
+        sidebar->relation_no_result_label
+    );
+    gtk_label_set_wrap(GTK_LABEL(sidebar->relation_empty_label), TRUE);
+    gtk_widget_set_halign(sidebar->relation_empty_label, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(sidebar->relation_empty_label, GTK_ALIGN_CENTER);
+    gtk_widget_set_vexpand(sidebar->relation_empty_label, TRUE);
+    g_signal_connect(
+        sidebar->relation_search_entry,
+        "search-changed",
+        G_CALLBACK(sidebar_on_relation_search_changed),
+        sidebar
+    );
+    g_signal_connect(
+        sidebar->relation_list_box,
+        "row-selected",
+        G_CALLBACK(sidebar_on_relation_row_selected),
+        sidebar
+    );
+    gtk_box_append(GTK_BOX(sidebar->relation_page), sidebar->relation_search_entry);
+    gtk_box_append(GTK_BOX(sidebar->relation_page), sidebar->relation_count_label);
+    gtk_box_append(GTK_BOX(sidebar->relation_page), sidebar->relation_scrolled_window);
+    gtk_box_append(GTK_BOX(sidebar->relation_page), sidebar->relation_empty_label);
+    gtk_stack_add_titled(
+        GTK_STACK(sidebar->stack),
+        sidebar->relation_page,
+        SIDEBAR_PAGE_RELATION,
+        "Relations"
+    );
+
+    /*
      * L'onglet Dossier reste sélectionné au démarrage.
      */
     gtk_stack_set_visible_child_name(
@@ -1066,20 +1298,24 @@ void sidebar_set_evidence_selection_callback(
         user_data;
 }
 
-void sidebar_set_entity_model(
+void sidebar_set_graph_model(
     Sidebar *sidebar,
     const InvestigationGraphModel *graph_model
 )
 {
     GPtrArray *entity_records = NULL;
+    GPtrArray *relation_records = NULL;
     GtkWidget *child = NULL;
     guint entity_index = 0;
+    guint relation_index = 0;
     char *count_text = NULL;
 
     if (sidebar == NULL || sidebar->entity_list_box == NULL)
     {
         return;
     }
+
+    sidebar->graph_model = graph_model;
 
     while ((child = gtk_widget_get_first_child(
                 sidebar->entity_list_box
@@ -1168,7 +1404,105 @@ void sidebar_set_entity_model(
     );
 
     g_free(count_text);
+    count_text = NULL;
     g_clear_pointer(&entity_records, g_ptr_array_unref);
+
+    while ((child = gtk_widget_get_first_child(
+                sidebar->relation_list_box
+            )) != NULL)
+    {
+        gtk_list_box_remove(GTK_LIST_BOX(sidebar->relation_list_box), child);
+    }
+
+    if (graph_model != NULL)
+    {
+        relation_records = investigation_graph_model_list_relations(
+            graph_model,
+            NULL
+        );
+    }
+
+    for (relation_index = 0;
+         relation_records != NULL && relation_index < relation_records->len;
+         relation_index++)
+    {
+        const RelationRecord *relation_record = g_ptr_array_index(
+            relation_records,
+            relation_index
+        );
+        const EntityRecord *source_entity = investigation_graph_model_find_entity(
+            graph_model,
+            relation_record_get_source_entity_identifier(relation_record)
+        );
+        const EntityRecord *target_entity = investigation_graph_model_find_entity(
+            graph_model,
+            relation_record_get_target_entity_identifier(relation_record)
+        );
+        const char *label = relation_record_get_label(relation_record);
+        char *details = g_strdup_printf(
+            "%s → %s · %d %%",
+            entity_record_get_value(source_entity),
+            entity_record_get_value(target_entity),
+            relation_record_get_confidence(relation_record)
+        );
+        GtkWidget *row = gtk_list_box_row_new();
+        GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+        GtkWidget *title_label = gtk_label_new(
+            label != NULL && label[0] != '\0'
+                ? label
+                : relation_record_get_relation_type(relation_record)
+        );
+        GtkWidget *details_label = gtk_label_new(details);
+
+        g_free(details);
+        if (row == NULL || content == NULL ||
+            title_label == NULL || details_label == NULL)
+        {
+            continue;
+        }
+
+        gtk_widget_set_margin_start(content, 12);
+        gtk_widget_set_margin_end(content, 12);
+        gtk_widget_set_margin_top(content, 8);
+        gtk_widget_set_margin_bottom(content, 8);
+        gtk_label_set_xalign(GTK_LABEL(title_label), 0.0F);
+        gtk_label_set_ellipsize(GTK_LABEL(title_label), PANGO_ELLIPSIZE_END);
+        gtk_label_set_xalign(GTK_LABEL(details_label), 0.0F);
+        gtk_label_set_ellipsize(GTK_LABEL(details_label), PANGO_ELLIPSIZE_END);
+        gtk_widget_add_css_class(details_label, "dim-label");
+        gtk_box_append(GTK_BOX(content), title_label);
+        gtk_box_append(GTK_BOX(content), details_label);
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), content);
+        g_object_set_data(
+            G_OBJECT(row),
+            "relation-record",
+            (gpointer) relation_record
+        );
+        gtk_list_box_append(GTK_LIST_BOX(sidebar->relation_list_box), row);
+    }
+
+    count_text = g_strdup_printf(
+        "%u %s",
+        relation_records != NULL ? relation_records->len : 0U,
+        relation_records != NULL && relation_records->len > 1U
+            ? "relations"
+            : "relation"
+    );
+    gtk_label_set_text(
+        GTK_LABEL(sidebar->relation_count_label),
+        count_text != NULL ? count_text : "0 relation"
+    );
+    gtk_widget_set_visible(
+        sidebar->relation_empty_label,
+        relation_records == NULL || relation_records->len == 0U
+    );
+    gtk_widget_set_visible(
+        sidebar->relation_scrolled_window,
+        relation_records != NULL && relation_records->len > 0U
+    );
+
+    g_free(count_text);
+    g_clear_pointer(&relation_records, g_ptr_array_unref);
 }
 
 void sidebar_set_entity_selection_callback(
@@ -1184,6 +1518,21 @@ void sidebar_set_entity_selection_callback(
 
     sidebar->entity_selection_callback = callback;
     sidebar->entity_selection_user_data = user_data;
+}
+
+void sidebar_set_relation_selection_callback(
+    Sidebar *sidebar,
+    SidebarRelationSelectionCallback callback,
+    gpointer user_data
+)
+{
+    if (sidebar == NULL)
+    {
+        return;
+    }
+
+    sidebar->relation_selection_callback = callback;
+    sidebar->relation_selection_user_data = user_data;
 }
 
 void sidebar_free(Sidebar *sidebar)
@@ -1210,6 +1559,9 @@ void sidebar_free(Sidebar *sidebar)
 
     sidebar->entity_selection_callback = NULL;
     sidebar->entity_selection_user_data = NULL;
+    sidebar->relation_selection_callback = NULL;
+    sidebar->relation_selection_user_data = NULL;
+    sidebar->graph_model = NULL;
 
     /*
      * Les widgets GTK sont intégrés dans l'arbre de widgets de la fenêtre.

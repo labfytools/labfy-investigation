@@ -149,6 +149,29 @@ static void main_window_on_sidebar_entity_selected(
 }
 
 /**
+ * @brief Ouvre dans le workspace la relation choisie dans la sidebar.
+ */
+static void main_window_on_sidebar_relation_selected(
+    const char *relation_identifier,
+    gpointer user_data
+)
+{
+    MainWindow *main_window = user_data;
+
+    if (main_window == NULL ||
+        relation_identifier == NULL ||
+        relation_identifier[0] == '\0')
+    {
+        return;
+    }
+
+    workspace_select_graph_relation(
+        main_window->workspace,
+        relation_identifier
+    );
+}
+
+/**
  * @brief Transmet la demande de création d'une enquête au contrôleur.
  *
  * @param button Bouton ayant reçu le clic.
@@ -692,6 +715,12 @@ MainWindow *main_window_new(
         main_window
     );
 
+    sidebar_set_relation_selection_callback(
+        main_window->sidebar,
+        main_window_on_sidebar_relation_selected,
+        main_window
+    );
+
     workspace_set_verify_evidence_callback(
         main_window->workspace,
         main_window_on_verify_evidence_requested,
@@ -1069,7 +1098,7 @@ void main_window_set_graph_loading(
         FALSE
     );
 
-    sidebar_set_entity_model(
+    sidebar_set_graph_model(
         main_window->sidebar,
         NULL
     );
@@ -1096,7 +1125,7 @@ void main_window_set_graph(
         graph_layout
     );
 
-    sidebar_set_entity_model(
+    sidebar_set_graph_model(
         main_window->sidebar,
         graph_model
     );
@@ -1122,7 +1151,7 @@ void main_window_set_graph_error(
         FALSE
     );
 
-    sidebar_set_entity_model(
+    sidebar_set_graph_model(
         main_window->sidebar,
         NULL
     );
@@ -1147,7 +1176,7 @@ void main_window_clear_graph(
         FALSE
     );
 
-    sidebar_set_entity_model(
+    sidebar_set_graph_model(
         main_window->sidebar,
         NULL
     );
@@ -1492,7 +1521,13 @@ void main_window_free(
             NULL
         );
 
-        sidebar_set_entity_model(
+        sidebar_set_relation_selection_callback(
+            main_window->sidebar,
+            NULL,
+            NULL
+        );
+
+        sidebar_set_graph_model(
             main_window->sidebar,
             NULL
         );

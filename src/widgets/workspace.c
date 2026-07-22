@@ -6,6 +6,7 @@
 #include "widgets/workspace.h"
 
 #include "models/entity_record.h"
+#include "models/investigation_graph_model.h"
 #include "models/relation_record.h"
 #include "widgets/entity_details_panel.h"
 #include "widgets/investigation_graph_view.h"
@@ -60,6 +61,9 @@ struct Workspace
 
     InvestigationGraphView *graph_view;
     EntityDetailsPanel *entity_details_panel;
+    GtkWidget *relation_details_panel;
+    GtkWidget *relation_details_title_label;
+    GtkWidget *relation_details_summary_label;
 
     GtkWidget *node_page;
 
@@ -440,6 +444,49 @@ static void workspace_on_graph_node_selected(
             workspace->entity_details_panel,
             entity_record
         );
+    }
+
+    if (workspace->relation_details_panel != NULL)
+    {
+        gtk_widget_set_visible(
+            workspace->relation_details_panel,
+            relation_record != NULL
+        );
+    }
+
+    if (relation_record != NULL &&
+        workspace->relation_details_title_label != NULL &&
+        workspace->relation_details_summary_label != NULL)
+    {
+        const EntityRecord *source_entity =
+            investigation_graph_model_find_entity(
+                workspace->graph_model,
+                relation_record_get_source_entity_identifier(relation_record)
+            );
+        const EntityRecord *target_entity =
+            investigation_graph_model_find_entity(
+                workspace->graph_model,
+                relation_record_get_target_entity_identifier(relation_record)
+            );
+        const char *label = relation_record_get_label(relation_record);
+        char *summary = g_strdup_printf(
+            "%s → %s\n\nType : %s\nConfiance : %d %%\nUUID : %s",
+            entity_record_get_value(source_entity),
+            entity_record_get_value(target_entity),
+            relation_record_get_relation_type(relation_record),
+            relation_record_get_confidence(relation_record),
+            relation_record_get_identifier(relation_record)
+        );
+
+        gtk_label_set_text(
+            GTK_LABEL(workspace->relation_details_title_label),
+            label != NULL && label[0] != '\0' ? label : "Relation"
+        );
+        gtk_label_set_text(
+            GTK_LABEL(workspace->relation_details_summary_label),
+            summary != NULL ? summary : "Informations indisponibles"
+        );
+        g_free(summary);
     }
 
     workspace_update_osint_tools_menu(
@@ -1199,8 +1246,18 @@ Workspace *workspace_new(void)
     workspace->entity_details_panel =
         entity_details_panel_new();
 
+    workspace->relation_details_panel = gtk_box_new(
+        GTK_ORIENTATION_VERTICAL,
+        12
+    );
+    workspace->relation_details_title_label = gtk_label_new(NULL);
+    workspace->relation_details_summary_label = gtk_label_new(NULL);
+
     if (workspace->graph_view == NULL ||
-        workspace->entity_details_panel == NULL)
+        workspace->entity_details_panel == NULL ||
+        workspace->relation_details_panel == NULL ||
+        workspace->relation_details_title_label == NULL ||
+        workspace->relation_details_summary_label == NULL)
     {
         workspace_free(
             workspace
@@ -1208,6 +1265,50 @@ Workspace *workspace_new(void)
 
         return NULL;
     }
+
+    gtk_widget_set_size_request(workspace->relation_details_panel, 300, -1);
+    gtk_widget_set_halign(workspace->relation_details_panel, GTK_ALIGN_END);
+    gtk_widget_set_valign(workspace->relation_details_panel, GTK_ALIGN_START);
+    gtk_widget_set_margin_end(workspace->relation_details_panel, 12);
+    gtk_widget_set_margin_top(workspace->relation_details_panel, 56);
+    gtk_widget_set_margin_start(workspace->relation_details_panel, 12);
+    gtk_widget_set_margin_bottom(workspace->relation_details_panel, 12);
+    gtk_widget_add_css_class(workspace->relation_details_panel, "card");
+    gtk_widget_set_margin_start(workspace->relation_details_title_label, 16);
+    gtk_widget_set_margin_end(workspace->relation_details_title_label, 16);
+    gtk_widget_set_margin_top(workspace->relation_details_title_label, 16);
+    gtk_label_set_xalign(
+        GTK_LABEL(workspace->relation_details_title_label),
+        0.0F
+    );
+    gtk_widget_add_css_class(
+        workspace->relation_details_title_label,
+        "title-3"
+    );
+    gtk_widget_set_margin_start(workspace->relation_details_summary_label, 16);
+    gtk_widget_set_margin_end(workspace->relation_details_summary_label, 16);
+    gtk_widget_set_margin_bottom(workspace->relation_details_summary_label, 16);
+    gtk_label_set_xalign(
+        GTK_LABEL(workspace->relation_details_summary_label),
+        0.0F
+    );
+    gtk_label_set_wrap(
+        GTK_LABEL(workspace->relation_details_summary_label),
+        TRUE
+    );
+    gtk_label_set_selectable(
+        GTK_LABEL(workspace->relation_details_summary_label),
+        TRUE
+    );
+    gtk_box_append(
+        GTK_BOX(workspace->relation_details_panel),
+        workspace->relation_details_title_label
+    );
+    gtk_box_append(
+        GTK_BOX(workspace->relation_details_panel),
+        workspace->relation_details_summary_label
+    );
+    gtk_widget_set_visible(workspace->relation_details_panel, FALSE);
 
     investigation_graph_view_set_selection_callback(
         workspace->graph_view,
@@ -1667,6 +1768,17 @@ Workspace *workspace_new(void)
         )
     );
 
+    gtk_overlay_add_overlay(
+        GTK_OVERLAY(workspace->graph_view_page),
+        workspace->relation_details_panel
+    );
+
+    gtk_overlay_set_clip_overlay(
+        GTK_OVERLAY(workspace->graph_view_page),
+        workspace->relation_details_panel,
+        TRUE
+    );
+
     gtk_overlay_set_clip_overlay(
         GTK_OVERLAY(
             workspace->graph_view_page
@@ -2058,6 +2170,22 @@ gboolean workspace_select_graph_entity(
     return investigation_graph_view_select_entity(
         workspace->graph_view,
         entity_identifier
+    );
+}
+
+gboolean workspace_select_graph_relation(
+    Workspace *workspace,
+    const char *relation_identifier
+)
+{
+    if (workspace == NULL || workspace->graph_view == NULL)
+    {
+        return FALSE;
+    }
+
+    return investigation_graph_view_select_relation(
+        workspace->graph_view,
+        relation_identifier
     );
 }
 
