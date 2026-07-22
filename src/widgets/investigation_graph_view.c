@@ -9,6 +9,7 @@
 #include "models/investigation_graph_layout.h"
 #include "models/investigation_graph_model.h"
 #include "models/relation_record.h"
+#include "models/social_platform.h"
 
 #include <glib.h>
 #include <pango/pangocairo.h>
@@ -23,6 +24,8 @@
 #define INVESTIGATION_GRAPH_VIEW_NODE_RADIUS 12.0
 #define INVESTIGATION_GRAPH_VIEW_RELATION_NODE_RADIUS 10.0
 #define INVESTIGATION_GRAPH_VIEW_NODE_PADDING 12
+#define INVESTIGATION_GRAPH_VIEW_SOCIAL_ICON_SIZE 38.0
+#define INVESTIGATION_GRAPH_VIEW_SOCIAL_ICON_GAP 10.0
 #define INVESTIGATION_GRAPH_VIEW_RELATION_NODE_GAP 72.0
 #define INVESTIGATION_GRAPH_VIEW_RELATION_NODE_CLEARANCE 16.0
 #define INVESTIGATION_GRAPH_VIEW_ARROW_LENGTH 9.0
@@ -3127,6 +3130,130 @@ static void investigation_graph_view_draw_relations(
     }
 }
 
+/** @brief Configure la couleur de fond propre à une plateforme sociale. */
+static void investigation_graph_view_set_social_icon_color(
+    cairo_t *cairo_context,
+    SocialPlatform platform
+)
+{
+    switch (platform)
+    {
+        case SOCIAL_PLATFORM_TIKTOK:
+            cairo_set_source_rgb(cairo_context, 0.06, 0.06, 0.08);
+            break;
+        case SOCIAL_PLATFORM_INSTAGRAM:
+            cairo_set_source_rgb(cairo_context, 0.76, 0.18, 0.48);
+            break;
+        case SOCIAL_PLATFORM_FACEBOOK:
+            cairo_set_source_rgb(cairo_context, 0.10, 0.36, 0.72);
+            break;
+        case SOCIAL_PLATFORM_X:
+            cairo_set_source_rgb(cairo_context, 0.05, 0.06, 0.08);
+            break;
+        case SOCIAL_PLATFORM_TELEGRAM:
+            cairo_set_source_rgb(cairo_context, 0.12, 0.60, 0.84);
+            break;
+        case SOCIAL_PLATFORM_OTHER:
+        case SOCIAL_PLATFORM_NONE:
+            cairo_set_source_rgb(cairo_context, 0.34, 0.39, 0.50);
+            break;
+    }
+}
+
+/** @brief Dessine le symbole blanc propre à une plateforme sociale. */
+static void investigation_graph_view_draw_social_symbol(
+    cairo_t *cairo_context,
+    SocialPlatform platform,
+    double center_x,
+    double center_y
+)
+{
+    cairo_set_source_rgb(cairo_context, 1.0, 1.0, 1.0);
+    cairo_set_line_width(cairo_context, 2.3);
+    cairo_set_line_cap(cairo_context, CAIRO_LINE_CAP_ROUND);
+    cairo_set_line_join(cairo_context, CAIRO_LINE_JOIN_ROUND);
+    switch (platform)
+    {
+        case SOCIAL_PLATFORM_TIKTOK:
+            cairo_arc(cairo_context, center_x - 4.0, center_y + 6.0,
+                4.2, 0.0, 2.0 * G_PI);
+            cairo_fill(cairo_context);
+            cairo_move_to(cairo_context, center_x, center_y + 6.0);
+            cairo_line_to(cairo_context, center_x, center_y - 9.0);
+            cairo_line_to(cairo_context, center_x + 4.0, center_y - 6.0);
+            cairo_line_to(cairo_context, center_x + 8.0, center_y - 5.0);
+            cairo_stroke(cairo_context);
+            break;
+        case SOCIAL_PLATFORM_INSTAGRAM:
+            investigation_graph_view_rounded_rectangle(cairo_context,
+                center_x - 10.0, center_y - 10.0, 20.0, 20.0, 5.0);
+            cairo_stroke(cairo_context);
+            cairo_arc(cairo_context, center_x, center_y, 4.7,
+                0.0, 2.0 * G_PI);
+            cairo_stroke(cairo_context);
+            cairo_arc(cairo_context, center_x + 6.0, center_y - 6.0,
+                1.4, 0.0, 2.0 * G_PI);
+            cairo_fill(cairo_context);
+            break;
+        case SOCIAL_PLATFORM_FACEBOOK:
+            investigation_graph_view_draw_text(cairo_context, "f",
+                center_x - 5.0, center_y - 14.0, 14,
+                "Sans Bold 21", 1.0, 1.0, 1.0);
+            break;
+        case SOCIAL_PLATFORM_X:
+            cairo_move_to(cairo_context, center_x - 8.0, center_y - 9.0);
+            cairo_line_to(cairo_context, center_x + 8.0, center_y + 9.0);
+            cairo_move_to(cairo_context, center_x + 8.0, center_y - 9.0);
+            cairo_line_to(cairo_context, center_x - 8.0, center_y + 9.0);
+            cairo_stroke(cairo_context);
+            break;
+        case SOCIAL_PLATFORM_TELEGRAM:
+            cairo_move_to(cairo_context, center_x - 11.0, center_y - 1.0);
+            cairo_line_to(cairo_context, center_x + 11.0, center_y - 9.0);
+            cairo_line_to(cairo_context, center_x + 5.0, center_y + 10.0);
+            cairo_line_to(cairo_context, center_x, center_y + 3.0);
+            cairo_line_to(cairo_context, center_x - 5.0, center_y + 7.0);
+            cairo_close_path(cairo_context);
+            cairo_fill(cairo_context);
+            break;
+        case SOCIAL_PLATFORM_OTHER:
+            cairo_arc(cairo_context, center_x, center_y - 6.0, 4.0,
+                0.0, 2.0 * G_PI);
+            cairo_arc(cairo_context, center_x - 8.0, center_y + 7.0, 3.0,
+                0.0, 2.0 * G_PI);
+            cairo_arc(cairo_context, center_x + 8.0, center_y + 7.0, 3.0,
+                0.0, 2.0 * G_PI);
+            cairo_fill(cairo_context);
+            cairo_move_to(cairo_context, center_x, center_y - 2.0);
+            cairo_line_to(cairo_context, center_x - 7.0, center_y + 4.0);
+            cairo_move_to(cairo_context, center_x, center_y - 2.0);
+            cairo_line_to(cairo_context, center_x + 7.0, center_y + 4.0);
+            cairo_stroke(cairo_context);
+            break;
+        case SOCIAL_PLATFORM_NONE:
+            break;
+    }
+}
+
+/** @brief Dessine le badge vectoriel d'un compte social. */
+static void investigation_graph_view_draw_social_icon(
+    cairo_t *cairo_context,
+    SocialPlatform platform,
+    double x,
+    double y
+)
+{
+    double center_x = x + (INVESTIGATION_GRAPH_VIEW_SOCIAL_ICON_SIZE / 2.0);
+    double center_y = y + (INVESTIGATION_GRAPH_VIEW_SOCIAL_ICON_SIZE / 2.0);
+    investigation_graph_view_set_social_icon_color(cairo_context, platform);
+    cairo_arc(cairo_context, center_x, center_y,
+        INVESTIGATION_GRAPH_VIEW_SOCIAL_ICON_SIZE / 2.0,
+        0.0, 2.0 * G_PI);
+    cairo_fill(cairo_context);
+    investigation_graph_view_draw_social_symbol(
+        cairo_context, platform, center_x, center_y);
+}
+
 /**
  * @brief Dessine un nœud d'entité.
  */
@@ -3143,6 +3270,15 @@ static void investigation_graph_view_draw_entity(
 
     const char *type_identifier =
         NULL;
+
+    const char *type_label =
+        NULL;
+
+    SocialPlatform social_platform =
+        SOCIAL_PLATFORM_NONE;
+
+    double text_x =
+        x + INVESTIGATION_GRAPH_VIEW_NODE_PADDING;
 
     int text_width =
         (int) INVESTIGATION_GRAPH_VIEW_NODE_WIDTH -
@@ -3228,10 +3364,27 @@ static void investigation_graph_view_draw_entity(
             entity_record
         );
 
+    social_platform = social_platform_from_entity_type(type_identifier);
+
+    if (social_platform != SOCIAL_PLATFORM_NONE)
+    {
+        investigation_graph_view_draw_social_icon(
+            cairo_context,
+            social_platform,
+            x + INVESTIGATION_GRAPH_VIEW_NODE_PADDING,
+            y + 20.0
+        );
+        text_x += INVESTIGATION_GRAPH_VIEW_SOCIAL_ICON_SIZE +
+            INVESTIGATION_GRAPH_VIEW_SOCIAL_ICON_GAP;
+        text_width -= (int) (INVESTIGATION_GRAPH_VIEW_SOCIAL_ICON_SIZE +
+            INVESTIGATION_GRAPH_VIEW_SOCIAL_ICON_GAP);
+        type_label = social_platform_get_label(social_platform);
+    }
+
     investigation_graph_view_draw_text(
         cairo_context,
         title,
-        x + INVESTIGATION_GRAPH_VIEW_NODE_PADDING,
+        text_x,
         y + 13.0,
         text_width,
         "Sans Bold 11",
@@ -3242,11 +3395,13 @@ static void investigation_graph_view_draw_entity(
 
     investigation_graph_view_draw_text(
         cairo_context,
-        type_identifier != NULL &&
+        type_label != NULL
+            ? type_label
+            : type_identifier != NULL &&
         type_identifier[0] != '\0'
             ? type_identifier
             : "(type inconnu)",
-        x + INVESTIGATION_GRAPH_VIEW_NODE_PADDING,
+        text_x,
         y + 44.0,
         text_width,
         "Sans 9",

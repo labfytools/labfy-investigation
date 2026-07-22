@@ -110,17 +110,34 @@ static void create_social_account_dialog_on_create(GtkButton *button, gpointer u
     const char *username = gtk_editable_get_text(GTK_EDITABLE(state->username));
     const char *observed_at = gtk_editable_get_text(GTK_EDITABLE(state->observed_at));
     (void) button;
-    date = g_date_time_new_from_iso8601(observed_at, NULL);
     if (platform >= G_N_ELEMENTS(platform_codes) ||
-        account_state >= G_N_ELEMENTS(state_codes) ||
-        url == NULL ||
-        (!g_str_has_prefix(url, "https://") && !g_str_has_prefix(url, "http://")) ||
-        username == NULL || username[0] == '\0' || date == NULL)
+        account_state >= G_N_ELEMENTS(state_codes))
+    {
+        gtk_label_set_text(state->error, "Sélectionnez une plateforme et un état.");
+        gtk_widget_set_visible(GTK_WIDGET(state->error), TRUE);
+        return;
+    }
+    if (url == NULL ||
+        (!g_str_has_prefix(url, "https://") && !g_str_has_prefix(url, "http://")))
     {
         gtk_label_set_text(state->error,
-            "Renseignez une URL http(s), un pseudonyme et une date ISO 8601 valide.");
+            "L'URL du profil doit commencer par https:// ou http://.");
         gtk_widget_set_visible(GTK_WIDGET(state->error), TRUE);
-        g_clear_pointer(&date, g_date_time_unref);
+        return;
+    }
+    if (username == NULL || username[0] == '\0')
+    {
+        gtk_label_set_text(state->error,
+            "Le pseudonyme affiché est obligatoire (par exemple @compte).");
+        gtk_widget_set_visible(GTK_WIDGET(state->error), TRUE);
+        return;
+    }
+    date = g_date_time_new_from_iso8601(observed_at, NULL);
+    if (date == NULL)
+    {
+        gtk_label_set_text(state->error,
+            "La date doit respecter le format UTC AAAA-MM-JJTHH:MM:SSZ.");
+        gtk_widget_set_visible(GTK_WIDGET(state->error), TRUE);
         return;
     }
     notes = create_social_account_dialog_notes(state);
@@ -217,7 +234,8 @@ gboolean create_social_account_dialog_present(
     }
     state->evidence = GTK_DROP_DOWN(gtk_drop_down_new(
         G_LIST_MODEL(evidence_labels), NULL));
-    g_object_unref(evidence_labels);
+    /* gtk_drop_down_new() prend possession de la référence du modèle. */
+    evidence_labels = NULL;
     state->notes = GTK_TEXT_VIEW(gtk_text_view_new());
     gtk_text_view_set_wrap_mode(state->notes, GTK_WRAP_WORD_CHAR);
     gtk_widget_set_size_request(GTK_WIDGET(state->notes), -1, 100);
