@@ -54,6 +54,8 @@ typedef void (*MainWindowImportEvidenceCallback)(
 typedef void (*MainWindowAddSocialAccountCallback)(
     gpointer user_data
 );
+/** @brief Callback appelé pour ajouter une personne. */
+typedef void (*MainWindowAddPersonCallback)(gpointer user_data);
 
 /**
  * @brief Callback appelé lorsque l'utilisateur revient au graphe.
@@ -547,6 +549,9 @@ void main_window_set_add_social_account_callback(
     MainWindowAddSocialAccountCallback callback,
     gpointer user_data
 );
+/** @brief Définit le callback d'ajout d'une personne. */
+void main_window_set_add_person_callback(MainWindow *main_window,
+    MainWindowAddPersonCallback callback, gpointer user_data);
 
 /**
  * @brief Définit le callback du bouton « Revenir au graphe ».
@@ -583,6 +588,8 @@ void main_window_set_add_social_account_enabled(
     MainWindow *main_window,
     gboolean enabled
 );
+/** @brief Active ou désactive l'ajout d'une personne. */
+void main_window_set_add_person_enabled(MainWindow *main_window, gboolean enabled);
 
 /**
  * @brief Libère les ressources de la fenêtre.

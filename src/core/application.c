@@ -48,8 +48,10 @@
 #include "core/evidence_integrity_verifier.h"
 #include "core/relation_service.h"
 #include "core/social_account_service.h"
+#include "core/person_entity_service.h"
 #include "database/database.h"
 #include "views/create_social_account_dialog.h"
+#include "views/create_person_dialog.h"
 
 #include <gtk/gtk.h>
 #include <errno.h>
@@ -2273,6 +2275,7 @@ static gboolean application_install_session(
         application->main_window,
         TRUE
     );
+    main_window_set_add_person_enabled(application->main_window, TRUE);
 
     application_start_graph_loading(
         application,
@@ -4170,6 +4173,55 @@ static void application_on_add_social_account_requested(gpointer user_data)
     g_clear_pointer(&evidence_records, g_ptr_array_unref);
     evidence_dao_free(dao);
     g_clear_error(&error);
+}
+
+/** @brief Persiste une personne validée puis recharge le graphe. */
+static void application_on_person_completed(
+    CreatePersonDialogResult *result, gpointer user_data)
+{
+    Application *application = user_data;
+    const PersonEntityInput *input = create_person_dialog_result_get_input(result);
+    const InvestigationProject *project = NULL;
+    GError *error = NULL;
+    char *identifier = NULL;
+    if (result == NULL || application == NULL || application->session == NULL)
+    { create_person_dialog_result_free(result); return; }
+    if (!person_entity_service_create(
+            investigation_session_get_database(application->session),
+            input, &identifier, &error))
+        application_present_error(application, "Personne non créée",
+            error != NULL ? error->message : "L'écriture a échoué.");
+    else
+    {
+        project = investigation_session_get_project(application->session);
+        main_window_set_status(application->main_window,
+            "Personne ajoutée. Actualisation du graphe…");
+        application_start_graph_loading(application,
+            investigation_project_get_database_path(project));
+    }
+    g_clear_error(&error); g_free(identifier);
+    create_person_dialog_result_free(result);
+}
+
+/** @brief Charge les preuves puis ouvre le formulaire d'une personne. */
+static void application_on_add_person_requested(gpointer user_data)
+{
+    Application *application = user_data;
+    EvidenceDao *dao = NULL;
+    GPtrArray *records = NULL;
+    GError *error = NULL;
+    if (application == NULL || application->session == NULL) return;
+    dao = evidence_dao_new(
+        investigation_session_get_database(application->session), &error);
+    if (dao != NULL) records = evidence_dao_list_all(dao, &error);
+    if (records == NULL)
+        application_present_error(application, "Formulaire indisponible",
+            error != NULL ? error->message : "Impossible de charger les preuves.");
+    else
+        create_person_dialog_present(main_window_get_window(application->main_window),
+            records, application_on_person_completed, application);
+    g_clear_pointer(&records, g_ptr_array_unref);
+    evidence_dao_free(dao); g_clear_error(&error);
 }
 
 /**
@@ -6233,6 +6285,8 @@ static void application_on_activate(
         application_on_add_social_account_requested,
         application
     );
+    main_window_set_add_person_callback(application->main_window,
+        application_on_add_person_requested, application);
 
     main_window_set_import_evidence_enabled(
         application->main_window,
@@ -6243,6 +6297,8 @@ static void application_on_activate(
         application->main_window,
         application->session != NULL
     );
+    main_window_set_add_person_enabled(application->main_window,
+        application->session != NULL);
 
     main_window_set_quit_callback(
         application->main_window,

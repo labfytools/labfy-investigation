@@ -60,6 +60,7 @@ struct MainWindow
     GtkWidget *open_investigation_button;
     GtkWidget *import_evidence_button;
     GtkWidget *add_social_account_button;
+    GtkWidget *add_person_button;
     GtkWidget *show_graph_button;
     GtkWidget *content_paned;
     GtkWidget *main_paned;
@@ -90,6 +91,8 @@ struct MainWindow
 
     MainWindowAddSocialAccountCallback add_social_account_callback;
     gpointer add_social_account_user_data;
+    MainWindowAddPersonCallback add_person_callback;
+    gpointer add_person_user_data;
 
     MainWindowShowGraphCallback
         show_graph_callback;
@@ -308,6 +311,13 @@ static void main_window_on_add_social_account_clicked(
         return;
     main_window->add_social_account_callback(
         main_window->add_social_account_user_data);
+}
+/** @brief Relaie la demande d'ajout d'une personne. */
+static void main_window_on_add_person_clicked(GtkButton *button, gpointer data)
+{
+    MainWindow *main_window = data; (void) button;
+    if (main_window != NULL && main_window->add_person_callback != NULL)
+        main_window->add_person_callback(main_window->add_person_user_data);
 }
 
 /**
@@ -615,6 +625,8 @@ MainWindow *main_window_new(
             "contact-new-symbolic",
             "Ajouter un compte social"
         );
+    main_window->add_person_button = main_window_create_action_button(
+        "avatar-default-symbolic", "Ajouter une personne");
 
     main_window->show_graph_button =
         main_window_create_action_button(
@@ -648,6 +660,7 @@ MainWindow *main_window_new(
     );
 
     gtk_widget_set_sensitive(main_window->add_social_account_button, FALSE);
+    gtk_widget_set_sensitive(main_window->add_person_button, FALSE);
 
     gtk_widget_set_sensitive(
         main_window->show_graph_button,
@@ -671,6 +684,7 @@ MainWindow *main_window_new(
 
     gtk_box_append(GTK_BOX(main_window->action_bar),
         main_window->add_social_account_button);
+    gtk_box_append(GTK_BOX(main_window->action_bar), main_window->add_person_button);
 
     gtk_box_append(
         GTK_BOX(main_window->action_bar),
@@ -716,6 +730,8 @@ MainWindow *main_window_new(
 
     g_signal_connect(main_window->add_social_account_button, "clicked",
         G_CALLBACK(main_window_on_add_social_account_clicked), main_window);
+    g_signal_connect(main_window->add_person_button, "clicked",
+        G_CALLBACK(main_window_on_add_person_clicked), main_window);
 
     g_signal_connect(
         main_window->show_graph_button,
@@ -1450,6 +1466,13 @@ void main_window_set_add_social_account_callback(
     main_window->add_social_account_callback = callback;
     main_window->add_social_account_user_data = user_data;
 }
+void main_window_set_add_person_callback(MainWindow *main_window,
+    MainWindowAddPersonCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->add_person_callback = callback;
+    main_window->add_person_user_data = user_data;
+}
 
 void main_window_set_show_graph_callback(
     MainWindow *main_window,
@@ -1492,6 +1515,11 @@ void main_window_set_add_social_account_enabled(
     if (main_window == NULL || main_window->add_social_account_button == NULL)
         return;
     gtk_widget_set_sensitive(main_window->add_social_account_button, enabled);
+}
+void main_window_set_add_person_enabled(MainWindow *main_window, gboolean enabled)
+{
+    if (main_window == NULL || main_window->add_person_button == NULL) return;
+    gtk_widget_set_sensitive(main_window->add_person_button, enabled);
 }
 
 void main_window_set_verify_evidence_callback(

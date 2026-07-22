@@ -163,6 +163,8 @@ Le socle actuel comprend notamment :
   première observation, état, notes et rattachement à une preuve ;
 - pictogrammes vectoriels des plateformes sociales dans les nœuds du graphe,
   conservant leur lisibilité pendant le zoom ;
+- création de personnes observées avec statut d'identification, confiance,
+  notes factuelles et rattachement facultatif à une preuve ;
 - historique OSINT contextuel en lecture seule avec détail des exécutions,
   sorties standard et d'erreur, et objets créés ou réutilisés ;
 - vérification manuelle de l'intégrité des sorties OSINT enregistrées, sans

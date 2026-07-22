@@ -123,6 +123,7 @@ TEST_OSINT_EXECUTION_INTEGRITY := tests/test_osint_execution_integrity
 TEST_EVIDENCE_RECLASSIFICATION := tests/test_evidence_reclassification
 TEST_SOCIAL_ACCOUNT_SERVICE := tests/test_social_account_service
 TEST_SOCIAL_PLATFORM := tests/test_social_platform
+TEST_PERSON_ENTITY_SERVICE := tests/test_person_entity_service
 
 all: $(TARGET)
 
@@ -629,6 +630,19 @@ $(TEST_SOCIAL_PLATFORM): \
 	src/models/social_platform.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_PERSON_ENTITY_SERVICE): \
+	tests/test_person_entity_service.c \
+	src/core/person_entity_service.c \
+	src/dao/entity_dao.c \
+	src/dao/evidence_entity_dao.c \
+	src/models/entity_record.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
 $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	tests/test_investigation_graph_load_task.c \
 	src/core/investigation_graph_load_task.c \
@@ -706,7 +720,8 @@ test: \
 	$(TEST_OSINT_EXECUTION_INTEGRITY) \
 	$(TEST_EVIDENCE_RECLASSIFICATION) \
 	$(TEST_SOCIAL_ACCOUNT_SERVICE) \
-	$(TEST_SOCIAL_PLATFORM)
+	$(TEST_SOCIAL_PLATFORM) \
+	$(TEST_PERSON_ENTITY_SERVICE)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -764,6 +779,7 @@ test: \
 	@$(TEST_EVIDENCE_RECLASSIFICATION)
 	@$(TEST_SOCIAL_ACCOUNT_SERVICE)
 	@$(TEST_SOCIAL_PLATFORM)
+	@$(TEST_PERSON_ENTITY_SERVICE)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -827,7 +843,8 @@ clean:
 		$(TEST_OSINT_EXECUTION_INTEGRITY) \
 		$(TEST_EVIDENCE_RECLASSIFICATION) \
 		$(TEST_SOCIAL_ACCOUNT_SERVICE) \
-		$(TEST_SOCIAL_PLATFORM)
+		$(TEST_SOCIAL_PLATFORM) \
+		$(TEST_PERSON_ENTITY_SERVICE)
 
 -include $(DEP)
 
