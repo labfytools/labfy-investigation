@@ -3304,6 +3304,8 @@ static void investigation_graph_view_draw_entity(
     SocialPlatform social_platform =
         SOCIAL_PLATFORM_NONE;
 
+    PersonRole person_role = PERSON_ROLE_UNCATEGORIZED;
+
     double text_x =
         x + INVESTIGATION_GRAPH_VIEW_NODE_PADDING;
 
@@ -3325,7 +3327,28 @@ static void investigation_graph_view_draw_entity(
         INVESTIGATION_GRAPH_VIEW_NODE_RADIUS
     );
 
-    if (selected)
+    if (g_strcmp0(entity_record_get_type_identifier(entity_record),
+            "person") == 0)
+    {
+        person_role = entity_record_get_person_role(entity_record);
+        switch (person_role)
+        {
+            case PERSON_ROLE_ALLEGED_SCAMMER:
+                cairo_set_source_rgb(cairo_context, 0.55, 0.12, 0.14); break;
+            case PERSON_ROLE_VICTIM:
+                cairo_set_source_rgb(cairo_context, 0.12, 0.42, 0.22); break;
+            case PERSON_ROLE_WITNESS:
+                cairo_set_source_rgb(cairo_context, 0.12, 0.30, 0.56); break;
+            case PERSON_ROLE_SUSPECT:
+                cairo_set_source_rgb(cairo_context, 0.62, 0.32, 0.08); break;
+            case PERSON_ROLE_RELATED_PERSON:
+                cairo_set_source_rgb(cairo_context, 0.38, 0.20, 0.52); break;
+            case PERSON_ROLE_UNCATEGORIZED:
+            default:
+                cairo_set_source_rgb(cairo_context, 0.25, 0.27, 0.31); break;
+        }
+    }
+    else if (selected)
     {
         cairo_set_source_rgb(
             cairo_context,
@@ -3392,6 +3415,9 @@ static void investigation_graph_view_draw_entity(
         );
 
     social_platform = social_platform_from_entity_type(type_identifier);
+
+    if (g_strcmp0(type_identifier, "person") == 0)
+        type_label = person_role_get_label(person_role);
 
     if (social_platform != SOCIAL_PLATFORM_NONE)
     {

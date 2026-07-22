@@ -1,7 +1,7 @@
 /******************************************************************************
  * Labfy Investigation
  *
- * Extensions idempotentes du schéma SQLite courant V4
+ * Extensions idempotentes du schéma SQLite courant V5
  ******************************************************************************/
 
 /*

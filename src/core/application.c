@@ -126,6 +126,7 @@ struct Application
 
     char *selected_evidence_identifier;
     char *pending_relation_selection_identifier;
+    char *pending_entity_selection_identifier;
 };
 
 /**
@@ -745,6 +746,13 @@ static void application_on_graph_loaded(
         main_window_select_graph_relation(application->main_window,
             application->pending_relation_selection_identifier);
         g_clear_pointer(&application->pending_relation_selection_identifier,
+            g_free);
+    }
+    if (application->pending_entity_selection_identifier != NULL)
+    {
+        main_window_select_graph_entity(application->main_window,
+            application->pending_entity_selection_identifier);
+        g_clear_pointer(&application->pending_entity_selection_identifier,
             g_free);
     }
 
@@ -4935,6 +4943,35 @@ typedef struct
     char *relation_identifier;
 } ApplicationEditRelationContext;
 
+/** @brief Enregistre la catégorie choisie depuis la fiche personne. */
+static void application_on_person_role_changed(const char *entity_identifier,
+    PersonRole role, gpointer user_data)
+{
+    Application *application = user_data;
+    Database *database = NULL;
+    const InvestigationProject *project = NULL;
+    GError *error = NULL;
+    if (application == NULL || application->session == NULL) return;
+    database = investigation_session_get_database(application->session);
+    project = investigation_session_get_project(application->session);
+    if (!person_entity_service_update_role(database, entity_identifier,
+            role, &error))
+    {
+        application_present_error(application, "Catégorie non enregistrée",
+            error != NULL ? error->message :
+            "Impossible de catégoriser cette personne.");
+        g_clear_error(&error);
+        return;
+    }
+    g_free(application->pending_entity_selection_identifier);
+    application->pending_entity_selection_identifier =
+        g_strdup(entity_identifier);
+    main_window_set_status(application->main_window,
+        "Catégorie enregistrée. Actualisation du graphe…");
+    application_start_graph_loading(application,
+        investigation_project_get_database_path(project));
+}
+
 /** @brief Libère le contexte d'édition d'une relation. */
 static void application_edit_relation_context_free(
     ApplicationEditRelationContext *context)
@@ -6476,6 +6513,8 @@ static void application_on_activate(
 
     main_window_set_edit_relation_callback(application->main_window,
         application_on_edit_relation_requested, application);
+    main_window_set_person_role_callback(application->main_window,
+        application_on_person_role_changed, application);
 
     main_window_set_osint_action_callback(
         application->main_window,
@@ -6752,6 +6791,7 @@ void application_free(
     );
     g_clear_pointer(&application->pending_relation_selection_identifier,
         g_free);
+    g_clear_pointer(&application->pending_entity_selection_identifier, g_free);
 
     g_free(
         application

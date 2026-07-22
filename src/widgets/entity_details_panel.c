@@ -29,6 +29,8 @@ struct EntityDetailsPanel
     GtkWidget *entity_created_at_label;
     GtkWidget *entity_updated_at_label;
     GtkWidget *entity_identifier_label;
+    GtkWidget *person_role_box;
+    GtkDropDown *person_role_dropdown;
 
     char *selected_entity_identifier;
 
@@ -40,7 +42,29 @@ struct EntityDetailsPanel
 
     gpointer
         add_relation_user_data;
+
+    EntityDetailsPanelPersonRoleCallback person_role_callback;
+    gpointer person_role_user_data;
+    gboolean updating_person_role;
 };
+
+/** @brief Relaie une catégorie choisie explicitement par l'utilisateur. */
+static void entity_details_panel_on_person_role_changed(GObject *object,
+    GParamSpec *parameter, gpointer user_data)
+{
+    EntityDetailsPanel *details_panel = user_data;
+    guint selected = GTK_INVALID_LIST_POSITION;
+    (void) object; (void) parameter;
+    if (details_panel == NULL || details_panel->updating_person_role ||
+        details_panel->person_role_callback == NULL ||
+        details_panel->selected_entity_identifier == NULL)
+        return;
+    selected = gtk_drop_down_get_selected(details_panel->person_role_dropdown);
+    if (selected > PERSON_ROLE_RELATED_PERSON) return;
+    details_panel->person_role_callback(
+        details_panel->selected_entity_identifier, (PersonRole) selected,
+        details_panel->person_role_user_data);
+}
 
 /**
  * @brief Définit une valeur avec un texte de remplacement.
@@ -313,6 +337,8 @@ EntityDetailsPanel *entity_details_panel_new(void)
 
     GtkWidget *details_grid =
         NULL;
+
+    GtkStringList *person_role_labels = NULL;
 
     details_panel =
         g_try_new0(
@@ -695,6 +721,23 @@ EntityDetailsPanel *entity_details_panel_new(void)
             "Identifiant"
         );
 
+    details_panel->person_role_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    person_role_labels = gtk_string_list_new(NULL);
+    for (guint role = PERSON_ROLE_UNCATEGORIZED;
+         role <= PERSON_ROLE_RELATED_PERSON; role++)
+        gtk_string_list_append(person_role_labels,
+            person_role_get_label((PersonRole) role));
+    details_panel->person_role_dropdown = GTK_DROP_DOWN(
+        gtk_drop_down_new(G_LIST_MODEL(person_role_labels), NULL));
+    person_role_labels = NULL;
+    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+        gtk_label_new("Catégorie dans l’enquête"));
+    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+        GTK_WIDGET(details_panel->person_role_dropdown));
+    gtk_box_append(GTK_BOX(details_box), details_panel->person_role_box);
+    g_signal_connect(details_panel->person_role_dropdown, "notify::selected",
+        G_CALLBACK(entity_details_panel_on_person_role_changed), details_panel);
+
     if (details_panel->entity_value_label == NULL ||
         details_panel->entity_type_label == NULL ||
         details_panel->entity_description_label == NULL ||
@@ -811,6 +854,14 @@ void entity_details_panel_set_entity(
                 entity_record
             )
         );
+
+    gboolean is_person = g_strcmp0(entity_record_get_type_identifier(
+        entity_record), "person") == 0;
+    gtk_widget_set_visible(details_panel->person_role_box, is_person);
+    details_panel->updating_person_role = TRUE;
+    gtk_drop_down_set_selected(details_panel->person_role_dropdown,
+        (guint) entity_record_get_person_role(entity_record));
+    details_panel->updating_person_role = FALSE;
 
     entity_details_panel_update_add_relation_button(
         details_panel
@@ -1013,6 +1064,8 @@ void entity_details_panel_clear(
         /* Le revealer fermé ne doit pas bloquer le canvas sous l'overlay. */
         gtk_widget_set_can_target(details_panel->root_revealer, FALSE);
     }
+    if (details_panel->person_role_box != NULL)
+        gtk_widget_set_visible(details_panel->person_role_box, FALSE);
 }
 
 void entity_details_panel_set_close_callback(
@@ -1053,6 +1106,15 @@ void entity_details_panel_set_add_relation_callback(
     entity_details_panel_update_add_relation_button(
         details_panel
     );
+}
+
+void entity_details_panel_set_person_role_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelPersonRoleCallback callback, gpointer user_data)
+{
+    if (details_panel == NULL) return;
+    details_panel->person_role_callback = callback;
+    details_panel->person_role_user_data = user_data;
 }
 
 gboolean entity_details_panel_is_open(

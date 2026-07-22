@@ -6,6 +6,7 @@
 #include "dao/entity_dao.h"
 #include "dao/evidence_entity_dao.h"
 #include "database/transaction.h"
+#include "database/statement.h"
 #include "models/entity_record.h"
 
 /** @brief Indique si le niveau d'identification est reconnu. */
@@ -14,6 +15,58 @@ static gboolean person_entity_service_status_valid(const char *status)
     return g_strcmp0(status, "unknown") == 0 ||
         g_strcmp0(status, "suspected") == 0 ||
         g_strcmp0(status, "confirmed") == 0;
+}
+
+gboolean person_entity_service_update_role(Database *database,
+    const char *entity_identifier, PersonRole role, GError **error)
+{
+    static const char validate_sql[] =
+        "SELECT 1 FROM entites e JOIN types_entite t ON t.id=e.type_id "
+        "WHERE e.id=? AND t.code='person';";
+    static const char upsert_sql[] =
+        "INSERT INTO person_roles(entity_id, role, updated_at) VALUES(?,?,?) "
+        "ON CONFLICT(entity_id) DO UPDATE SET role=excluded.role, "
+        "updated_at=excluded.updated_at;";
+    DatabaseStatement *statement = NULL;
+    GDateTime *now = NULL;
+    char *timestamp = NULL;
+    const char *role_code = person_role_to_code(role);
+    gboolean active = FALSE, success = FALSE;
+    g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+    if (database == NULL || entity_identifier == NULL ||
+        !g_uuid_string_is_valid(entity_identifier) || role_code == NULL)
+        goto invalid;
+    statement = database_statement_prepare(database, validate_sql);
+    if (statement == NULL || !database_statement_bind_text(statement, 1,
+            entity_identifier) || database_statement_step(statement) !=
+            DATABASE_STATEMENT_STEP_ROW)
+        goto invalid;
+    database_statement_finalize(statement); statement = NULL;
+    now = g_date_time_new_now_utc();
+    timestamp = now != NULL ? g_date_time_format(now,
+        "%Y-%m-%dT%H:%M:%SZ") : NULL;
+    if (timestamp == NULL || !database_transaction_begin(database))
+        goto cleanup;
+    active = TRUE;
+    statement = database_statement_prepare(database, upsert_sql);
+    if (statement == NULL ||
+        !database_statement_bind_text(statement, 1, entity_identifier) ||
+        !database_statement_bind_text(statement, 2, role_code) ||
+        !database_statement_bind_text(statement, 3, timestamp) ||
+        database_statement_step(statement) != DATABASE_STATEMENT_STEP_DONE)
+        goto cleanup;
+    database_statement_finalize(statement); statement = NULL;
+    if (!database_transaction_commit(database)) goto cleanup;
+    active = FALSE; success = TRUE; goto cleanup;
+invalid:
+    g_set_error_literal(error, g_quark_from_static_string(
+        "person-entity-service-error"), 3,
+        "La personne ou la catégorie sélectionnée est invalide.");
+cleanup:
+    database_statement_finalize(statement);
+    if (!success && active) database_transaction_rollback(database);
+    g_free(timestamp); g_clear_pointer(&now, g_date_time_unref);
+    return success;
 }
 
 gboolean person_entity_service_create(Database *database,

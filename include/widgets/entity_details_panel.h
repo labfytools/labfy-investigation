@@ -7,6 +7,7 @@
 #define LABFY_INVESTIGATION_ENTITY_DETAILS_PANEL_H
 
 #include <gtk/gtk.h>
+#include "models/entity_record.h"
 
 G_BEGIN_DECLS
 
@@ -42,6 +43,13 @@ typedef void (*EntityDetailsPanelCloseCallback)(
  */
 typedef void (*EntityDetailsPanelAddRelationCallback)(
     const char *source_entity_identifier,
+    gpointer user_data
+);
+
+/** @brief Callback appelé lors du changement de catégorie d'une personne. */
+typedef void (*EntityDetailsPanelPersonRoleCallback)(
+    const char *entity_identifier,
+    PersonRole role,
     gpointer user_data
 );
 
@@ -117,6 +125,13 @@ void entity_details_panel_set_close_callback(
 void entity_details_panel_set_add_relation_callback(
     EntityDetailsPanel *details_panel,
     EntityDetailsPanelAddRelationCallback callback,
+    gpointer user_data
+);
+
+/** @brief Définit le callback de changement de catégorie d'une personne. */
+void entity_details_panel_set_person_role_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelPersonRoleCallback callback,
     gpointer user_data
 );
 

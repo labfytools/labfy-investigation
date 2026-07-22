@@ -143,6 +143,10 @@ typedef void (*MainWindowEditRelationCallback)(
     gpointer user_data
 );
 
+/** @brief Callback appelé pour catégoriser une personne. */
+typedef void (*MainWindowPersonRoleCallback)(const char *entity_identifier,
+    PersonRole role, gpointer user_data);
+
 /**
  * @brief Callback appelé lors du déclenchement d'une action OSINT.
  *
@@ -239,6 +243,10 @@ void main_window_set_edit_relation_callback(
     MainWindowEditRelationCallback callback,
     gpointer user_data
 );
+
+/** @brief Définit le callback de catégorisation d'une personne. */
+void main_window_set_person_role_callback(MainWindow *main_window,
+    MainWindowPersonRoleCallback callback, gpointer user_data);
 
 /**
  * @brief Définit le callback de déclenchement des actions OSINT.
@@ -437,6 +445,9 @@ gboolean main_window_select_graph_relation(
     MainWindow *main_window,
     const char *relation_identifier
 );
+/** @brief Sélectionne une entité dans le graphe affiché. */
+gboolean main_window_select_graph_entity(MainWindow *main_window,
+    const char *entity_identifier);
 
 /**
  * @brief Affiche une erreur de chargement du graphe.

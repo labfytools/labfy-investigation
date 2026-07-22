@@ -5,6 +5,7 @@
 #ifndef LABFY_INVESTIGATION_PERSON_ENTITY_SERVICE_H
 #define LABFY_INVESTIGATION_PERSON_ENTITY_SERVICE_H
 #include "database/database.h"
+#include "models/entity_record.h"
 #include <glib.h>
 G_BEGIN_DECLS
 /** @brief Données factuelles utilisées pour créer une personne. */
@@ -28,5 +29,8 @@ typedef struct
  */
 gboolean person_entity_service_create(Database *database,
     const PersonEntityInput *input, char **out_identifier, GError **error);
+/** @brief Enregistre le rôle d'une personne existante. */
+gboolean person_entity_service_update_role(Database *database,
+    const char *entity_identifier, PersonRole role, GError **error);
 G_END_DECLS
 #endif

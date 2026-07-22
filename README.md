@@ -165,6 +165,8 @@ Le socle actuel comprend notamment :
   conservant leur lisibilité pendant le zoom ;
 - création de personnes observées avec statut d'identification, confiance,
   notes factuelles et rattachement facultatif à une preuve ;
+- catégories d'enquête des personnes en SQLite V5, modifiables depuis leur
+  fiche et représentées par une couleur et un libellé dans le graphe ;
 - relations représentées par des flèches directes à libellé cliquable, sans
   ajouter de faux nœud visuel entre les entités ;
 - historique OSINT contextuel en lecture seule avec détail des exécutions,

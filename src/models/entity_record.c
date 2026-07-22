@@ -24,6 +24,7 @@ struct EntityRecord
     char *updated_at;
 
     EntityStatus status;
+    PersonRole person_role;
 };
 
 /**
@@ -581,4 +582,63 @@ EntityStatus entity_record_get_status(
     return entity_record != NULL
         ? entity_record->status
         : ENTITY_STATUS_UNKNOWN;
+}
+
+gboolean entity_record_set_person_role(EntityRecord *entity_record,
+    PersonRole role)
+{
+    if (entity_record == NULL ||
+        g_strcmp0(entity_record->type_identifier, "person") != 0 ||
+        person_role_to_code(role) == NULL)
+    {
+        return FALSE;
+    }
+    entity_record->person_role = role;
+    return TRUE;
+}
+
+PersonRole entity_record_get_person_role(const EntityRecord *entity_record)
+{
+    return entity_record != NULL ? entity_record->person_role :
+        PERSON_ROLE_UNCATEGORIZED;
+}
+
+const char *person_role_to_code(PersonRole role)
+{
+    switch (role)
+    {
+        case PERSON_ROLE_UNCATEGORIZED: return "uncategorized";
+        case PERSON_ROLE_ALLEGED_SCAMMER: return "alleged_scammer";
+        case PERSON_ROLE_VICTIM: return "victim";
+        case PERSON_ROLE_WITNESS: return "witness";
+        case PERSON_ROLE_SUSPECT: return "suspect";
+        case PERSON_ROLE_RELATED_PERSON: return "related_person";
+        default: return NULL;
+    }
+}
+
+PersonRole person_role_from_code(const char *code)
+{
+    if (g_strcmp0(code, "alleged_scammer") == 0)
+        return PERSON_ROLE_ALLEGED_SCAMMER;
+    if (g_strcmp0(code, "victim") == 0) return PERSON_ROLE_VICTIM;
+    if (g_strcmp0(code, "witness") == 0) return PERSON_ROLE_WITNESS;
+    if (g_strcmp0(code, "suspect") == 0) return PERSON_ROLE_SUSPECT;
+    if (g_strcmp0(code, "related_person") == 0)
+        return PERSON_ROLE_RELATED_PERSON;
+    return PERSON_ROLE_UNCATEGORIZED;
+}
+
+const char *person_role_get_label(PersonRole role)
+{
+    switch (role)
+    {
+        case PERSON_ROLE_ALLEGED_SCAMMER: return "Scammer présumé";
+        case PERSON_ROLE_VICTIM: return "Victime";
+        case PERSON_ROLE_WITNESS: return "Témoin";
+        case PERSON_ROLE_SUSPECT: return "Suspect";
+        case PERSON_ROLE_RELATED_PERSON: return "Personne liée";
+        case PERSON_ROLE_UNCATEGORIZED:
+        default: return "Non catégorisé";
+    }
 }

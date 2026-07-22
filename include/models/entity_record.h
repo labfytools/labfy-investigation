@@ -29,6 +29,17 @@ typedef enum
     ENTITY_STATUS_DELETED
 } EntityStatus;
 
+/** @brief Rôle d'une personne dans l'enquête. */
+typedef enum
+{
+    PERSON_ROLE_UNCATEGORIZED,
+    PERSON_ROLE_ALLEGED_SCAMMER,
+    PERSON_ROLE_VICTIM,
+    PERSON_ROLE_WITNESS,
+    PERSON_ROLE_SUSPECT,
+    PERSON_ROLE_RELATED_PERSON
+} PersonRole;
+
 /**
  * @brief Codes d'erreur produits par EntityRecord.
  */
@@ -169,6 +180,18 @@ const char *entity_record_get_updated_at(
 EntityStatus entity_record_get_status(
     const EntityRecord *entity_record
 );
+
+/** @brief Affecte un rôle d'enquête à une entité de type personne. */
+gboolean entity_record_set_person_role(EntityRecord *entity_record,
+    PersonRole role);
+/** @brief Retourne le rôle d'enquête, non catégorisé par défaut. */
+PersonRole entity_record_get_person_role(const EntityRecord *entity_record);
+/** @brief Convertit un rôle en code stable pour SQLite. */
+const char *person_role_to_code(PersonRole role);
+/** @brief Convertit un code SQLite en rôle. */
+PersonRole person_role_from_code(const char *code);
+/** @brief Retourne le libellé français d'un rôle. */
+const char *person_role_get_label(PersonRole role);
 
 G_END_DECLS
 

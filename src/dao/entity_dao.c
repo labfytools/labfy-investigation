@@ -68,10 +68,12 @@ static const char *const entity_dao_find_by_identifier_sql =
     "    entites.confiance,"
     "    entites.created_at,"
     "    entites.updated_at,"
-    "    entites.status "
+    "    entites.status,"
+    "    person_roles.role "
     "FROM entites "
     "LEFT JOIN types_entite "
     "ON types_entite.id = entites.type_id "
+    "LEFT JOIN person_roles ON person_roles.entity_id = entites.id "
     "WHERE entites.id = ?;";
 
 /**
@@ -87,10 +89,12 @@ static const char *const entity_dao_list_all_sql =
     "    entites.confiance,"
     "    entites.created_at,"
     "    entites.updated_at,"
-    "    entites.status "
+    "    entites.status,"
+    "    person_roles.role "
     "FROM entites "
     "LEFT JOIN types_entite "
     "ON types_entite.id = entites.type_id "
+    "LEFT JOIN person_roles ON person_roles.entity_id = entites.id "
     "ORDER BY "
     "    entites.created_at ASC,"
     "    entites.id ASC;";
@@ -674,6 +678,9 @@ static EntityRecord *entity_dao_read_current_record(
     char *status_text =
         NULL;
 
+    char *person_role_text =
+        NULL;
+
     int64_t confidence_value =
         -1;
 
@@ -740,6 +747,11 @@ static EntityRecord *entity_dao_read_current_record(
             statement,
             8,
             &status_text
+        ) ||
+        !database_statement_column_text(
+            statement,
+            9,
+            &person_role_text
         ))
     {
         entity_dao_set_error_literal(
@@ -812,6 +824,11 @@ static EntityRecord *entity_dao_read_current_record(
             );
         }
     }
+    else if (person_role_text != NULL)
+    {
+        entity_record_set_person_role(entity_record,
+            person_role_from_code(person_role_text));
+    }
 
 cleanup:
 
@@ -822,6 +839,8 @@ cleanup:
     g_free(
         status_text
     );
+
+    g_free(person_role_text);
 
     g_free(
         updated_at

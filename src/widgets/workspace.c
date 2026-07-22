@@ -124,6 +124,8 @@ struct Workspace
 
     WorkspaceEditRelationCallback edit_relation_callback;
     gpointer edit_relation_user_data;
+    WorkspacePersonRoleCallback person_role_callback;
+    gpointer person_role_user_data;
 
     WorkspaceOsintActionCallback
         osint_action_callback;
@@ -780,6 +782,16 @@ static void workspace_on_add_relation_requested(
         source_entity_identifier,
         workspace->add_relation_user_data
     );
+}
+
+/** @brief Relaie le changement de catégorie d'une personne. */
+static void workspace_on_person_role_changed(const char *entity_identifier,
+    PersonRole role, gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    if (workspace != NULL && workspace->person_role_callback != NULL)
+        workspace->person_role_callback(entity_identifier, role,
+            workspace->person_role_user_data);
 }
 
 /**
@@ -1653,6 +1665,10 @@ Workspace *workspace_new(void)
         workspace_on_add_relation_requested,
         workspace
     );
+
+    entity_details_panel_set_person_role_callback(
+        workspace->entity_details_panel, workspace_on_person_role_changed,
+        workspace);
 
     gtk_overlay_set_child(
         GTK_OVERLAY(
@@ -2993,6 +3009,14 @@ void workspace_set_edit_relation_callback(Workspace *workspace,
     workspace->edit_relation_user_data = user_data;
 }
 
+void workspace_set_person_role_callback(Workspace *workspace,
+    WorkspacePersonRoleCallback callback, gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->person_role_callback = callback;
+    workspace->person_role_user_data = user_data;
+}
+
 void workspace_reset_graph_layout(
     Workspace *workspace
 )
@@ -3059,6 +3083,8 @@ void workspace_free(Workspace *workspace)
         NULL,
         NULL
     );
+    entity_details_panel_set_person_role_callback(
+        workspace->entity_details_panel, NULL, NULL);
 
     entity_details_panel_clear(
         workspace->entity_details_panel

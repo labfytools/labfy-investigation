@@ -81,6 +81,9 @@ bool schema_install_v4(
     Database *database
 );
 
+/** @brief Installe la migration des rôles de personnes du schéma V5. */
+bool schema_install_v5(Database *database);
+
 /**
  * @brief Garantit la présence des extensions du schéma courant V2.
  *

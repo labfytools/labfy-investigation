@@ -131,6 +131,8 @@ struct MainWindow
 
     MainWindowEditRelationCallback edit_relation_callback;
     gpointer edit_relation_user_data;
+    MainWindowPersonRoleCallback person_role_callback;
+    gpointer person_role_user_data;
 
     MainWindowOsintActionCallback
         osint_action_callback;
@@ -526,6 +528,16 @@ static void main_window_on_edit_relation_requested(
         main_window->edit_relation_user_data);
 }
 
+/** @brief Relaie la catégorisation d'une personne. */
+static void main_window_on_person_role_changed(const char *entity_identifier,
+    PersonRole role, gpointer user_data)
+{
+    MainWindow *main_window = user_data;
+    if (main_window != NULL && main_window->person_role_callback != NULL)
+        main_window->person_role_callback(entity_identifier, role,
+            main_window->person_role_user_data);
+}
+
 /**
  * @brief Relaie la demande de vérification provenant du Workspace.
  */
@@ -866,6 +878,8 @@ MainWindow *main_window_new(
 
     workspace_set_edit_relation_callback(main_window->workspace,
         main_window_on_edit_relation_requested, main_window);
+    workspace_set_person_role_callback(main_window->workspace,
+        main_window_on_person_role_changed, main_window);
 
     workspace_set_osint_action_callback(
         main_window->workspace,
@@ -1280,6 +1294,14 @@ gboolean main_window_select_graph_relation(MainWindow *main_window,
         relation_identifier);
 }
 
+gboolean main_window_select_graph_entity(MainWindow *main_window,
+    const char *entity_identifier)
+{
+    if (main_window == NULL) return FALSE;
+    return workspace_select_graph_entity(main_window->workspace,
+        entity_identifier);
+}
+
 void main_window_set_graph_error(
     MainWindow *main_window,
     const char *message
@@ -1650,6 +1672,14 @@ void main_window_set_edit_relation_callback(MainWindow *main_window,
     main_window->edit_relation_user_data = user_data;
 }
 
+void main_window_set_person_role_callback(MainWindow *main_window,
+    MainWindowPersonRoleCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->person_role_callback = callback;
+    main_window->person_role_user_data = user_data;
+}
+
 void main_window_set_quit_callback(
     MainWindow *main_window,
     MainWindowQuitCallback callback,
@@ -1803,6 +1833,7 @@ void main_window_free(
 
         workspace_set_edit_relation_callback(main_window->workspace,
             NULL, NULL);
+        workspace_set_person_role_callback(main_window->workspace, NULL, NULL);
 
         main_window->graph_node_moved_callback =
             NULL;
@@ -1824,6 +1855,8 @@ void main_window_free(
 
         main_window->edit_relation_callback = NULL;
         main_window->edit_relation_user_data = NULL;
+        main_window->person_role_callback = NULL;
+        main_window->person_role_user_data = NULL;
 
         main_window->show_graph_callback =
             NULL;
