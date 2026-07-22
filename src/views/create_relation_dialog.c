@@ -6,6 +6,7 @@
 #include "views/create_relation_dialog.h"
 
 #include "models/entity_record.h"
+#include "models/evidence_record.h"
 #include "models/relation_record.h"
 
 #include <glib.h>
@@ -21,9 +22,31 @@ struct CreateRelationDialogResult
     char *relation_type;
     char *label;
     char *justification;
+    GPtrArray *evidence_identifiers;
 
     gint confidence;
 };
+
+/** @brief Copie privée des données nécessaires à la sélection d'une preuve. */
+typedef struct
+{
+    char *identifier;
+    char *name;
+    char *type;
+    char *date;
+    char *sha256;
+    char *absolute_path;
+} CreateRelationEvidenceOption;
+
+/** @brief Libère une option de preuve. */
+static void create_relation_evidence_option_free(gpointer data)
+{
+    CreateRelationEvidenceOption *option = data;
+    if (option == NULL) return;
+    g_free(option->identifier); g_free(option->name); g_free(option->type);
+    g_free(option->date); g_free(option->sha256); g_free(option->absolute_path);
+    g_free(option);
+}
 
 /**
  * @brief État privé conservé pendant l'affichage du dialogue.
@@ -41,6 +64,13 @@ typedef struct
 
     char *source_entity_identifier;
     GPtrArray *target_identifiers;
+    GPtrArray *evidence_options;
+    GPtrArray *evidence_check_buttons;
+    GtkWidget *evidence_preview_stack;
+    GtkWidget *evidence_preview_status;
+    GtkWidget *evidence_preview_picture;
+    GtkWidget *evidence_preview_video;
+    GtkWidget *evidence_metadata_label;
 
     CreateRelationDialogCallback callback;
     gpointer callback_data;
@@ -263,6 +293,75 @@ static void create_relation_dialog_show_error(
     );
 }
 
+/** @brief Arrête la vidéo utilisée par l'aperçu des preuves. */
+static void create_relation_dialog_clear_preview(
+    CreateRelationDialogState *state)
+{
+    GtkMediaStream *stream = NULL;
+    if (state == NULL || state->evidence_preview_video == NULL ||
+        state->evidence_preview_picture == NULL) return;
+    stream = gtk_video_get_media_stream(GTK_VIDEO(
+        state->evidence_preview_video));
+    if (stream != NULL) gtk_media_stream_pause(stream);
+    gtk_video_set_media_stream(GTK_VIDEO(state->evidence_preview_video), NULL);
+    gtk_picture_set_paintable(GTK_PICTURE(
+        state->evidence_preview_picture), NULL);
+}
+
+/** @brief Affiche la preuve dont la case vient d'être manipulée. */
+static void create_relation_dialog_on_evidence_toggled(GtkCheckButton *button,
+    gpointer user_data)
+{
+    CreateRelationDialogState *state = user_data;
+    CreateRelationEvidenceOption *option = g_object_get_data(
+        G_OBJECT(button), "relation-evidence-option");
+    GFile *file = NULL;
+    GFileInfo *info = NULL;
+    const char *content_type = NULL;
+    char *mime = NULL;
+    char *metadata = NULL;
+    GError *error = NULL;
+    if (state == NULL || option == NULL) return;
+    create_relation_dialog_clear_preview(state);
+    metadata = g_strdup_printf("%s\nType : %s\nDate : %s\nSHA-256 : %s",
+        option->name, option->type, option->date, option->sha256);
+    gtk_label_set_text(GTK_LABEL(state->evidence_metadata_label), metadata);
+    g_free(metadata);
+    if (option->absolute_path == NULL) goto unsupported;
+    file = g_file_new_for_path(option->absolute_path);
+    info = g_file_query_info(file, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE,
+        G_FILE_QUERY_INFO_NONE, NULL, &error);
+    if (info != NULL) content_type = g_file_info_get_content_type(info);
+    if (content_type != NULL) mime = g_content_type_get_mime_type(content_type);
+    if (mime != NULL && g_str_has_prefix(mime, "image/"))
+    {
+        gtk_picture_set_filename(GTK_PICTURE(state->evidence_preview_picture),
+            option->absolute_path);
+        gtk_stack_set_visible_child_name(GTK_STACK(
+            state->evidence_preview_stack), "image");
+    }
+    else if (mime != NULL && g_str_has_prefix(mime, "video/"))
+    {
+        GtkMediaStream *stream = gtk_media_file_new_for_filename(
+            option->absolute_path);
+        gtk_video_set_media_stream(GTK_VIDEO(state->evidence_preview_video),
+            stream);
+        g_object_unref(stream);
+        gtk_stack_set_visible_child_name(GTK_STACK(
+            state->evidence_preview_stack), "video");
+    }
+    else
+    {
+unsupported:
+        gtk_label_set_text(GTK_LABEL(state->evidence_preview_status),
+            "Aperçu indisponible pour ce format.");
+        gtk_stack_set_visible_child_name(GTK_STACK(
+            state->evidence_preview_stack), "status");
+    }
+    g_clear_error(&error); g_free(mime);
+    g_clear_object(&info); g_clear_object(&file);
+}
+
 /**
  * @brief Libère l'état privé du dialogue.
  */
@@ -282,6 +381,9 @@ static void create_relation_dialog_state_free(
         &state->target_identifiers,
         g_ptr_array_unref
     );
+    create_relation_dialog_clear_preview(state);
+    g_clear_pointer(&state->evidence_options, g_ptr_array_unref);
+    g_clear_pointer(&state->evidence_check_buttons, g_ptr_array_unref);
 
     g_free(
         state->source_entity_identifier
@@ -529,13 +631,32 @@ static void create_relation_dialog_on_create_clicked(
     result->confidence =
         confidence;
 
+    result->evidence_identifiers = g_ptr_array_new_with_free_func(g_free);
+    if (result->evidence_identifiers != NULL)
+    {
+        guint evidence_index = 0;
+        for (evidence_index = 0;
+             evidence_index < state->evidence_check_buttons->len;
+             evidence_index++)
+        {
+            GtkCheckButton *check_button = g_ptr_array_index(
+                state->evidence_check_buttons, evidence_index);
+            CreateRelationEvidenceOption *option = g_object_get_data(
+                G_OBJECT(check_button), "relation-evidence-option");
+            if (gtk_check_button_get_active(check_button) && option != NULL)
+                g_ptr_array_add(result->evidence_identifiers,
+                    g_strdup(option->identifier));
+        }
+    }
+
     g_free(
         justification_text
     );
 
     if (result->source_entity_identifier == NULL ||
         result->target_entity_identifier == NULL ||
-        result->relation_type == NULL)
+        result->relation_type == NULL ||
+        result->evidence_identifiers == NULL)
     {
         create_relation_dialog_result_free(
             result
@@ -689,6 +810,9 @@ static gboolean create_relation_dialog_present_internal(
     const char *source_entity_identifier,
     const RelationRecord *existing_relation,
     const GPtrArray *entities,
+    const GPtrArray *evidence_records,
+    const GPtrArray *selected_evidence_identifiers,
+    const char *investigation_root_path,
     CreateRelationDialogCallback callback,
     gpointer user_data,
     GError **error
@@ -733,6 +857,12 @@ static gboolean create_relation_dialog_present_internal(
     GtkWidget *justification_scrolled_window =
         NULL;
 
+    GtkWidget *evidence_box = NULL;
+    GtkWidget *evidence_list = NULL;
+    GtkWidget *evidence_list_scrolled = NULL;
+    GtkWidget *evidence_preview_box = NULL;
+    GtkWidget *evidence_title = NULL;
+
     GtkWidget *button_box =
         NULL;
 
@@ -764,7 +894,8 @@ static gboolean create_relation_dialog_present_internal(
         !g_uuid_string_is_valid(
             source_entity_identifier
         ) ||
-        entities == NULL ||
+        entities == NULL || evidence_records == NULL ||
+        investigation_root_path == NULL ||
         callback == NULL)
     {
         g_set_error_literal(
@@ -804,6 +935,10 @@ static gboolean create_relation_dialog_present_internal(
         g_ptr_array_new_with_free_func(
             g_free
         );
+    state->evidence_options = g_ptr_array_new_with_free_func(
+        create_relation_evidence_option_free);
+    state->evidence_check_buttons = g_ptr_array_new_with_free_func(
+        g_object_unref);
 
     state->callback =
         callback;
@@ -817,7 +952,8 @@ static gboolean create_relation_dialog_present_internal(
         );
 
     if (state->source_entity_identifier == NULL ||
-        state->target_identifiers == NULL ||
+        state->target_identifiers == NULL || state->evidence_options == NULL ||
+        state->evidence_check_buttons == NULL ||
         target_labels == NULL)
     {
         g_clear_object(
@@ -976,6 +1112,43 @@ static gboolean create_relation_dialog_present_internal(
         return FALSE;
     }
 
+    for (guint evidence_index = 0; evidence_index < evidence_records->len;
+         evidence_index++)
+    {
+        const EvidenceRecord *record = g_ptr_array_index(evidence_records,
+            evidence_index);
+        CreateRelationEvidenceOption *option = NULL;
+        char *candidate = NULL;
+        char *canonical_root = NULL;
+        char *canonical_path = NULL;
+        const char *date = NULL;
+        if (record == NULL) continue;
+        option = g_try_new0(CreateRelationEvidenceOption, 1);
+        if (option == NULL) continue;
+        option->identifier = g_strdup(evidence_record_get_identifier(record));
+        option->name = g_strdup(evidence_record_get_original_name(record));
+        option->type = g_strdup(evidence_record_get_type_identifier(record));
+        date = evidence_record_get_collected_at(record);
+        if (date == NULL) date = evidence_record_get_imported_at(record);
+        option->date = g_strdup(date != NULL ? date : "Date inconnue");
+        option->sha256 = g_strdup(evidence_record_get_sha256(record));
+        candidate = g_build_filename(investigation_root_path,
+            evidence_record_get_relative_path(record), NULL);
+        canonical_root = g_canonicalize_filename(investigation_root_path, NULL);
+        canonical_path = g_canonicalize_filename(candidate, NULL);
+        if (canonical_root != NULL && canonical_path != NULL &&
+            g_str_has_prefix(canonical_path, canonical_root) &&
+            (canonical_path[strlen(canonical_root)] == G_DIR_SEPARATOR ||
+             canonical_path[strlen(canonical_root)] == '\0'))
+            option->absolute_path = g_strdup(canonical_path);
+        g_free(canonical_path); g_free(canonical_root); g_free(candidate);
+        if (option->identifier == NULL || option->name == NULL ||
+            option->type == NULL || option->sha256 == NULL)
+            create_relation_evidence_option_free(option);
+        else
+            g_ptr_array_add(state->evidence_options, option);
+    }
+
     state->window =
         GTK_WINDOW(
             gtk_window_new()
@@ -1005,8 +1178,8 @@ static gboolean create_relation_dialog_present_internal(
 
     gtk_window_set_default_size(
         state->window,
-        640,
-        560
+        920,
+        780
     );
 
     root_box =
@@ -1299,6 +1472,73 @@ static gboolean create_relation_dialog_present_internal(
         1
     );
 
+    evidence_title = gtk_label_new("Pièces jointes à la relation");
+    gtk_label_set_xalign(GTK_LABEL(evidence_title), 0.0F);
+    evidence_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    evidence_list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    evidence_list_scrolled = gtk_scrolled_window_new();
+    gtk_widget_set_size_request(evidence_list_scrolled, 360, 240);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(evidence_list_scrolled),
+        GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(evidence_list_scrolled),
+        evidence_list);
+    for (guint evidence_index = 0;
+         evidence_index < state->evidence_options->len; evidence_index++)
+    {
+        CreateRelationEvidenceOption *option = g_ptr_array_index(
+            state->evidence_options, evidence_index);
+        char *display = g_strdup_printf("%s — %s — %s", option->name,
+            option->type, option->date);
+        GtkWidget *check = gtk_check_button_new_with_label(display);
+        gboolean active = FALSE;
+        g_free(display);
+        if (selected_evidence_identifiers != NULL)
+            for (guint selected_index = 0;
+                 selected_index < selected_evidence_identifiers->len;
+                 selected_index++)
+                if (g_strcmp0(option->identifier, g_ptr_array_index(
+                        selected_evidence_identifiers, selected_index)) == 0)
+                    active = TRUE;
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(check), active);
+        g_object_set_data(G_OBJECT(check), "relation-evidence-option", option);
+        g_signal_connect(check, "toggled", G_CALLBACK(
+            create_relation_dialog_on_evidence_toggled), state);
+        gtk_box_append(GTK_BOX(evidence_list), check);
+        g_ptr_array_add(state->evidence_check_buttons, g_object_ref(check));
+    }
+    if (state->evidence_options->len == 0)
+        gtk_box_append(GTK_BOX(evidence_list), gtk_label_new(
+            "Aucune preuve enregistrée dans l’enquête."));
+
+    evidence_preview_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_set_hexpand(evidence_preview_box, TRUE);
+    state->evidence_metadata_label = gtk_label_new(
+        "Sélectionnez une preuve pour afficher son aperçu.");
+    gtk_label_set_xalign(GTK_LABEL(state->evidence_metadata_label), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(state->evidence_metadata_label), TRUE);
+    gtk_label_set_selectable(GTK_LABEL(state->evidence_metadata_label), TRUE);
+    state->evidence_preview_stack = gtk_stack_new();
+    gtk_widget_set_size_request(state->evidence_preview_stack, 420, 220);
+    state->evidence_preview_status = gtk_label_new("Aucun aperçu.");
+    state->evidence_preview_picture = gtk_picture_new();
+    gtk_picture_set_content_fit(GTK_PICTURE(state->evidence_preview_picture),
+        GTK_CONTENT_FIT_CONTAIN);
+    state->evidence_preview_video = gtk_video_new();
+    gtk_video_set_autoplay(GTK_VIDEO(state->evidence_preview_video), FALSE);
+    gtk_stack_add_named(GTK_STACK(state->evidence_preview_stack),
+        state->evidence_preview_status, "status");
+    gtk_stack_add_named(GTK_STACK(state->evidence_preview_stack),
+        state->evidence_preview_picture, "image");
+    gtk_stack_add_named(GTK_STACK(state->evidence_preview_stack),
+        state->evidence_preview_video, "video");
+    gtk_box_append(GTK_BOX(evidence_preview_box),
+        state->evidence_metadata_label);
+    gtk_box_append(GTK_BOX(evidence_preview_box), state->evidence_preview_stack);
+    gtk_box_append(GTK_BOX(evidence_box), evidence_list_scrolled);
+    gtk_box_append(GTK_BOX(evidence_box), evidence_preview_box);
+    gtk_grid_attach(GTK_GRID(grid), evidence_title, 0, 5, 2, 1);
+    gtk_grid_attach(GTK_GRID(grid), evidence_box, 0, 6, 2, 1);
+
     gtk_grid_attach(
         GTK_GRID(
             grid
@@ -1582,14 +1822,19 @@ static gboolean create_relation_dialog_present_internal(
 
 gboolean create_relation_dialog_present(GtkWindow *parent,
     const char *source_entity_identifier, const GPtrArray *entities,
+    const GPtrArray *evidence_records, const char *investigation_root_path,
     CreateRelationDialogCallback callback, gpointer user_data, GError **error)
 {
     return create_relation_dialog_present_internal(parent,
-        source_entity_identifier, NULL, entities, callback, user_data, error);
+        source_entity_identifier, NULL, entities, evidence_records, NULL,
+        investigation_root_path, callback, user_data, error);
 }
 
 gboolean edit_relation_dialog_present(GtkWindow *parent,
     const RelationRecord *relation_record, const GPtrArray *entities,
+    const GPtrArray *evidence_records,
+    const GPtrArray *selected_evidence_identifiers,
+    const char *investigation_root_path,
     CreateRelationDialogCallback callback, gpointer user_data, GError **error)
 {
     if (relation_record == NULL)
@@ -1601,7 +1846,9 @@ gboolean edit_relation_dialog_present(GtkWindow *parent,
     }
     return create_relation_dialog_present_internal(parent,
         relation_record_get_source_entity_identifier(relation_record),
-        relation_record, entities, callback, user_data, error);
+        relation_record, entities, evidence_records,
+        selected_evidence_identifiers, investigation_root_path,
+        callback, user_data, error);
 }
 
 void create_relation_dialog_result_free(
@@ -1633,9 +1880,17 @@ void create_relation_dialog_result_free(
         result->source_entity_identifier
     );
 
+    g_clear_pointer(&result->evidence_identifiers, g_ptr_array_unref);
+
     g_free(
         result
     );
+}
+
+const GPtrArray *create_relation_dialog_result_get_evidence_identifiers(
+    const CreateRelationDialogResult *result)
+{
+    return result != NULL ? result->evidence_identifiers : NULL;
 }
 
 const char *create_relation_dialog_result_get_source_identifier(

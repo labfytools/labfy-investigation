@@ -67,6 +67,7 @@ struct Workspace
     GtkWidget *relation_details_panel;
     GtkWidget *relation_details_title_label;
     GtkWidget *relation_details_summary_label;
+    GtkWidget *relation_evidences_label;
     GtkWidget *edit_relation_button;
     GtkWidget *close_relation_details_button;
     char *selected_relation_identifier;
@@ -130,6 +131,8 @@ struct Workspace
         add_relation_user_data;
 
     WorkspaceEditRelationCallback edit_relation_callback;
+    WorkspaceRelationSelectedCallback relation_selected_callback;
+    gpointer relation_selected_user_data;
     gpointer edit_relation_user_data;
     WorkspacePersonRoleCallback person_role_callback;
     gpointer person_role_user_data;
@@ -804,6 +807,11 @@ static void workspace_on_graph_node_selected(
             summary != NULL ? summary : "Informations indisponibles"
         );
         g_free(summary);
+
+        if (workspace->relation_selected_callback != NULL)
+            workspace->relation_selected_callback(
+                workspace->selected_relation_identifier,
+                workspace->relation_selected_user_data);
     }
 
     workspace_update_osint_tools_menu(
@@ -1677,6 +1685,8 @@ Workspace *workspace_new(void)
     );
     workspace->relation_details_title_label = gtk_label_new(NULL);
     workspace->relation_details_summary_label = gtk_label_new(NULL);
+    workspace->relation_evidences_label = gtk_label_new(
+        "Pièces jointes : chargement…");
     workspace->edit_relation_button = gtk_button_new_with_label("Modifier");
     workspace->close_relation_details_button =
         gtk_button_new_from_icon_name("window-close-symbolic");
@@ -1686,6 +1696,7 @@ Workspace *workspace_new(void)
         workspace->relation_details_panel == NULL ||
         workspace->relation_details_title_label == NULL ||
         workspace->relation_details_summary_label == NULL ||
+        workspace->relation_evidences_label == NULL ||
         workspace->edit_relation_button == NULL ||
         workspace->close_relation_details_button == NULL)
     {
@@ -1732,6 +1743,13 @@ Workspace *workspace_new(void)
         GTK_LABEL(workspace->relation_details_summary_label),
         TRUE
     );
+    gtk_widget_set_margin_start(workspace->relation_evidences_label, 16);
+    gtk_widget_set_margin_end(workspace->relation_evidences_label, 16);
+    gtk_widget_set_margin_bottom(workspace->relation_evidences_label, 12);
+    gtk_label_set_xalign(GTK_LABEL(workspace->relation_evidences_label), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(workspace->relation_evidences_label), TRUE);
+    gtk_label_set_selectable(GTK_LABEL(workspace->relation_evidences_label),
+        TRUE);
     gtk_box_append(
         GTK_BOX(workspace->relation_details_panel),
         workspace->relation_details_title_label
@@ -1745,6 +1763,8 @@ Workspace *workspace_new(void)
         GTK_BOX(workspace->relation_details_panel),
         workspace->relation_details_summary_label
     );
+    gtk_box_append(GTK_BOX(workspace->relation_details_panel),
+        workspace->relation_evidences_label);
     gtk_box_append(GTK_BOX(workspace->relation_details_panel),
         workspace->edit_relation_button);
     g_signal_connect(workspace->edit_relation_button, "clicked",
@@ -3193,6 +3213,41 @@ void workspace_set_edit_relation_callback(Workspace *workspace,
     if (workspace == NULL) return;
     workspace->edit_relation_callback = callback;
     workspace->edit_relation_user_data = user_data;
+}
+
+void workspace_set_relation_selected_callback(Workspace *workspace,
+    WorkspaceRelationSelectedCallback callback, gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->relation_selected_callback = callback;
+    workspace->relation_selected_user_data = user_data;
+}
+
+void workspace_set_relation_evidences(Workspace *workspace,
+    const GPtrArray *evidence_records)
+{
+    GString *text = NULL;
+    if (workspace == NULL || workspace->relation_evidences_label == NULL)
+        return;
+    text = g_string_new("Pièces jointes");
+    if (evidence_records == NULL || evidence_records->len == 0)
+        g_string_append(text, " : aucune");
+    else
+    {
+        g_string_append_printf(text, " (%u) :", evidence_records->len);
+        for (guint index = 0; index < evidence_records->len; index++)
+        {
+            const EvidenceRecord *record = g_ptr_array_index(evidence_records,
+                index);
+            if (record == NULL) continue;
+            g_string_append_printf(text, "\n• %s — %s",
+                evidence_record_get_original_name(record),
+                evidence_record_get_type_identifier(record));
+        }
+    }
+    gtk_label_set_text(GTK_LABEL(workspace->relation_evidences_label),
+        text->str);
+    g_string_free(text, TRUE);
 }
 
 void workspace_set_person_role_callback(Workspace *workspace,

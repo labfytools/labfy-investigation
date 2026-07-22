@@ -41,6 +41,7 @@
 #include "dao/evidence_dao.h"
 #include "dao/entity_dao.h"
 #include "dao/relation_dao.h"
+#include "dao/relation_evidence_dao.h"
 #include "dao/osint_execution_dao.h"
 #include "models/evidence_type.h"
 #include "widgets/evidence_list_model.h"
@@ -4873,7 +4874,7 @@ static void application_on_create_relation_completed(
     if (!relation_service_create(
             relation_service,
             relation_record,
-            NULL,
+            create_relation_dialog_result_get_evidence_identifiers(result),
             &error
         ))
     {
@@ -5020,6 +5021,7 @@ static void application_on_edit_relation_completed(
     Application *application = context != NULL ? context->application : NULL;
     Database *database = NULL;
     RelationDao *relation_dao = NULL;
+    RelationEvidenceDao *relation_evidence_dao = NULL;
     RelationRecord *existing = NULL;
     RelationRecord *updated = NULL;
     const InvestigationProject *project = NULL;
@@ -5033,7 +5035,8 @@ static void application_on_edit_relation_completed(
     database = investigation_session_get_database(application->session);
     project = investigation_session_get_project(application->session);
     relation_dao = relation_dao_new(database, &error);
-    if (relation_dao == NULL) goto failure;
+    relation_evidence_dao = relation_evidence_dao_new(database, &error);
+    if (relation_dao == NULL || relation_evidence_dao == NULL) goto failure;
     existing = relation_dao_find_by_identifier(relation_dao,
         context->relation_identifier, &error);
     if (existing == NULL) goto failure;
@@ -5052,9 +5055,47 @@ static void application_on_edit_relation_completed(
         relation_record_get_status(existing), &error);
     if (updated == NULL || !database_transaction_begin(database)) goto failure;
     transaction_active = TRUE;
-    if (!relation_dao_update(relation_dao, updated, &error) ||
-        !database_transaction_commit(database))
+    if (!relation_dao_update(relation_dao, updated, &error))
         goto failure;
+    {
+        GPtrArray *existing_evidence =
+            relation_evidence_dao_list_evidence_identifiers(
+                relation_evidence_dao, context->relation_identifier, &error);
+        const GPtrArray *selected_evidence =
+            create_relation_dialog_result_get_evidence_identifiers(result);
+        if (existing_evidence == NULL) goto failure;
+        for (guint index = 0; index < existing_evidence->len; index++)
+        {
+            const char *identifier = g_ptr_array_index(existing_evidence, index);
+            gboolean retained = FALSE;
+            for (guint selected_index = 0;
+                 selected_index < selected_evidence->len; selected_index++)
+                if (g_strcmp0(identifier, g_ptr_array_index(selected_evidence,
+                        selected_index)) == 0) retained = TRUE;
+            if (!retained && !relation_evidence_dao_unlink(
+                    relation_evidence_dao, context->relation_identifier,
+                    identifier, &error))
+            {
+                g_ptr_array_unref(existing_evidence);
+                goto failure;
+            }
+        }
+        for (guint index = 0; index < selected_evidence->len; index++)
+        {
+            const char *identifier = g_ptr_array_index(selected_evidence, index);
+            gboolean exists = FALSE;
+            if (!relation_evidence_dao_exists(relation_evidence_dao,
+                    context->relation_identifier, identifier, &exists, &error) ||
+                (!exists && !relation_evidence_dao_link(relation_evidence_dao,
+                    context->relation_identifier, identifier, &error)))
+            {
+                g_ptr_array_unref(existing_evidence);
+                goto failure;
+            }
+        }
+        g_ptr_array_unref(existing_evidence);
+    }
+    if (!database_transaction_commit(database)) goto failure;
     transaction_active = FALSE;
     main_window_set_status(application->main_window,
         "Relation modifiée. Actualisation du graphe…");
@@ -5077,6 +5118,7 @@ cleanup:
     relation_record_free(updated);
     relation_record_free(existing);
     relation_dao_free(relation_dao);
+    relation_evidence_dao_free(relation_evidence_dao);
     create_relation_dialog_result_free(result);
     application_edit_relation_context_free(context);
 }
@@ -5089,8 +5131,13 @@ static void application_on_edit_relation_requested(
     Database *database = NULL;
     RelationDao *relation_dao = NULL;
     EntityDao *entity_dao = NULL;
+    EvidenceDao *evidence_dao = NULL;
+    RelationEvidenceDao *relation_evidence_dao = NULL;
     RelationRecord *relation = NULL;
     GPtrArray *entities = NULL;
+    GPtrArray *evidences = NULL;
+    GPtrArray *selected_evidences = NULL;
+    const InvestigationProject *project = NULL;
     ApplicationEditRelationContext *context = NULL;
     GError *error = NULL;
 
@@ -5099,16 +5146,27 @@ static void application_on_edit_relation_requested(
     database = investigation_session_get_database(application->session);
     relation_dao = relation_dao_new(database, &error);
     entity_dao = entity_dao_new(database, &error);
+    evidence_dao = evidence_dao_new(database, &error);
+    relation_evidence_dao = relation_evidence_dao_new(database, &error);
+    project = investigation_session_get_project(application->session);
     if (relation_dao != NULL)
         relation = relation_dao_find_by_identifier(relation_dao,
             relation_identifier, &error);
     if (entity_dao != NULL) entities = entity_dao_list_all(entity_dao, &error);
-    if (relation == NULL || entities == NULL) goto failure;
+    if (evidence_dao != NULL) evidences = evidence_dao_list_all(evidence_dao,
+        &error);
+    if (relation_evidence_dao != NULL) selected_evidences =
+        relation_evidence_dao_list_evidence_identifiers(relation_evidence_dao,
+            relation_identifier, &error);
+    if (relation == NULL || entities == NULL || evidences == NULL ||
+        selected_evidences == NULL || project == NULL) goto failure;
     context = g_new0(ApplicationEditRelationContext, 1);
     context->application = application;
     context->relation_identifier = g_strdup(relation_identifier);
     if (context->relation_identifier == NULL || !edit_relation_dialog_present(
             main_window_get_window(application->main_window), relation, entities,
+            evidences, selected_evidences,
+            investigation_project_get_root_path(project),
             application_on_edit_relation_completed, context, &error))
         goto failure;
     context = NULL;
@@ -5121,9 +5179,61 @@ cleanup:
     application_edit_relation_context_free(context);
     g_clear_error(&error);
     g_clear_pointer(&entities, g_ptr_array_unref);
+    g_clear_pointer(&evidences, g_ptr_array_unref);
+    g_clear_pointer(&selected_evidences, g_ptr_array_unref);
     relation_record_free(relation);
     entity_dao_free(entity_dao);
+    evidence_dao_free(evidence_dao);
+    relation_evidence_dao_free(relation_evidence_dao);
     relation_dao_free(relation_dao);
+}
+
+/** @brief Charge les preuves liées à la relation affichée dans le volet. */
+static void application_on_relation_selected(
+    const char *relation_identifier,
+    gpointer user_data)
+{
+    Application *application = user_data;
+    Database *database = NULL;
+    RelationEvidenceDao *relation_evidence_dao = NULL;
+    EvidenceDao *evidence_dao = NULL;
+    GPtrArray *identifiers = NULL;
+    GPtrArray *records = NULL;
+    GError *error = NULL;
+    if (application == NULL || application->session == NULL ||
+        relation_identifier == NULL) return;
+    database = investigation_session_get_database(application->session);
+    relation_evidence_dao = relation_evidence_dao_new(database, &error);
+    if (relation_evidence_dao == NULL) goto cleanup;
+    evidence_dao = evidence_dao_new(database, &error);
+    if (evidence_dao == NULL) goto cleanup;
+    identifiers = relation_evidence_dao_list_evidence_identifiers(
+        relation_evidence_dao, relation_identifier, &error);
+    if (identifiers == NULL) goto cleanup;
+    records = g_ptr_array_new_with_free_func((GDestroyNotify)
+        evidence_record_free);
+    if (records == NULL) goto cleanup;
+    for (guint index = 0; index < identifiers->len; index++)
+    {
+        EvidenceRecord *record = evidence_dao_find_by_identifier(evidence_dao,
+            g_ptr_array_index(identifiers, index), &error);
+        if (record == NULL) goto cleanup;
+        g_ptr_array_add(records, record);
+    }
+    main_window_set_relation_evidences(application->main_window, records);
+
+cleanup:
+    if (error != NULL)
+    {
+        g_warning("Impossible de charger les preuves de la relation : %s",
+            error->message);
+        main_window_set_relation_evidences(application->main_window, NULL);
+    }
+    g_clear_error(&error);
+    g_clear_pointer(&records, g_ptr_array_unref);
+    g_clear_pointer(&identifiers, g_ptr_array_unref);
+    evidence_dao_free(evidence_dao);
+    relation_evidence_dao_free(relation_evidence_dao);
 }
 
 static void application_on_add_relation_requested(
@@ -5140,8 +5250,12 @@ static void application_on_add_relation_requested(
     EntityDao *entity_dao =
         NULL;
 
+    EvidenceDao *evidence_dao = NULL;
+    const InvestigationProject *project = NULL;
+
     GPtrArray *entities =
         NULL;
+    GPtrArray *evidences = NULL;
 
     GError *error =
         NULL;
@@ -5161,6 +5275,7 @@ static void application_on_add_relation_requested(
         investigation_session_get_database(
             application->session
         );
+    project = investigation_session_get_project(application->session);
 
     if (database == NULL)
     {
@@ -5202,11 +5317,16 @@ static void application_on_add_relation_requested(
             &error
         );
 
+    evidence_dao = evidence_dao_new(database, &error);
+    if (evidence_dao != NULL)
+        evidences = evidence_dao_list_all(evidence_dao, &error);
+    evidence_dao_free(evidence_dao);
+
     entity_dao_free(
         entity_dao
     );
 
-    if (entities == NULL)
+    if (entities == NULL || evidences == NULL || project == NULL)
     {
         application_present_error(
             application,
@@ -5220,6 +5340,9 @@ static void application_on_add_relation_requested(
             &error
         );
 
+        g_clear_pointer(&entities, g_ptr_array_unref);
+        g_clear_pointer(&evidences, g_ptr_array_unref);
+
         return;
     }
 
@@ -5229,6 +5352,8 @@ static void application_on_add_relation_requested(
             ),
             source_entity_identifier,
             entities,
+            evidences,
+            investigation_project_get_root_path(project),
             application_on_create_relation_completed,
             application,
             &error
@@ -5250,6 +5375,7 @@ static void application_on_add_relation_requested(
     g_ptr_array_unref(
         entities
     );
+    g_ptr_array_unref(evidences);
 }
 
 /**
@@ -6544,6 +6670,8 @@ static void application_on_activate(
 
     main_window_set_edit_relation_callback(application->main_window,
         application_on_edit_relation_requested, application);
+    main_window_set_relation_selected_callback(application->main_window,
+        application_on_relation_selected, application);
     main_window_set_person_role_callback(application->main_window,
         application_on_person_role_changed, application);
 

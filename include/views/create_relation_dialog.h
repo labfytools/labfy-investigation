@@ -68,6 +68,8 @@ GQuark create_relation_dialog_error_quark(void);
  * @param parent Fenêtre GTK parente.
  * @param source_entity_identifier UUID de l'entité source.
  * @param entities Tableau de EntityRecord.
+ * @param evidence_records Tableau de EvidenceRecord disponibles.
+ * @param investigation_root_path Racine canonique de l'enquête.
  * @param callback Fonction appelée après validation ou annulation.
  * @param user_data Données privées transmises au callback.
  * @param error Emplacement facultatif recevant une erreur immédiate.
@@ -78,6 +80,8 @@ gboolean create_relation_dialog_present(
     GtkWindow *parent,
     const char *source_entity_identifier,
     const GPtrArray *entities,
+    const GPtrArray *evidence_records,
+    const char *investigation_root_path,
     CreateRelationDialogCallback callback,
     gpointer user_data,
     GError **error
@@ -88,11 +92,26 @@ gboolean create_relation_dialog_present(
  *
  * La source et la cible sont conservées ; les champs métier sont modifiables.
  * Le dialogue ne réalise aucune écriture SQLite.
+ *
+ * @param parent Fenêtre GTK parente.
+ * @param relation_record Relation existante à modifier.
+ * @param entities Tableau de EntityRecord.
+ * @param evidence_records Tableau de EvidenceRecord disponibles.
+ * @param selected_evidence_identifiers UUID des preuves déjà liées.
+ * @param investigation_root_path Racine canonique de l'enquête.
+ * @param callback Fonction appelée après validation ou annulation.
+ * @param user_data Données privées transmises au callback.
+ * @param error Emplacement facultatif recevant une erreur immédiate.
+ *
+ * @return TRUE si le dialogue a été créé et présenté.
  */
 gboolean edit_relation_dialog_present(
     GtkWindow *parent,
     const RelationRecord *relation_record,
     const GPtrArray *entities,
+    const GPtrArray *evidence_records,
+    const GPtrArray *selected_evidence_identifiers,
+    const char *investigation_root_path,
     CreateRelationDialogCallback callback,
     gpointer user_data,
     GError **error
@@ -170,6 +189,16 @@ const char *create_relation_dialog_result_get_justification(
 gint create_relation_dialog_result_get_confidence(
     const CreateRelationDialogResult *result
 );
+
+/**
+ * @brief Retourne les UUID de preuves sélectionnés.
+ *
+ * @param result Résultat validé du dialogue.
+ *
+ * @return Tableau emprunté d'UUID, ou NULL.
+ */
+const GPtrArray *create_relation_dialog_result_get_evidence_identifiers(
+    const CreateRelationDialogResult *result);
 
 G_END_DECLS
 

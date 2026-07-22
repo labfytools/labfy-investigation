@@ -1672,6 +1672,21 @@ void main_window_set_edit_relation_callback(MainWindow *main_window,
     main_window->edit_relation_user_data = user_data;
 }
 
+void main_window_set_relation_selected_callback(MainWindow *main_window,
+    MainWindowRelationSelectedCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    workspace_set_relation_selected_callback(main_window->workspace,
+        (WorkspaceRelationSelectedCallback) callback, user_data);
+}
+
+void main_window_set_relation_evidences(MainWindow *main_window,
+    const GPtrArray *evidence_records)
+{
+    if (main_window == NULL) return;
+    workspace_set_relation_evidences(main_window->workspace, evidence_records);
+}
+
 void main_window_set_person_role_callback(MainWindow *main_window,
     MainWindowPersonRoleCallback callback, gpointer user_data)
 {

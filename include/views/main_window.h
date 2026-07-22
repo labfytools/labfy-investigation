@@ -143,6 +143,12 @@ typedef void (*MainWindowEditRelationCallback)(
     gpointer user_data
 );
 
+/** @brief Callback appelé quand une relation est sélectionnée. */
+typedef void (*MainWindowRelationSelectedCallback)(
+    const char *relation_identifier,
+    gpointer user_data
+);
+
 /** @brief Callback appelé pour catégoriser une personne. */
 typedef void (*MainWindowPersonRoleCallback)(const char *entity_identifier,
     PersonRole role, gpointer user_data);
@@ -242,6 +248,19 @@ void main_window_set_edit_relation_callback(
     MainWindow *main_window,
     MainWindowEditRelationCallback callback,
     gpointer user_data
+);
+
+/** @brief Définit le callback de sélection d'une relation. */
+void main_window_set_relation_selected_callback(
+    MainWindow *main_window,
+    MainWindowRelationSelectedCallback callback,
+    gpointer user_data
+);
+
+/** @brief Affiche les preuves associées à la relation sélectionnée. */
+void main_window_set_relation_evidences(
+    MainWindow *main_window,
+    const GPtrArray *evidence_records
 );
 
 /** @brief Définit le callback de catégorisation d'une personne. */

@@ -85,6 +85,12 @@ typedef void (*WorkspaceEditRelationCallback)(
     gpointer user_data
 );
 
+/** @brief Callback appelé quand une relation devient sélectionnée. */
+typedef void (*WorkspaceRelationSelectedCallback)(
+    const char *relation_identifier,
+    gpointer user_data
+);
+
 /** @brief Callback appelé pour catégoriser une personne. */
 typedef void (*WorkspacePersonRoleCallback)(const char *entity_identifier,
     PersonRole role, gpointer user_data);
@@ -313,6 +319,30 @@ void workspace_set_edit_relation_callback(
     Workspace *workspace,
     WorkspaceEditRelationCallback callback,
     gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de sélection d'une relation.
+ *
+ * @param workspace Zone de travail.
+ * @param callback Callback facultatif.
+ * @param user_data Données empruntées transmises au callback.
+ */
+void workspace_set_relation_selected_callback(
+    Workspace *workspace,
+    WorkspaceRelationSelectedCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Affiche les preuves associées à la relation sélectionnée.
+ *
+ * @param workspace Zone de travail.
+ * @param evidence_records Tableau emprunté de EvidenceRecord, ou NULL.
+ */
+void workspace_set_relation_evidences(
+    Workspace *workspace,
+    const GPtrArray *evidence_records
 );
 
 /** @brief Définit le callback de catégorisation d'une personne. */
