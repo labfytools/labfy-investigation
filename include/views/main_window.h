@@ -92,6 +92,15 @@ typedef void (*MainWindowGraphNodeMovedCallback)(
 );
 
 /**
+ * @brief Callback appelé lors d'une demande de réinitialisation du graphe.
+ *
+ * @param user_data Données privées du callback.
+ */
+typedef void (*MainWindowResetGraphLayoutCallback)(
+    gpointer user_data
+);
+
+/**
  * @brief Définit le callback de vérification d'une preuve.
  *
  * MainWindow relaie la demande provenant du Workspace.
@@ -118,6 +127,21 @@ void main_window_set_verify_evidence_callback(
 void main_window_set_graph_node_moved_callback(
     MainWindow *main_window,
     MainWindowGraphNodeMovedCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de demande de réinitialisation du graphe.
+ *
+ * MainWindow relaie uniquement la demande provenant du Workspace.
+ *
+ * @param main_window Fenêtre principale.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void main_window_set_reset_graph_layout_callback(
+    MainWindow *main_window,
+    MainWindowResetGraphLayoutCallback callback,
     gpointer user_data
 );
 
@@ -317,6 +341,17 @@ void main_window_set_graph_error(
  * @param main_window Fenêtre principale.
  */
 void main_window_clear_graph(
+    MainWindow *main_window
+);
+
+/**
+ * @brief Reconstruit visuellement la disposition automatique du graphe.
+ *
+ * Cette fonction ne modifie pas SQLite.
+ *
+ * @param main_window Fenêtre principale.
+ */
+void main_window_reset_graph_layout(
     MainWindow *main_window
 );
 

@@ -55,6 +55,18 @@ typedef void (*WorkspaceGraphNodeMovedCallback)(
 );
 
 /**
+ * @brief Callback appelé lors d'une demande de réinitialisation du graphe.
+ *
+ * Le Workspace ne modifie ni SQLite ni le modèle de disposition. Il relaie
+ * uniquement la demande vers la couche applicative.
+ *
+ * @param user_data Données empruntées fournies par l'appelant.
+ */
+typedef void (*WorkspaceResetGraphLayoutCallback)(
+    gpointer user_data
+);
+
+/**
  * @brief Crée une nouvelle zone de travail.
  *
  * @return Une nouvelle zone de travail, ou NULL en cas d'échec.
@@ -135,6 +147,21 @@ void workspace_set_graph_node_moved_callback(
 );
 
 /**
+ * @brief Définit le callback de demande de réinitialisation du graphe.
+ *
+ * Le Workspace emprunte callback et user_data.
+ *
+ * @param workspace Zone de travail.
+ * @param callback Callback facultatif.
+ * @param user_data Données empruntées transmises au callback.
+ */
+void workspace_set_reset_graph_layout_callback(
+    Workspace *workspace,
+    WorkspaceResetGraphLayoutCallback callback,
+    gpointer user_data
+);
+
+/**
  * @brief Affiche l'état de chargement du graphe.
  *
  * L'ancien graphe emprunté est détaché.
@@ -184,6 +211,21 @@ void workspace_set_graph_error(
  * @param workspace Zone de travail.
  */
 void workspace_clear_graph(
+    Workspace *workspace
+);
+
+/**
+ * @brief Reconstruit visuellement la disposition automatique du graphe.
+ *
+ * Cette fonction ne touche ni SQLite ni InvestigationGraphLayout. Elle doit
+ * être appelée par la couche applicative uniquement après la suppression
+ * réussie des positions persistées.
+ *
+ * Le zoom et le déplacement global du canvas sont conservés.
+ *
+ * @param workspace Zone de travail.
+ */
+void workspace_reset_graph_layout(
     Workspace *workspace
 );
 

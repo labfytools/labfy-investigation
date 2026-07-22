@@ -47,6 +47,8 @@ struct Workspace
     GtkWidget *graph_details_label;
 
     GtkWidget *graph_view_page;
+    GtkWidget *graph_toolbar;
+    GtkWidget *reset_graph_layout_button;
 
     InvestigationGraphView *graph_view;
     EntityDetailsPanel *entity_details_panel;
@@ -82,6 +84,12 @@ struct Workspace
 
     gpointer
         graph_node_moved_user_data;
+
+    WorkspaceResetGraphLayoutCallback
+        reset_graph_layout_callback;
+
+    gpointer
+        reset_graph_layout_user_data;
 
     GtkWidget *node_name_label;
     GtkWidget *node_path_label;
@@ -378,6 +386,32 @@ static void workspace_show_default(
 
             return;
     }
+}
+
+/**
+ * @brief Transmet la demande de vérification de la preuve affichée.
+ */
+static void workspace_on_reset_graph_layout_clicked(
+    GtkButton *button,
+    gpointer user_data
+)
+{
+    Workspace *workspace =
+        user_data;
+
+    (void) button;
+
+    if (workspace == NULL ||
+        workspace->graph_state != WORKSPACE_GRAPH_STATE_READY ||
+        workspace->graph_model == NULL ||
+        workspace->reset_graph_layout_callback == NULL)
+    {
+        return;
+    }
+
+    workspace->reset_graph_layout_callback(
+        workspace->reset_graph_layout_user_data
+    );
 }
 
 /**
@@ -1048,6 +1082,98 @@ Workspace *workspace_new(void)
         )
     );
 
+    workspace->graph_toolbar =
+        gtk_box_new(
+            GTK_ORIENTATION_HORIZONTAL,
+            4
+        );
+
+    workspace->reset_graph_layout_button =
+        gtk_button_new_from_icon_name(
+            "view-refresh-symbolic"
+        );
+
+    if (workspace->graph_toolbar == NULL ||
+        workspace->reset_graph_layout_button == NULL)
+    {
+        workspace_free(
+            workspace
+        );
+
+        return NULL;
+    }
+
+    gtk_widget_set_halign(
+        workspace->graph_toolbar,
+        GTK_ALIGN_START
+    );
+
+    gtk_widget_set_valign(
+        workspace->graph_toolbar,
+        GTK_ALIGN_START
+    );
+
+    gtk_widget_set_margin_start(
+        workspace->graph_toolbar,
+        12
+    );
+
+    gtk_widget_set_margin_top(
+        workspace->graph_toolbar,
+        12
+    );
+
+    gtk_widget_add_css_class(
+        workspace->graph_toolbar,
+        "toolbar"
+    );
+
+    gtk_widget_add_css_class(
+        workspace->reset_graph_layout_button,
+        "flat"
+    );
+
+    gtk_widget_set_tooltip_text(
+        workspace->reset_graph_layout_button,
+        "Réinitialiser la disposition du graphe"
+    );
+
+    gtk_widget_set_sensitive(
+        workspace->reset_graph_layout_button,
+        FALSE
+    );
+
+    g_signal_connect(
+        workspace->reset_graph_layout_button,
+        "clicked",
+        G_CALLBACK(
+            workspace_on_reset_graph_layout_clicked
+        ),
+        workspace
+    );
+
+    gtk_box_append(
+        GTK_BOX(
+            workspace->graph_toolbar
+        ),
+        workspace->reset_graph_layout_button
+    );
+
+    gtk_overlay_add_overlay(
+        GTK_OVERLAY(
+            workspace->graph_view_page
+        ),
+        workspace->graph_toolbar
+    );
+
+    gtk_overlay_set_clip_overlay(
+        GTK_OVERLAY(
+            workspace->graph_view_page
+        ),
+        workspace->graph_toolbar,
+        TRUE
+    );
+
     gtk_overlay_add_overlay(
         GTK_OVERLAY(
             workspace->graph_view_page
@@ -1458,6 +1584,11 @@ void workspace_set_graph_loading(
     workspace->graph_state =
         WORKSPACE_GRAPH_STATE_LOADING;
 
+    gtk_widget_set_sensitive(
+        workspace->reset_graph_layout_button,
+        FALSE
+    );
+
     gtk_label_set_text(
         GTK_LABEL(
             workspace->graph_title_label
@@ -1548,6 +1679,11 @@ void workspace_set_graph(
     workspace->graph_state =
         WORKSPACE_GRAPH_STATE_READY;
 
+    gtk_widget_set_sensitive(
+        workspace->reset_graph_layout_button,
+        TRUE
+    );
+
     gtk_spinner_stop(
         GTK_SPINNER(
             workspace->graph_spinner
@@ -1617,6 +1753,11 @@ void workspace_set_graph_error(
 
     workspace->graph_state =
         WORKSPACE_GRAPH_STATE_ERROR;
+
+    gtk_widget_set_sensitive(
+        workspace->reset_graph_layout_button,
+        FALSE
+    );
 
     gtk_spinner_stop(
         GTK_SPINNER(
@@ -1690,6 +1831,11 @@ void workspace_clear_graph(
     workspace->graph_state =
         WORKSPACE_GRAPH_STATE_EMPTY;
 
+    gtk_widget_set_sensitive(
+        workspace->reset_graph_layout_button,
+        FALSE
+    );
+
     gtk_spinner_stop(
         GTK_SPINNER(
             workspace->graph_spinner
@@ -1756,6 +1902,49 @@ void workspace_set_graph_node_moved_callback(
         user_data;
 }
 
+void workspace_set_reset_graph_layout_callback(
+    Workspace *workspace,
+    WorkspaceResetGraphLayoutCallback callback,
+    gpointer user_data
+)
+{
+    if (workspace == NULL)
+    {
+        return;
+    }
+
+    workspace->reset_graph_layout_callback =
+        callback;
+
+    workspace->reset_graph_layout_user_data =
+        user_data;
+}
+
+void workspace_reset_graph_layout(
+    Workspace *workspace
+)
+{
+    if (workspace == NULL ||
+        workspace->graph_view == NULL ||
+        workspace->graph_state != WORKSPACE_GRAPH_STATE_READY ||
+        workspace->graph_model == NULL)
+    {
+        return;
+    }
+
+    entity_details_panel_clear(
+        workspace->entity_details_panel
+    );
+
+    investigation_graph_view_clear_selection(
+        workspace->graph_view
+    );
+
+    investigation_graph_view_reset_layout(
+        workspace->graph_view
+    );
+}
+
 void workspace_free(Workspace *workspace)
 {
     if (workspace == NULL)
@@ -1819,6 +2008,18 @@ void workspace_free(Workspace *workspace)
         NULL;
 
     workspace->graph_node_moved_user_data =
+        NULL;
+
+    workspace->reset_graph_layout_callback =
+        NULL;
+
+    workspace->reset_graph_layout_user_data =
+        NULL;
+
+    workspace->graph_toolbar =
+        NULL;
+
+    workspace->reset_graph_layout_button =
         NULL;
 
     g_clear_pointer(

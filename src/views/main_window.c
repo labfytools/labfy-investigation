@@ -98,6 +98,12 @@ struct MainWindow
     gpointer
         graph_node_moved_user_data;
 
+    MainWindowResetGraphLayoutCallback
+        reset_graph_layout_callback;
+
+    gpointer
+        reset_graph_layout_user_data;
+
     MainWindowQuitCallback
         quit_callback;
 
@@ -284,6 +290,27 @@ static void main_window_on_graph_node_moved(
         x,
         y,
         main_window->graph_node_moved_user_data
+    );
+}
+
+/**
+ * @brief Relaie la demande de vérification provenant du Workspace.
+ */
+static void main_window_on_reset_graph_layout_requested(
+    gpointer user_data
+)
+{
+    MainWindow *main_window =
+        user_data;
+
+    if (main_window == NULL ||
+        main_window->reset_graph_layout_callback == NULL)
+    {
+        return;
+    }
+
+    main_window->reset_graph_layout_callback(
+        main_window->reset_graph_layout_user_data
     );
 }
 
@@ -556,6 +583,12 @@ MainWindow *main_window_new(
         main_window
     );
 
+    workspace_set_reset_graph_layout_callback(
+        main_window->workspace,
+        main_window_on_reset_graph_layout_requested,
+        main_window
+    );
+
     workspace_widget = workspace_get_widget(
         main_window->workspace
     );
@@ -565,7 +598,7 @@ MainWindow *main_window_new(
         main_window_free(main_window);
         return NULL;
     }
-    
+
     main_window->task_panel = task_panel_new(
         task_manager
     );
@@ -957,6 +990,20 @@ void main_window_clear_graph(
     );
 }
 
+void main_window_reset_graph_layout(
+    MainWindow *main_window
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    workspace_reset_graph_layout(
+        main_window->workspace
+    );
+}
+
 void main_window_set_status(
     MainWindow *main_window,
     const char *status_text
@@ -1119,6 +1166,24 @@ void main_window_set_graph_node_moved_callback(
         user_data;
 }
 
+void main_window_set_reset_graph_layout_callback(
+    MainWindow *main_window,
+    MainWindowResetGraphLayoutCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    main_window->reset_graph_layout_callback =
+        callback;
+
+    main_window->reset_graph_layout_user_data =
+        user_data;
+}
+
 void main_window_set_quit_callback(
     MainWindow *main_window,
     MainWindowQuitCallback callback,
@@ -1241,10 +1306,22 @@ void main_window_free(
             NULL
         );
 
+        workspace_set_reset_graph_layout_callback(
+            main_window->workspace,
+            NULL,
+            NULL
+        );
+
         main_window->graph_node_moved_callback =
             NULL;
 
         main_window->graph_node_moved_user_data =
+            NULL;
+
+        main_window->reset_graph_layout_callback =
+            NULL;
+
+        main_window->reset_graph_layout_user_data =
             NULL;
 
         main_window_clear_graph(

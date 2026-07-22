@@ -2825,7 +2825,7 @@ static void application_on_evidence_file_selected(
 
         return;
     }
-    
+
     Database *database = NULL;
     EvidenceTypeDao *evidence_type_dao = NULL;
     GPtrArray *evidence_types = NULL;
@@ -4282,6 +4282,131 @@ static void application_on_graph_node_moved(
  *
  * @param user_data Pointeur vers Application.
  */
+static void application_on_reset_graph_layout_requested(
+    gpointer user_data
+)
+{
+    Application *application =
+        user_data;
+
+    Database *database =
+        NULL;
+
+    GraphNodePositionDao *position_dao =
+        NULL;
+
+    GError *error =
+        NULL;
+
+    if (application == NULL ||
+        application->main_window == NULL ||
+        application->session == NULL ||
+        application->graph_model == NULL ||
+        application->graph_layout == NULL)
+    {
+        return;
+    }
+
+    database =
+        investigation_session_get_database(
+            application->session
+        );
+
+    if (database == NULL)
+    {
+        application_present_error(
+            application,
+            "Réinitialisation impossible",
+            "La session ne fournit aucune connexion SQLite."
+        );
+
+        return;
+    }
+
+    position_dao =
+        graph_node_position_dao_new(
+            database,
+            &error
+        );
+
+    if (position_dao == NULL)
+    {
+        g_warning(
+            "Impossible de créer le DAO des positions : %s",
+            error != NULL
+                ? error->message
+                : "erreur inconnue"
+        );
+
+        application_present_error(
+            application,
+            "Réinitialisation impossible",
+            error != NULL
+                ? error->message
+                : "Impossible d'accéder aux positions enregistrées."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        return;
+    }
+
+    if (!graph_node_position_dao_delete_all(
+            position_dao,
+            &error
+        ))
+    {
+        g_warning(
+            "Impossible de supprimer les positions du graphe : %s",
+            error != NULL
+                ? error->message
+                : "erreur inconnue"
+        );
+
+        application_present_error(
+            application,
+            "Réinitialisation impossible",
+            error != NULL
+                ? error->message
+                : "Les positions enregistrées n'ont pas pu être supprimées."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        graph_node_position_dao_free(
+            position_dao
+        );
+
+        return;
+    }
+
+    graph_node_position_dao_free(
+        position_dao
+    );
+
+    investigation_graph_layout_clear(
+        application->graph_layout
+    );
+
+    main_window_reset_graph_layout(
+        application->main_window
+    );
+
+    main_window_set_status(
+        application->main_window,
+        "Disposition du graphe réinitialisée."
+    );
+}
+
+/**
+ * @brief Ferme proprement l'application.
+ *
+ * @param user_data Pointeur vers Application.
+ */
 static void application_on_quit_requested(
     gpointer user_data
 )
@@ -4370,6 +4495,12 @@ static void application_on_activate(
     main_window_set_graph_node_moved_callback(
         application->main_window,
         application_on_graph_node_moved,
+        application
+    );
+
+    main_window_set_reset_graph_layout_callback(
+        application->main_window,
+        application_on_reset_graph_layout_requested,
         application
     );
 
@@ -4484,7 +4615,7 @@ Application *application_new(void)
         tool_initializer_free(
             application->tool_initializer
         );
-        
+
         task_manager_free(
             application->task_manager
         );
