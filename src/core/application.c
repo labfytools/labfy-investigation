@@ -4278,17 +4278,15 @@ static void application_on_graph_node_moved(
 }
 
 /**
- * @brief Ferme proprement l'application.
+ * @brief Supprime les positions persistées et restaure la grille automatique.
  *
- * @param user_data Pointeur vers Application.
+ * Cette fonction est appelée uniquement après une confirmation explicite.
+ * L'affichage et le modèle en mémoire restent inchangés en cas d'échec SQLite.
  */
-static void application_on_reset_graph_layout_requested(
-    gpointer user_data
+static void application_reset_graph_layout(
+    Application *application
 )
 {
-    Application *application =
-        user_data;
-
     Database *database =
         NULL;
 
@@ -4399,6 +4397,61 @@ static void application_on_reset_graph_layout_requested(
     main_window_set_status(
         application->main_window,
         "Disposition du graphe réinitialisée."
+    );
+}
+
+/**
+ * @brief Traite la réponse du dialogue de confirmation.
+ */
+static void application_on_reset_graph_layout_confirmed(
+    gboolean confirmed,
+    gpointer user_data
+)
+{
+    Application *application =
+        user_data;
+
+    if (!confirmed)
+    {
+        return;
+    }
+
+    application_reset_graph_layout(
+        application
+    );
+}
+
+/**
+ * @brief Demande confirmation avant toute suppression de position.
+ */
+static void application_on_reset_graph_layout_requested(
+    gpointer user_data
+)
+{
+    Application *application =
+        user_data;
+
+    if (application == NULL ||
+        application->main_window == NULL ||
+        application->session == NULL ||
+        application->graph_model == NULL ||
+        application->graph_layout == NULL)
+    {
+        return;
+    }
+
+    application_message_dialog_present_confirmation(
+        main_window_get_window(
+            application->main_window
+        ),
+        APPLICATION_MESSAGE_DIALOG_WARNING,
+        "Réinitialiser la disposition du graphe",
+        "Toutes les positions personnalisées des nœuds seront supprimées. "
+        "Le graphe retrouvera sa disposition automatique.\n\n"
+        "Cette action ne peut pas être annulée.",
+        "Réinitialiser",
+        application_on_reset_graph_layout_confirmed,
+        application
     );
 }
 
