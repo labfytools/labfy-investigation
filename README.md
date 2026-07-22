@@ -142,7 +142,8 @@ Le socle actuel comprend notamment :
 - catalogue initial d’outils ;
 - détection de présence et de version ;
 - menu OSINT contextuel préparé pour les entités et relations du graphe ;
-- contexte de sélection OSINT indépendant de GTK et validé par des tests.
+- contexte de sélection OSINT indépendant de GTK et validé par des tests ;
+- catalogue déterministe des actions compatibles avec la sélection OSINT.
 
 Les outils actuellement présents dans le catalogue initial sont :
 

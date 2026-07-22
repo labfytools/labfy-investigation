@@ -114,6 +114,7 @@ TEST_INVESTIGATION_GRAPH_LOADER := tests/test_investigation_graph_loader
 TEST_INVESTIGATION_GRAPH_LOAD_TASK := tests/test_investigation_graph_load_task
 TEST_GRAPH_NODE_POSITION_DAO := tests/test_graph_node_position_dao
 TEST_OSINT_SELECTION_CONTEXT := tests/test_osint_selection_context
+TEST_OSINT_ACTION_CATALOG := tests/test_osint_action_catalog
 
 all: $(TARGET)
 
@@ -536,6 +537,14 @@ $(TEST_OSINT_SELECTION_CONTEXT): \
 	src/models/relation_record.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_OSINT_ACTION_CATALOG): \
+	tests/test_osint_action_catalog.c \
+	src/models/osint_action_catalog.c \
+	src/models/osint_selection_context.c \
+	src/models/entity_record.c \
+	src/models/relation_record.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	tests/test_investigation_graph_load_task.c \
 	src/core/investigation_graph_load_task.c \
@@ -604,7 +613,8 @@ test: \
 	$(TEST_INVESTIGATION_GRAPH_LOADER) \
 	$(TEST_INVESTIGATION_GRAPH_LOAD_TASK) \
 	$(TEST_GRAPH_NODE_POSITION_DAO) \
-	$(TEST_OSINT_SELECTION_CONTEXT)
+	$(TEST_OSINT_SELECTION_CONTEXT) \
+	$(TEST_OSINT_ACTION_CATALOG)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -653,6 +663,7 @@ test: \
 	@$(TEST_INVESTIGATION_GRAPH_LOAD_TASK)
 	@$(TEST_GRAPH_NODE_POSITION_DAO)
 	@$(TEST_OSINT_SELECTION_CONTEXT)
+	@$(TEST_OSINT_ACTION_CATALOG)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -707,7 +718,8 @@ clean:
 		$(TEST_INVESTIGATION_GRAPH_LOADER) \
 		$(TEST_INVESTIGATION_GRAPH_LOAD_TASK) \
 		$(TEST_GRAPH_NODE_POSITION_DAO) \
-		$(TEST_OSINT_SELECTION_CONTEXT)
+		$(TEST_OSINT_SELECTION_CONTEXT) \
+		$(TEST_OSINT_ACTION_CATALOG)
 
 -include $(DEP)
 

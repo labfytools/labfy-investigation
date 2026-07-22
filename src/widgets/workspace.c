@@ -8,6 +8,7 @@
 #include "models/entity_record.h"
 #include "models/investigation_graph_model.h"
 #include "models/osint_selection_context.h"
+#include "models/osint_action_catalog.h"
 #include "models/relation_record.h"
 #include "widgets/entity_details_panel.h"
 #include "widgets/investigation_graph_view.h"
@@ -57,6 +58,7 @@ struct Workspace
     GtkWidget *osint_tools_popover;
     GtkWidget *osint_tools_context_label;
     GtkWidget *osint_tools_status_label;
+    GtkWidget *osint_tools_actions_box;
     GtkWidget *graph_help_button;
     GtkWidget *graph_help_popover;
 
@@ -120,9 +122,41 @@ struct Workspace
     const InvestigationGraphLayout *graph_layout;
 
     OsintSelectionContext *osint_selection_context;
+    OsintActionCatalog *osint_action_catalog;
 
     WorkspaceGraphState graph_state;
 };
+
+/**
+ * @brief Confirme localement le déclenchement de l'action de démonstration.
+ */
+static void workspace_on_osint_demo_action_clicked(
+    GtkButton *button,
+    gpointer user_data
+)
+{
+    Workspace *workspace = user_data;
+    const char *action_label = g_object_get_data(
+        G_OBJECT(button),
+        "osint-action-label"
+    );
+    char *status_text = NULL;
+
+    if (workspace == NULL || workspace->osint_tools_status_label == NULL)
+    {
+        return;
+    }
+
+    status_text = g_strdup_printf(
+        "%s : démonstration locale, aucun outil exécuté.",
+        action_label != NULL ? action_label : "Action OSINT"
+    );
+    gtk_label_set_text(
+        GTK_LABEL(workspace->osint_tools_status_label),
+        status_text != NULL ? status_text : "Aucun outil exécuté."
+    );
+    g_free(status_text);
+}
 
 /**
  * @brief Actualise le menu OSINT selon la sélection du graphe.
@@ -144,12 +178,26 @@ static void workspace_update_osint_tools_menu(
     char *context_text =
         NULL;
 
+    GPtrArray *compatible_actions =
+        NULL;
+
+    GtkWidget *child =
+        NULL;
+
     if (workspace == NULL ||
         workspace->osint_tools_button == NULL ||
         workspace->osint_tools_context_label == NULL ||
-        workspace->osint_tools_status_label == NULL)
+        workspace->osint_tools_status_label == NULL ||
+        workspace->osint_tools_actions_box == NULL)
     {
         return;
+    }
+
+    while ((child = gtk_widget_get_first_child(
+                workspace->osint_tools_actions_box
+            )) != NULL)
+    {
+        gtk_box_remove(GTK_BOX(workspace->osint_tools_actions_box), child);
     }
 
     if (osint_selection_context_get_kind(context) ==
@@ -197,6 +245,56 @@ static void workspace_update_osint_tools_menu(
         return;
     }
 
+    compatible_actions = osint_action_catalog_list_compatible(
+        workspace->osint_action_catalog,
+        context
+    );
+
+    for (guint action_index = 0;
+         compatible_actions != NULL &&
+         action_index < compatible_actions->len;
+         action_index++)
+    {
+        const OsintAction *action = g_ptr_array_index(
+            compatible_actions,
+            action_index
+        );
+        GtkWidget *action_button = gtk_button_new_with_label(
+            osint_action_get_label(action)
+        );
+
+        if (action_button == NULL)
+        {
+            continue;
+        }
+
+        gtk_widget_set_sensitive(
+            action_button,
+            osint_action_is_available(action)
+        );
+        gtk_widget_set_tooltip_text(
+            action_button,
+            osint_action_is_available(action)
+                ? osint_action_get_description(action)
+                : osint_action_get_unavailable_reason(action)
+        );
+        g_object_set_data(
+            G_OBJECT(action_button),
+            "osint-action-label",
+            (gpointer) osint_action_get_label(action)
+        );
+        g_signal_connect(
+            action_button,
+            "clicked",
+            G_CALLBACK(workspace_on_osint_demo_action_clicked),
+            workspace
+        );
+        gtk_box_append(
+            GTK_BOX(workspace->osint_tools_actions_box),
+            action_button
+        );
+    }
+
     context_text =
         g_strdup_printf(
             "%s sélectionnée\n%s",
@@ -217,12 +315,16 @@ static void workspace_update_osint_tools_menu(
         GTK_LABEL(
             workspace->osint_tools_status_label
         ),
-        "Aucun outil OSINT intégré pour le moment."
+        compatible_actions != NULL && compatible_actions->len > 0U
+            ? "Actions compatibles avec la sélection."
+            : "Aucune action OSINT compatible."
     );
 
     g_free(
         context_text
     );
+
+    g_clear_pointer(&compatible_actions, g_ptr_array_unref);
 }
 
 /**
@@ -1399,6 +1501,14 @@ Workspace *workspace_new(void)
             "Les outils compatibles apparaîtront ici."
         );
 
+    workspace->osint_tools_actions_box = gtk_box_new(
+        GTK_ORIENTATION_VERTICAL,
+        6
+    );
+
+    workspace->osint_action_catalog =
+        osint_action_catalog_new_defaults();
+
     if (workspace->graph_toolbar == NULL ||
         workspace->reset_graph_layout_button == NULL ||
         workspace->osint_tools_button == NULL ||
@@ -1406,7 +1516,9 @@ Workspace *workspace_new(void)
         osint_tools_content == NULL ||
         osint_tools_title == NULL ||
         workspace->osint_tools_context_label == NULL ||
-        workspace->osint_tools_status_label == NULL)
+        workspace->osint_tools_status_label == NULL ||
+        workspace->osint_tools_actions_box == NULL ||
+        workspace->osint_action_catalog == NULL)
     {
         workspace_free(
             workspace
@@ -1547,6 +1659,11 @@ Workspace *workspace_new(void)
             osint_tools_content
         ),
         workspace->osint_tools_context_label
+    );
+
+    gtk_box_append(
+        GTK_BOX(osint_tools_content),
+        workspace->osint_tools_actions_box
     );
 
     gtk_box_append(
@@ -2635,6 +2752,11 @@ void workspace_free(Workspace *workspace)
     g_clear_pointer(
         &workspace->osint_selection_context,
         osint_selection_context_free
+    );
+
+    g_clear_pointer(
+        &workspace->osint_action_catalog,
+        osint_action_catalog_free
     );
 
     investigation_graph_view_set_selection_callback(
