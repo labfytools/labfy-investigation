@@ -69,6 +69,7 @@ struct Workspace
     GtkWidget *relation_details_summary_label;
     GtkWidget *relation_evidences_label;
     GtkWidget *edit_relation_button;
+    GtkWidget *delete_relation_button;
     GtkWidget *close_relation_details_button;
     char *selected_relation_identifier;
 
@@ -131,6 +132,8 @@ struct Workspace
         add_relation_user_data;
 
     WorkspaceEditRelationCallback edit_relation_callback;
+    WorkspaceDeleteRelationCallback delete_relation_callback;
+    gpointer delete_relation_user_data;
     WorkspaceRelationSelectedCallback relation_selected_callback;
     gpointer relation_selected_user_data;
     gpointer edit_relation_user_data;
@@ -837,6 +840,18 @@ static void workspace_on_edit_relation_clicked(GtkButton *button,
     }
     workspace->edit_relation_callback(workspace->selected_relation_identifier,
         workspace->edit_relation_user_data);
+}
+
+/** @brief Relaie la demande de suppression de la relation affichée. */
+static void workspace_on_delete_relation_clicked(GtkButton *button,
+    gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    (void) button;
+    if (workspace == NULL || workspace->delete_relation_callback == NULL ||
+        workspace->selected_relation_identifier == NULL) return;
+    workspace->delete_relation_callback(workspace->selected_relation_identifier,
+        workspace->delete_relation_user_data);
 }
 
 /** @brief Ferme le volet de relation et désélectionne le graphe. */
@@ -1712,6 +1727,8 @@ Workspace *workspace_new(void)
     workspace->relation_evidences_label = gtk_label_new(
         "Pièces jointes : chargement…");
     workspace->edit_relation_button = gtk_button_new_with_label("Modifier");
+    workspace->delete_relation_button = gtk_button_new_with_label(
+        "Supprimer la relation");
     workspace->close_relation_details_button =
         gtk_button_new_from_icon_name("window-close-symbolic");
 
@@ -1722,6 +1739,7 @@ Workspace *workspace_new(void)
         workspace->relation_details_summary_label == NULL ||
         workspace->relation_evidences_label == NULL ||
         workspace->edit_relation_button == NULL ||
+        workspace->delete_relation_button == NULL ||
         workspace->close_relation_details_button == NULL)
     {
         workspace_free(
@@ -1791,8 +1809,14 @@ Workspace *workspace_new(void)
         workspace->relation_evidences_label);
     gtk_box_append(GTK_BOX(workspace->relation_details_panel),
         workspace->edit_relation_button);
+    gtk_widget_add_css_class(workspace->delete_relation_button,
+        "destructive-action");
+    gtk_box_append(GTK_BOX(workspace->relation_details_panel),
+        workspace->delete_relation_button);
     g_signal_connect(workspace->edit_relation_button, "clicked",
         G_CALLBACK(workspace_on_edit_relation_clicked), workspace);
+    g_signal_connect(workspace->delete_relation_button, "clicked",
+        G_CALLBACK(workspace_on_delete_relation_clicked), workspace);
     g_signal_connect(workspace->close_relation_details_button, "clicked",
         G_CALLBACK(workspace_on_close_relation_details_clicked), workspace);
     gtk_widget_set_visible(workspace->relation_details_panel, FALSE);
@@ -3243,6 +3267,14 @@ void workspace_set_edit_relation_callback(Workspace *workspace,
     if (workspace == NULL) return;
     workspace->edit_relation_callback = callback;
     workspace->edit_relation_user_data = user_data;
+}
+
+void workspace_set_delete_relation_callback(Workspace *workspace,
+    WorkspaceDeleteRelationCallback callback, gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->delete_relation_callback = callback;
+    workspace->delete_relation_user_data = user_data;
 }
 
 void workspace_set_relation_selected_callback(Workspace *workspace,

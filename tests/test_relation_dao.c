@@ -2266,6 +2266,33 @@ static void test_relation_dao_update_existing(void)
     test_relation_dao_fixture_clear(&fixture);
 }
 
+/** @brief Vérifie la suppression ciblée sans supprimer les entités. */
+static void test_relation_dao_delete_existing(void)
+{
+    static const char identifier[] =
+        "90000000-0000-4000-8000-000000000002";
+    TestRelationDaoFixture fixture = test_relation_dao_fixture_create();
+    RelationRecord *relation = NULL;
+    RelationRecord *stored = NULL;
+    GError *error = NULL;
+    guint64 count = 0;
+    test_relation_dao_insert_standard_entities(&fixture);
+    relation = test_relation_dao_create_relation(identifier,
+        TEST_ENTITY_A_IDENTIFIER, TEST_ENTITY_B_IDENTIFIER, "uses",
+        "Relation à supprimer", NULL, 80, "2026-07-20T20:00:00Z",
+        "2026-07-20T20:00:00Z", RELATION_STATUS_ACTIVE);
+    test_relation_dao_insert_relation(&fixture, relation);
+    assert(relation_dao_delete(fixture.relation_dao, identifier, &error));
+    assert(error == NULL);
+    assert(relation_dao_count(fixture.relation_dao, &count, &error));
+    assert(count == 0 && error == NULL);
+    stored = relation_dao_find_by_identifier(fixture.relation_dao,
+        identifier, &error);
+    assert(stored == NULL && error == NULL);
+    relation_record_free(relation);
+    test_relation_dao_fixture_clear(&fixture);
+}
+
 int main(
     int argc,
     char **argv
@@ -2298,6 +2325,7 @@ int main(
     test_relation_dao_reflexive_schema_constraint();
     test_relation_dao_foreign_key_restrict();
     test_relation_dao_update_existing();
+    test_relation_dao_delete_existing();
 
     printf(
         "RelationDao : tous les tests sont valides.\n"

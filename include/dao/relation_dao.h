@@ -105,6 +105,24 @@ gboolean relation_dao_update(
 );
 
 /**
+ * @brief Supprime une relation par son UUID.
+ *
+ * Les associations dépendantes sont supprimées par les contraintes SQLite.
+ * Les entités et les preuves ne sont jamais supprimées.
+ *
+ * @param relation_dao DAO valide.
+ * @param identifier UUID de la relation existante.
+ * @param error Emplacement facultatif recevant une erreur.
+ *
+ * @return TRUE si la suppression a été exécutée.
+ */
+gboolean relation_dao_delete(
+    RelationDao *relation_dao,
+    const char *identifier,
+    GError **error
+);
+
+/**
  * @brief Recherche une relation par son UUID.
  *
  * Une relation absente retourne NULL sans produire d'erreur.

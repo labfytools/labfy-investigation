@@ -4975,6 +4975,120 @@ typedef struct
     char *relation_identifier;
 } ApplicationEditRelationContext;
 
+/** @brief Contexte possédé pendant la confirmation de suppression. */
+typedef struct
+{
+    Application *application;
+    char *relation_identifier;
+} ApplicationDeleteRelationContext;
+
+/** @brief Libère un contexte de suppression de relation. */
+static void application_delete_relation_context_free(
+    ApplicationDeleteRelationContext *context)
+{
+    if (context == NULL) return;
+    g_free(context->relation_identifier);
+    g_free(context);
+}
+
+/** @brief Supprime la relation après confirmation explicite. */
+static void application_on_delete_relation_confirmed(gboolean confirmed,
+    gpointer user_data)
+{
+    ApplicationDeleteRelationContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    Database *database = NULL;
+    RelationDao *relation_dao = NULL;
+    const InvestigationProject *project = NULL;
+    GError *error = NULL;
+    gboolean transaction_active = FALSE;
+    if (!confirmed || application == NULL || application->session == NULL)
+        goto cleanup;
+    database = investigation_session_get_database(application->session);
+    project = investigation_session_get_project(application->session);
+    relation_dao = relation_dao_new(database, &error);
+    if (relation_dao == NULL || !database_transaction_begin(database))
+        goto failure;
+    transaction_active = TRUE;
+    if (!relation_dao_delete(relation_dao, context->relation_identifier,
+            &error) || !database_transaction_commit(database))
+        goto failure;
+    transaction_active = FALSE;
+    main_window_set_status(application->main_window,
+        "Relation supprimée. Actualisation du graphe…");
+    application_start_graph_loading(application,
+        investigation_project_get_database_path(project));
+    goto cleanup;
+failure:
+    if (transaction_active) database_transaction_rollback(database);
+    application_present_error(application, "Suppression impossible",
+        error != NULL ? error->message :
+        "La relation n'a pas pu être supprimée.");
+cleanup:
+    g_clear_error(&error);
+    relation_dao_free(relation_dao);
+    application_delete_relation_context_free(context);
+}
+
+/** @brief Prépare la confirmation de suppression d'une relation. */
+static void application_on_delete_relation_requested(
+    const char *relation_identifier, gpointer user_data)
+{
+    Application *application = user_data;
+    Database *database = NULL;
+    RelationDao *relation_dao = NULL;
+    EntityDao *entity_dao = NULL;
+    RelationRecord *relation = NULL;
+    EntityRecord *source = NULL;
+    EntityRecord *target = NULL;
+    ApplicationDeleteRelationContext *context = NULL;
+    char *message = NULL;
+    GError *error = NULL;
+    if (application == NULL || application->session == NULL ||
+        relation_identifier == NULL) return;
+    database = investigation_session_get_database(application->session);
+    relation_dao = relation_dao_new(database, &error);
+    if (relation_dao != NULL) relation = relation_dao_find_by_identifier(
+        relation_dao, relation_identifier, &error);
+    entity_dao = entity_dao_new(database, &error);
+    if (relation != NULL && entity_dao != NULL)
+    {
+        source = entity_dao_find_by_identifier(entity_dao,
+            relation_record_get_source_entity_identifier(relation), &error);
+        target = entity_dao_find_by_identifier(entity_dao,
+            relation_record_get_target_entity_identifier(relation), &error);
+    }
+    if (relation == NULL || source == NULL || target == NULL) goto failure;
+    context = g_new0(ApplicationDeleteRelationContext, 1);
+    context->application = application;
+    context->relation_identifier = g_strdup(relation_identifier);
+    message = g_strdup_printf(
+        "Supprimer définitivement la relation :\n\n%s → %s\n\n"
+        "Les entités et les preuves resteront dans l’enquête.",
+        entity_record_get_label(source) != NULL
+            ? entity_record_get_label(source) : entity_record_get_value(source),
+        entity_record_get_label(target) != NULL
+            ? entity_record_get_label(target) : entity_record_get_value(target));
+    if (context->relation_identifier == NULL || message == NULL) goto failure;
+    application_message_dialog_present_confirmation(
+        main_window_get_window(application->main_window),
+        APPLICATION_MESSAGE_DIALOG_WARNING, "Supprimer la relation", message,
+        "Supprimer", application_on_delete_relation_confirmed, context);
+    context = NULL;
+    goto cleanup;
+failure:
+    application_delete_relation_context_free(context); context = NULL;
+    application_present_error(application, "Suppression impossible",
+        error != NULL ? error->message :
+        "La relation sélectionnée n'a pas pu être chargée.");
+cleanup:
+    g_free(message);
+    g_clear_error(&error);
+    entity_record_free(source); entity_record_free(target);
+    relation_record_free(relation);
+    entity_dao_free(entity_dao); relation_dao_free(relation_dao);
+}
+
 /** @brief Enregistre la catégorie choisie depuis la fiche personne. */
 static void application_on_person_role_changed(const char *entity_identifier,
     PersonRole role, gpointer user_data)
@@ -6728,6 +6842,8 @@ static void application_on_activate(
 
     main_window_set_edit_relation_callback(application->main_window,
         application_on_edit_relation_requested, application);
+    main_window_set_delete_relation_callback(application->main_window,
+        application_on_delete_relation_requested, application);
     main_window_set_relation_selected_callback(application->main_window,
         application_on_relation_selected, application);
     main_window_set_person_role_callback(application->main_window,

@@ -142,6 +142,9 @@ typedef void (*MainWindowEditRelationCallback)(
     const char *relation_identifier,
     gpointer user_data
 );
+/** @brief Callback appelé pour supprimer une relation. */
+typedef void (*MainWindowDeleteRelationCallback)(
+    const char *relation_identifier, gpointer user_data);
 
 /** @brief Callback appelé quand une relation est sélectionnée. */
 typedef void (*MainWindowRelationSelectedCallback)(
@@ -255,6 +258,9 @@ void main_window_set_edit_relation_callback(
     MainWindowEditRelationCallback callback,
     gpointer user_data
 );
+/** @brief Définit le callback de suppression d'une relation. */
+void main_window_set_delete_relation_callback(MainWindow *main_window,
+    MainWindowDeleteRelationCallback callback, gpointer user_data);
 
 /** @brief Définit le callback de sélection d'une relation. */
 void main_window_set_relation_selected_callback(

@@ -58,6 +58,10 @@ static const char *const relation_dao_update_sql =
     "type_relation = ?, label = ?, justification = ?, confiance = ?, "
     "updated_at = ?, status = ? WHERE id = ?;";
 
+/** @brief Requête de suppression d'une relation. */
+static const char *const relation_dao_delete_sql =
+    "DELETE FROM relations WHERE id = ?;";
+
 /**
  * @brief Requête de recherche par UUID.
  */
@@ -1355,6 +1359,49 @@ gboolean relation_dao_update(RelationDao *relation_dao,
         relation_dao_set_database_error(relation_dao, error,
             RELATION_DAO_ERROR_EXECUTE,
             "Impossible de modifier la relation");
+        goto cleanup;
+    }
+    success = TRUE;
+cleanup:
+    database_statement_finalize(statement);
+    return success;
+}
+
+gboolean relation_dao_delete(RelationDao *relation_dao,
+    const char *identifier, GError **error)
+{
+    DatabaseStatement *statement = NULL;
+    gboolean success = FALSE;
+    g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+    if (relation_dao == NULL || relation_dao->database == NULL ||
+        identifier == NULL || !g_uuid_string_is_valid(identifier))
+    {
+        relation_dao_set_error_literal(error,
+            RELATION_DAO_ERROR_INVALID_ARGUMENT,
+            "Les paramètres de suppression de la relation sont invalides.");
+        return FALSE;
+    }
+    statement = database_statement_prepare(relation_dao->database,
+        relation_dao_delete_sql);
+    if (statement == NULL)
+    {
+        relation_dao_set_database_error(relation_dao, error,
+            RELATION_DAO_ERROR_PREPARE,
+            "Impossible de préparer la suppression de la relation");
+        goto cleanup;
+    }
+    if (!database_statement_bind_text(statement, 1, identifier))
+    {
+        relation_dao_set_database_error(relation_dao, error,
+            RELATION_DAO_ERROR_BIND,
+            "Impossible de lier l'identifiant de la relation");
+        goto cleanup;
+    }
+    if (database_statement_step(statement) != DATABASE_STATEMENT_STEP_DONE)
+    {
+        relation_dao_set_database_error(relation_dao, error,
+            RELATION_DAO_ERROR_EXECUTE,
+            "Impossible de supprimer la relation");
         goto cleanup;
     }
     success = TRUE;

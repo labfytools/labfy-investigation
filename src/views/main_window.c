@@ -131,6 +131,8 @@ struct MainWindow
 
     MainWindowEditRelationCallback edit_relation_callback;
     gpointer edit_relation_user_data;
+    MainWindowDeleteRelationCallback delete_relation_callback;
+    gpointer delete_relation_user_data;
     MainWindowPersonRoleCallback person_role_callback;
     gpointer person_role_user_data;
     MainWindowPersonConfidenceCallback person_confidence_callback;
@@ -532,6 +534,16 @@ static void main_window_on_edit_relation_requested(
         main_window->edit_relation_user_data);
 }
 
+/** @brief Relaie la demande de suppression d'une relation. */
+static void main_window_on_delete_relation_requested(
+    const char *relation_identifier, gpointer user_data)
+{
+    MainWindow *main_window = user_data;
+    if (main_window != NULL && main_window->delete_relation_callback != NULL)
+        main_window->delete_relation_callback(relation_identifier,
+            main_window->delete_relation_user_data);
+}
+
 /** @brief Relaie la catégorisation d'une personne. */
 static void main_window_on_person_role_changed(const char *entity_identifier,
     PersonRole role, gpointer user_data)
@@ -903,6 +915,8 @@ MainWindow *main_window_new(
 
     workspace_set_edit_relation_callback(main_window->workspace,
         main_window_on_edit_relation_requested, main_window);
+    workspace_set_delete_relation_callback(main_window->workspace,
+        main_window_on_delete_relation_requested, main_window);
     workspace_set_person_role_callback(main_window->workspace,
         main_window_on_person_role_changed, main_window);
     workspace_set_person_confidence_callback(main_window->workspace,
@@ -1699,6 +1713,14 @@ void main_window_set_edit_relation_callback(MainWindow *main_window,
     if (main_window == NULL) return;
     main_window->edit_relation_callback = callback;
     main_window->edit_relation_user_data = user_data;
+}
+
+void main_window_set_delete_relation_callback(MainWindow *main_window,
+    MainWindowDeleteRelationCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->delete_relation_callback = callback;
+    main_window->delete_relation_user_data = user_data;
 }
 
 void main_window_set_relation_selected_callback(MainWindow *main_window,

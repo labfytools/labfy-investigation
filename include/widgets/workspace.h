@@ -84,6 +84,9 @@ typedef void (*WorkspaceEditRelationCallback)(
     const char *relation_identifier,
     gpointer user_data
 );
+/** @brief Callback appelé pour supprimer la relation sélectionnée. */
+typedef void (*WorkspaceDeleteRelationCallback)(
+    const char *relation_identifier, gpointer user_data);
 
 /** @brief Callback appelé quand une relation devient sélectionnée. */
 typedef void (*WorkspaceRelationSelectedCallback)(
@@ -326,6 +329,9 @@ void workspace_set_edit_relation_callback(
     WorkspaceEditRelationCallback callback,
     gpointer user_data
 );
+/** @brief Définit le callback de suppression d'une relation. */
+void workspace_set_delete_relation_callback(Workspace *workspace,
+    WorkspaceDeleteRelationCallback callback, gpointer user_data);
 
 /**
  * @brief Définit le callback de sélection d'une relation.
