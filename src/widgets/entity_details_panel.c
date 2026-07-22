@@ -17,6 +17,7 @@ struct EntityDetailsPanel
 {
     GtkWidget *root_revealer;
     GtkWidget *frame;
+    GtkWidget *add_relation_button;
     GtkWidget *close_button;
 
     GtkWidget *entity_title_label;
@@ -29,8 +30,16 @@ struct EntityDetailsPanel
     GtkWidget *entity_updated_at_label;
     GtkWidget *entity_identifier_label;
 
+    char *selected_entity_identifier;
+
     EntityDetailsPanelCloseCallback close_callback;
     gpointer close_user_data;
+
+    EntityDetailsPanelAddRelationCallback
+        add_relation_callback;
+
+    gpointer
+        add_relation_user_data;
 };
 
 /**
@@ -192,6 +201,64 @@ static const char *entity_details_panel_get_status_text(
 }
 
 /**
+ * @brief Met à jour l'état du bouton d'ajout d'une relation.
+ */
+static void entity_details_panel_update_add_relation_button(
+    EntityDetailsPanel *details_panel
+)
+{
+    gboolean enabled =
+        FALSE;
+
+    if (details_panel == NULL ||
+        details_panel->add_relation_button == NULL)
+    {
+        return;
+    }
+
+    enabled =
+        details_panel->add_relation_callback != NULL &&
+        details_panel->selected_entity_identifier != NULL &&
+        g_uuid_string_is_valid(
+            details_panel->selected_entity_identifier
+        );
+
+    gtk_widget_set_sensitive(
+        details_panel->add_relation_button,
+        enabled
+    );
+}
+
+/**
+ * @brief Transmet la demande d'ajout d'une relation.
+ */
+static void entity_details_panel_on_add_relation_clicked(
+    GtkButton *button,
+    gpointer user_data
+)
+{
+    EntityDetailsPanel *details_panel =
+        user_data;
+
+    (void) button;
+
+    if (details_panel == NULL ||
+        details_panel->add_relation_callback == NULL ||
+        details_panel->selected_entity_identifier == NULL ||
+        !g_uuid_string_is_valid(
+            details_panel->selected_entity_identifier
+        ))
+    {
+        return;
+    }
+
+    details_panel->add_relation_callback(
+        details_panel->selected_entity_identifier,
+        details_panel->add_relation_user_data
+    );
+}
+
+/**
  * @brief Ferme le volet depuis le bouton de l'interface.
  */
 static void entity_details_panel_on_close_clicked(
@@ -266,6 +333,11 @@ EntityDetailsPanel *entity_details_panel_new(void)
             NULL
         );
 
+    details_panel->add_relation_button =
+        gtk_button_new_from_icon_name(
+            "list-add-symbolic"
+        );
+
     details_panel->close_button =
         gtk_button_new_from_icon_name(
             "window-close-symbolic"
@@ -307,6 +379,7 @@ EntityDetailsPanel *entity_details_panel_new(void)
 
     if (details_panel->root_revealer == NULL ||
         details_panel->frame == NULL ||
+        details_panel->add_relation_button == NULL ||
         details_panel->close_button == NULL ||
         content_box == NULL ||
         header_box == NULL ||
@@ -426,6 +499,21 @@ EntityDetailsPanel *entity_details_panel_new(void)
     );
 
     gtk_widget_set_tooltip_text(
+        details_panel->add_relation_button,
+        "Ajouter une relation depuis cette entité"
+    );
+
+    gtk_widget_add_css_class(
+        details_panel->add_relation_button,
+        "flat"
+    );
+
+    gtk_widget_set_sensitive(
+        details_panel->add_relation_button,
+        FALSE
+    );
+
+    gtk_widget_set_tooltip_text(
         details_panel->close_button,
         "Fermer le volet"
     );
@@ -438,6 +526,11 @@ EntityDetailsPanel *entity_details_panel_new(void)
     gtk_box_append(
         GTK_BOX(header_box),
         header_label
+    );
+
+    gtk_box_append(
+        GTK_BOX(header_box),
+        details_panel->add_relation_button
     );
 
     gtk_box_append(
@@ -646,6 +739,15 @@ EntityDetailsPanel *entity_details_panel_new(void)
     );
 
     g_signal_connect(
+        details_panel->add_relation_button,
+        "clicked",
+        G_CALLBACK(
+            entity_details_panel_on_add_relation_clicked
+        ),
+        details_panel
+    );
+
+    g_signal_connect(
         details_panel->close_button,
         "clicked",
         G_CALLBACK(
@@ -689,6 +791,11 @@ void entity_details_panel_set_entity(
         return;
     }
 
+    g_clear_pointer(
+        &details_panel->selected_entity_identifier,
+        g_free
+    );
+
     if (entity_record == NULL)
     {
         entity_details_panel_clear(
@@ -697,6 +804,17 @@ void entity_details_panel_set_entity(
 
         return;
     }
+
+    details_panel->selected_entity_identifier =
+        g_strdup(
+            entity_record_get_identifier(
+                entity_record
+            )
+        );
+
+    entity_details_panel_update_add_relation_button(
+        details_panel
+    );
 
     title =
         entity_record_get_label(
@@ -820,6 +938,15 @@ void entity_details_panel_clear(
         return;
     }
 
+    g_clear_pointer(
+        &details_panel->selected_entity_identifier,
+        g_free
+    );
+
+    entity_details_panel_update_add_relation_button(
+        details_panel
+    );
+
     entity_details_panel_set_field_text(
         details_panel->entity_title_label,
         NULL,
@@ -903,6 +1030,28 @@ void entity_details_panel_set_close_callback(
         user_data;
 }
 
+void entity_details_panel_set_add_relation_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelAddRelationCallback callback,
+    gpointer user_data
+)
+{
+    if (details_panel == NULL)
+    {
+        return;
+    }
+
+    details_panel->add_relation_callback =
+        callback;
+
+    details_panel->add_relation_user_data =
+        user_data;
+
+    entity_details_panel_update_add_relation_button(
+        details_panel
+    );
+}
+
 gboolean entity_details_panel_is_open(
     const EntityDetailsPanel *details_panel
 )
@@ -929,6 +1078,14 @@ void entity_details_panel_free(
         return;
     }
 
+    if (details_panel->add_relation_button != NULL)
+    {
+        g_signal_handlers_disconnect_by_data(
+            details_panel->add_relation_button,
+            details_panel
+        );
+    }
+
     if (details_panel->close_button != NULL)
     {
         g_signal_handlers_disconnect_by_data(
@@ -943,10 +1100,24 @@ void entity_details_panel_free(
     details_panel->close_user_data =
         NULL;
 
+    details_panel->add_relation_callback =
+        NULL;
+
+    details_panel->add_relation_user_data =
+        NULL;
+
+    g_clear_pointer(
+        &details_panel->selected_entity_identifier,
+        g_free
+    );
+
     details_panel->root_revealer =
         NULL;
 
     details_panel->frame =
+        NULL;
+
+    details_panel->add_relation_button =
         NULL;
 
     details_panel->close_button =

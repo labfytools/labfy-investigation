@@ -67,6 +67,17 @@ typedef void (*WorkspaceResetGraphLayoutCallback)(
 );
 
 /**
+ * @brief Callback appelé lors d'une demande d'ajout d'une relation.
+ *
+ * @param source_entity_identifier UUID de l'entité source.
+ * @param user_data Données empruntées fournies par l'appelant.
+ */
+typedef void (*WorkspaceAddRelationCallback)(
+    const char *source_entity_identifier,
+    gpointer user_data
+);
+
+/**
  * @brief Crée une nouvelle zone de travail.
  *
  * @return Une nouvelle zone de travail, ou NULL en cas d'échec.
@@ -158,6 +169,21 @@ void workspace_set_graph_node_moved_callback(
 void workspace_set_reset_graph_layout_callback(
     Workspace *workspace,
     WorkspaceResetGraphLayoutCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de demande d'ajout d'une relation.
+ *
+ * Le Workspace relaie uniquement l'événement du volet de détails.
+ *
+ * @param workspace Zone de travail.
+ * @param callback Callback facultatif.
+ * @param user_data Données empruntées transmises au callback.
+ */
+void workspace_set_add_relation_callback(
+    Workspace *workspace,
+    WorkspaceAddRelationCallback callback,
     gpointer user_data
 );
 

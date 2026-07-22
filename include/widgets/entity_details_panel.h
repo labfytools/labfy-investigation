@@ -33,6 +33,19 @@ typedef void (*EntityDetailsPanelCloseCallback)(
 );
 
 /**
+ * @brief Callback appelé lorsque l'utilisateur demande une relation.
+ *
+ * L'identifiant est emprunté et uniquement valide pendant l'appel.
+ *
+ * @param source_entity_identifier UUID de l'entité source.
+ * @param user_data Données empruntées fournies par l'appelant.
+ */
+typedef void (*EntityDetailsPanelAddRelationCallback)(
+    const char *source_entity_identifier,
+    gpointer user_data
+);
+
+/**
  * @brief Crée un volet de détails fermé.
  *
  * @return Nouveau volet, ou NULL en cas d'échec.
@@ -89,6 +102,21 @@ void entity_details_panel_clear(
 void entity_details_panel_set_close_callback(
     EntityDetailsPanel *details_panel,
     EntityDetailsPanelCloseCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback du bouton d'ajout d'une relation.
+ *
+ * Le volet transmet uniquement l'UUID de l'entité actuellement affichée.
+ *
+ * @param details_panel Volet à configurer.
+ * @param callback Callback à appeler, ou NULL.
+ * @param user_data Données empruntées du callback.
+ */
+void entity_details_panel_set_add_relation_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelAddRelationCallback callback,
     gpointer user_data
 );
 

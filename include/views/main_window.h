@@ -110,6 +110,17 @@ typedef void (*MainWindowResetGraphLayoutCallback)(
 );
 
 /**
+ * @brief Callback appelé lors d'une demande d'ajout d'une relation.
+ *
+ * @param source_entity_identifier UUID de l'entité source.
+ * @param user_data Données privées du callback.
+ */
+typedef void (*MainWindowAddRelationCallback)(
+    const char *source_entity_identifier,
+    gpointer user_data
+);
+
+/**
  * @brief Définit le callback de vérification d'une preuve.
  *
  * MainWindow relaie la demande provenant du Workspace.
@@ -151,6 +162,21 @@ void main_window_set_graph_node_moved_callback(
 void main_window_set_reset_graph_layout_callback(
     MainWindow *main_window,
     MainWindowResetGraphLayoutCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Définit le callback de demande d'ajout d'une relation.
+ *
+ * MainWindow relaie uniquement la demande provenant du Workspace.
+ *
+ * @param main_window Fenêtre principale.
+ * @param callback Callback facultatif.
+ * @param user_data Données privées transmises au callback.
+ */
+void main_window_set_add_relation_callback(
+    MainWindow *main_window,
+    MainWindowAddRelationCallback callback,
     gpointer user_data
 );
 

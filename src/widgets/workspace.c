@@ -93,6 +93,12 @@ struct Workspace
     gpointer
         reset_graph_layout_user_data;
 
+    WorkspaceAddRelationCallback
+        add_relation_callback;
+
+    gpointer
+        add_relation_user_data;
+
     GtkWidget *node_name_label;
     GtkWidget *node_path_label;
     GtkWidget *node_type_label;
@@ -321,6 +327,33 @@ static void workspace_on_graph_entity_selected(
     entity_details_panel_set_entity(
         workspace->entity_details_panel,
         entity_record
+    );
+}
+
+/**
+ * @brief Relaie la demande d'ajout d'une relation.
+ */
+static void workspace_on_add_relation_requested(
+    const char *source_entity_identifier,
+    gpointer user_data
+)
+{
+    Workspace *workspace =
+        user_data;
+
+    if (workspace == NULL ||
+        workspace->add_relation_callback == NULL ||
+        source_entity_identifier == NULL ||
+        !g_uuid_string_is_valid(
+            source_entity_identifier
+        ))
+    {
+        return;
+    }
+
+    workspace->add_relation_callback(
+        source_entity_identifier,
+        workspace->add_relation_user_data
     );
 }
 
@@ -1072,6 +1105,12 @@ Workspace *workspace_new(void)
     entity_details_panel_set_close_callback(
         workspace->entity_details_panel,
         workspace_on_entity_details_closed,
+        workspace
+    );
+
+    entity_details_panel_set_add_relation_callback(
+        workspace->entity_details_panel,
+        workspace_on_add_relation_requested,
         workspace
     );
 
@@ -2107,6 +2146,24 @@ void workspace_set_reset_graph_layout_callback(
         user_data;
 }
 
+void workspace_set_add_relation_callback(
+    Workspace *workspace,
+    WorkspaceAddRelationCallback callback,
+    gpointer user_data
+)
+{
+    if (workspace == NULL)
+    {
+        return;
+    }
+
+    workspace->add_relation_callback =
+        callback;
+
+    workspace->add_relation_user_data =
+        user_data;
+}
+
 void workspace_reset_graph_layout(
     Workspace *workspace
 )
@@ -2157,6 +2214,12 @@ void workspace_free(Workspace *workspace)
         NULL
     );
 
+    entity_details_panel_set_add_relation_callback(
+        workspace->entity_details_panel,
+        NULL,
+        NULL
+    );
+
     entity_details_panel_clear(
         workspace->entity_details_panel
     );
@@ -2201,6 +2264,12 @@ void workspace_free(Workspace *workspace)
         NULL;
 
     workspace->reset_graph_layout_user_data =
+        NULL;
+
+    workspace->add_relation_callback =
+        NULL;
+
+    workspace->add_relation_user_data =
         NULL;
 
     workspace->graph_toolbar =

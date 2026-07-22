@@ -27,7 +27,9 @@
 #include "dao/evidence_type_dao.h"
 #include "dao/graph_node_position_dao.h"
 #include "views/evidence_import_dialog.h"
+#include "views/create_relation_dialog.h"
 #include "dao/evidence_dao.h"
+#include "dao/entity_dao.h"
 #include "models/evidence_type.h"
 #include "widgets/evidence_list_model.h"
 #include "widgets/evidence_category_model.h"
@@ -3324,6 +3326,239 @@ static void application_on_evidence_selected(
     );
 }
 
+
+/**
+ * @brief Traite la validation ou l'annulation du dialogue de relation.
+ *
+ * Cette première étape valide le parcours complet de l'interface.
+ * L'écriture SQLite sera branchée après validation de la compilation.
+ */
+static void application_on_create_relation_completed(
+    CreateRelationDialogResult *result,
+    gpointer user_data
+)
+{
+    Application *application =
+        user_data;
+
+    const char *source_identifier =
+        NULL;
+
+    const char *target_identifier =
+        NULL;
+
+    const char *relation_type =
+        NULL;
+
+    char *status_message =
+        NULL;
+
+    if (application == NULL ||
+        application->main_window == NULL)
+    {
+        create_relation_dialog_result_free(
+            result
+        );
+
+        return;
+    }
+
+    if (result == NULL)
+    {
+        main_window_set_status(
+            application->main_window,
+            "Ajout de relation annulé."
+        );
+
+        return;
+    }
+
+    source_identifier =
+        create_relation_dialog_result_get_source_identifier(
+            result
+        );
+
+    target_identifier =
+        create_relation_dialog_result_get_target_identifier(
+            result
+        );
+
+    relation_type =
+        create_relation_dialog_result_get_relation_type(
+            result
+        );
+
+    g_message(
+        "Relation préparée : %s -> %s (%s), confiance %d %%.",
+        source_identifier != NULL
+            ? source_identifier
+            : "(source absente)",
+        target_identifier != NULL
+            ? target_identifier
+            : "(cible absente)",
+        relation_type != NULL
+            ? relation_type
+            : "(type absent)",
+        create_relation_dialog_result_get_confidence(
+            result
+        )
+    );
+
+    status_message =
+        g_strdup_printf(
+            "Relation préparée : %s. "
+            "L'enregistrement SQLite sera branché à l'étape suivante.",
+            relation_type != NULL &&
+            relation_type[0] != '\0'
+                ? relation_type
+                : "(type inconnu)"
+        );
+
+    main_window_set_status(
+        application->main_window,
+        status_message != NULL
+            ? status_message
+            : "Relation préparée."
+    );
+
+    g_free(
+        status_message
+    );
+
+    create_relation_dialog_result_free(
+        result
+    );
+}
+
+/**
+ * @brief Ouvre le dialogue de création depuis la fiche d'une entité.
+ */
+static void application_on_add_relation_requested(
+    const char *source_entity_identifier,
+    gpointer user_data
+)
+{
+    Application *application =
+        user_data;
+
+    Database *database =
+        NULL;
+
+    EntityDao *entity_dao =
+        NULL;
+
+    GPtrArray *entities =
+        NULL;
+
+    GError *error =
+        NULL;
+
+    if (application == NULL ||
+        application->main_window == NULL ||
+        application->session == NULL ||
+        source_entity_identifier == NULL ||
+        !g_uuid_string_is_valid(
+            source_entity_identifier
+        ))
+    {
+        return;
+    }
+
+    database =
+        investigation_session_get_database(
+            application->session
+        );
+
+    if (database == NULL)
+    {
+        application_present_error(
+            application,
+            "Relations indisponibles",
+            "La session ne fournit aucune connexion SQLite."
+        );
+
+        return;
+    }
+
+    entity_dao =
+        entity_dao_new(
+            database,
+            &error
+        );
+
+    if (entity_dao == NULL)
+    {
+        application_present_error(
+            application,
+            "Relations indisponibles",
+            error != NULL
+                ? error->message
+                : "Impossible d'accéder aux entités."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        return;
+    }
+
+    entities =
+        entity_dao_list_all(
+            entity_dao,
+            &error
+        );
+
+    entity_dao_free(
+        entity_dao
+    );
+
+    if (entities == NULL)
+    {
+        application_present_error(
+            application,
+            "Relations indisponibles",
+            error != NULL
+                ? error->message
+                : "Impossible de charger les entités."
+        );
+
+        g_clear_error(
+            &error
+        );
+
+        return;
+    }
+
+    if (!create_relation_dialog_present(
+            main_window_get_window(
+                application->main_window
+            ),
+            source_entity_identifier,
+            entities,
+            application_on_create_relation_completed,
+            application,
+            &error
+        ))
+    {
+        application_present_error(
+            application,
+            "Ajout de relation impossible",
+            error != NULL
+                ? error->message
+                : "Le dialogue de relation n'a pas pu être ouvert."
+        );
+
+        g_clear_error(
+            &error
+        );
+    }
+
+    g_ptr_array_unref(
+        entities
+    );
+}
+
 /**
  * @brief Enregistre le statut d'intégrité dans l'enquête d'origine.
  *
@@ -4597,6 +4832,12 @@ static void application_on_activate(
     main_window_set_show_graph_callback(
         application->main_window,
         application_on_show_graph_requested,
+        application
+    );
+
+    main_window_set_add_relation_callback(
+        application->main_window,
+        application_on_add_relation_requested,
         application
     );
 

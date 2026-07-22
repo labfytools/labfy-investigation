@@ -111,6 +111,12 @@ struct MainWindow
     gpointer
         reset_graph_layout_user_data;
 
+    MainWindowAddRelationCallback
+        add_relation_callback;
+
+    gpointer
+        add_relation_user_data;
+
     MainWindowQuitCallback
         quit_callback;
 
@@ -345,6 +351,33 @@ static void main_window_on_reset_graph_layout_requested(
 
     main_window->reset_graph_layout_callback(
         main_window->reset_graph_layout_user_data
+    );
+}
+
+/**
+ * @brief Relaie la demande d'ajout d'une relation.
+ */
+static void main_window_on_add_relation_requested(
+    const char *source_entity_identifier,
+    gpointer user_data
+)
+{
+    MainWindow *main_window =
+        user_data;
+
+    if (main_window == NULL ||
+        main_window->add_relation_callback == NULL ||
+        source_entity_identifier == NULL ||
+        !g_uuid_string_is_valid(
+            source_entity_identifier
+        ))
+    {
+        return;
+    }
+
+    main_window->add_relation_callback(
+        source_entity_identifier,
+        main_window->add_relation_user_data
     );
 }
 
@@ -645,6 +678,12 @@ MainWindow *main_window_new(
     workspace_set_reset_graph_layout_callback(
         main_window->workspace,
         main_window_on_reset_graph_layout_requested,
+        main_window
+    );
+
+    workspace_set_add_relation_callback(
+        main_window->workspace,
+        main_window_on_add_relation_requested,
         main_window
     );
 
@@ -1281,6 +1320,24 @@ void main_window_set_reset_graph_layout_callback(
         user_data;
 }
 
+void main_window_set_add_relation_callback(
+    MainWindow *main_window,
+    MainWindowAddRelationCallback callback,
+    gpointer user_data
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    main_window->add_relation_callback =
+        callback;
+
+    main_window->add_relation_user_data =
+        user_data;
+}
+
 void main_window_set_quit_callback(
     MainWindow *main_window,
     MainWindowQuitCallback callback,
@@ -1409,6 +1466,12 @@ void main_window_free(
             NULL
         );
 
+        workspace_set_add_relation_callback(
+            main_window->workspace,
+            NULL,
+            NULL
+        );
+
         main_window->graph_node_moved_callback =
             NULL;
 
@@ -1419,6 +1482,12 @@ void main_window_free(
             NULL;
 
         main_window->reset_graph_layout_user_data =
+            NULL;
+
+        main_window->add_relation_callback =
+            NULL;
+
+        main_window->add_relation_user_data =
             NULL;
 
         main_window->show_graph_callback =
