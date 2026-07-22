@@ -136,6 +136,8 @@ Le socle actuel comprend notamment :
 - tâches asynchrones annulables ;
 - gestionnaire de tâches ;
 - panneau d’activité GTK ;
+- import groupé de preuves avec confirmation globale, révision individuelle,
+  copie contrôlée, empreinte SHA-256 et bilan détaillé ;
 - registre d’outils externes ;
 - exécution sécurisée par `GSubprocess` ;
 - exécution d’outils en tâche de fond ;

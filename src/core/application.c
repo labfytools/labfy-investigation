@@ -123,7 +123,20 @@ typedef struct
 {
     Application *application;
     char *investigation_root_path;
+    gpointer batch_context;
 } ApplicationEvidenceImportContext;
+
+/** @brief État d'un import groupé traité séquentiellement. */
+typedef struct
+{
+    Application *application;
+    GPtrArray *file_paths;
+    GPtrArray *evidence_types;
+    GPtrArray *failures;
+    guint current_index;
+    guint success_count;
+    guint skipped_count;
+} ApplicationEvidenceBatchContext;
 
 /**
  * @brief Contexte conservé jusqu'à la fin d'un chargement de graphe.
@@ -191,6 +204,14 @@ static void application_present_error(
     const char *message
 );
 
+static void application_present_next_batch_metadata(
+    ApplicationEvidenceBatchContext *context
+);
+
+static void application_evidence_batch_context_free(
+    ApplicationEvidenceBatchContext *context
+);
+
 /** @brief Libère les données de révision possédées par le dialogue. */
 static void application_osint_review_context_free(gpointer user_data)
 {
@@ -200,6 +221,24 @@ static void application_osint_review_context_free(gpointer user_data)
     g_free(context->execution_identifier);
     g_free(context->source_entity_identifier);
     g_free(context);
+}
+
+/** @brief Démarre ou abandonne la préparation après confirmation globale. */
+static void application_on_batch_selection_confirmed(
+    gboolean confirmed, gpointer user_data
+)
+{
+    ApplicationEvidenceBatchContext *context = user_data;
+    if (context == NULL) return;
+    if (confirmed) application_present_next_batch_metadata(context);
+    else
+    {
+        main_window_set_import_evidence_enabled(
+            context->application->main_window, TRUE);
+        main_window_set_status(context->application->main_window,
+            "Import groupé annulé avant toute copie.");
+        application_evidence_batch_context_free(context);
+    }
 }
 
 /** @brief Intègre les propositions confirmées puis recharge le graphe. */
@@ -349,6 +388,46 @@ static void application_evidence_import_context_free(
     g_free(
         context
     );
+}
+
+/** @brief Libère l'état possédé d'un import groupé. */
+static void application_evidence_batch_context_free(
+    ApplicationEvidenceBatchContext *context
+)
+{
+    if (context == NULL) return;
+    g_clear_pointer(&context->file_paths, g_ptr_array_unref);
+    g_clear_pointer(&context->evidence_types, g_ptr_array_unref);
+    g_clear_pointer(&context->failures, g_ptr_array_unref);
+    g_free(context);
+}
+
+/** @brief Affiche le bilan final puis libère l'import groupé. */
+static void application_finish_evidence_batch(
+    ApplicationEvidenceBatchContext *context
+)
+{
+    GString *details = NULL;
+    char *message = NULL;
+    if (context == NULL) return;
+    details = g_string_new(NULL);
+    for (guint index = 0U; index < context->failures->len; index++)
+        g_string_append_printf(details, "- %s\n",
+            (const char *) g_ptr_array_index(context->failures, index));
+    message = g_strdup_printf(
+        "%u preuve(s) importée(s), %u ignorée(s), %u échec(s).",
+        context->success_count, context->skipped_count, context->failures->len);
+    application_message_dialog_present_details(
+        main_window_get_window(context->application->main_window),
+        context->failures->len == 0U
+            ? APPLICATION_MESSAGE_DIALOG_INFORMATION
+            : APPLICATION_MESSAGE_DIALOG_WARNING,
+        "Import groupé terminé", message,
+        details->len > 0U ? details->str : "Tous les fichiers ont été importés.");
+    main_window_set_import_evidence_enabled(
+        context->application->main_window, TRUE);
+    g_free(message); g_string_free(details, TRUE);
+    application_evidence_batch_context_free(context);
 }
 
 /**
@@ -2740,6 +2819,8 @@ static void application_on_evidence_import_completed(
     gboolean evidence_refreshed =
         FALSE;
 
+    ApplicationEvidenceBatchContext *batch_context = NULL;
+
     if (task == NULL ||
         context == NULL)
     {
@@ -2749,16 +2830,17 @@ static void application_on_evidence_import_completed(
     application =
         context->application;
 
+    batch_context = context->batch_context;
+
     if (application == NULL ||
         application->main_window == NULL)
     {
         return;
     }
 
-    main_window_set_import_evidence_enabled(
-        application->main_window,
-        application->session != NULL
-    );
+    if (batch_context == NULL)
+        main_window_set_import_evidence_enabled(
+            application->main_window, application->session != NULL);
 
     state =
         background_task_get_state(
@@ -2775,6 +2857,14 @@ static void application_on_evidence_import_completed(
 
         if (evidence_record == NULL)
         {
+            if (batch_context != NULL)
+            {
+                g_ptr_array_add(batch_context->failures, g_strdup(
+                    "Tâche terminée sans preuve exploitable."));
+                batch_context->current_index++;
+                application_present_next_batch_metadata(batch_context);
+                return;
+            }
             application_present_error(
                 application,
                 "Import incomplet",
@@ -2908,12 +2998,26 @@ static void application_on_evidence_import_completed(
             status_message
         );
 
+        if (batch_context != NULL)
+        {
+            batch_context->success_count++;
+            batch_context->current_index++;
+            application_present_next_batch_metadata(batch_context);
+        }
+
         return;
     }
 
     if (state ==
         BACKGROUND_TASK_STATE_CANCELLED)
     {
+        if (batch_context != NULL)
+        {
+            batch_context->skipped_count++;
+            batch_context->current_index++;
+            application_present_next_batch_metadata(batch_context);
+            return;
+        }
         if (application_session_matches_root(
                 application,
                 context->investigation_root_path
@@ -2940,13 +3044,23 @@ static void application_on_evidence_import_completed(
             : "erreur inconnue"
     );
 
-    application_present_error(
-        application,
-        "Import impossible",
-        error != NULL
-            ? error->message
-            : "La preuve n’a pas pu être importée."
-    );
+    if (batch_context != NULL)
+    {
+        const char *path = batch_context->current_index <
+                batch_context->file_paths->len
+            ? g_ptr_array_index(batch_context->file_paths,
+                batch_context->current_index) : "fichier inconnu";
+        char *failure = g_strdup_printf("%s : %s", path,
+            error != NULL ? error->message : "échec de l'import");
+        g_ptr_array_add(batch_context->failures, failure);
+        batch_context->current_index++;
+        application_present_next_batch_metadata(batch_context);
+    }
+    else
+        application_present_error(
+            application, "Import impossible",
+            error != NULL ? error->message
+                          : "La preuve n’a pas pu être importée.");
 
     g_clear_error(
         &error
@@ -3033,7 +3147,8 @@ static void application_start_evidence_import(
     const char *type_identifier,
     const char *collected_at,
     const char *source,
-    const char *description
+    const char *description,
+    ApplicationEvidenceBatchContext *batch_context
 )
 {
     const InvestigationProject *project = NULL;
@@ -3215,6 +3330,8 @@ static void application_start_evidence_import(
 
     context->application =
         application;
+
+    context->batch_context = batch_context;
 
     context->investigation_root_path =
         g_strdup(
@@ -3426,7 +3543,8 @@ static void application_on_evidence_metadata_completed(
         ),
         evidence_import_dialog_result_get_description(
             result
-        )
+        ),
+        NULL
     );
 
     evidence_import_dialog_result_free(
@@ -3673,6 +3791,127 @@ static void application_on_evidence_file_selected(
     );
 }
 
+/** @brief Traite les métadonnées du fichier courant d'un import groupé. */
+static void application_on_batch_metadata_completed(
+    EvidenceImportDialogResult *result, gpointer user_data
+)
+{
+    ApplicationEvidenceBatchContext *context = user_data;
+    const char *file_path = NULL;
+    if (context == NULL) { evidence_import_dialog_result_free(result); return; }
+    if (result == NULL)
+    {
+        context->skipped_count++;
+        context->current_index++;
+        application_present_next_batch_metadata(context);
+        return;
+    }
+    file_path = g_ptr_array_index(context->file_paths, context->current_index);
+    application_start_evidence_import(
+        context->application, file_path,
+        evidence_import_dialog_result_get_type_identifier(result),
+        evidence_import_dialog_result_get_collected_at(result),
+        evidence_import_dialog_result_get_source(result),
+        evidence_import_dialog_result_get_description(result), context);
+    evidence_import_dialog_result_free(result);
+}
+
+/** @brief Présente les métadonnées du prochain fichier, ou le bilan final. */
+static void application_present_next_batch_metadata(
+    ApplicationEvidenceBatchContext *context
+)
+{
+    GError *error = NULL;
+    const char *file_path = NULL;
+    char *status = NULL;
+    if (context == NULL) return;
+    if (context->current_index >= context->file_paths->len)
+    {
+        application_finish_evidence_batch(context);
+        return;
+    }
+    file_path = g_ptr_array_index(context->file_paths, context->current_index);
+    status = g_strdup_printf("Préparation %u/%u : %s",
+        context->current_index + 1U, context->file_paths->len, file_path);
+    main_window_set_status(context->application->main_window, status);
+    g_free(status);
+    if (!evidence_import_dialog_present(
+            main_window_get_window(context->application->main_window),
+            file_path, context->evidence_types,
+            application_on_batch_metadata_completed, context, &error))
+    {
+        char *failure = g_strdup_printf("%s : %s", file_path,
+            error != NULL ? error->message : "dialogue indisponible");
+        g_ptr_array_add(context->failures, failure);
+        g_clear_error(&error);
+        context->current_index++;
+        application_present_next_batch_metadata(context);
+    }
+}
+
+/** @brief Prépare un import groupé depuis les chemins sélectionnés. */
+static void application_on_evidence_files_selected(
+    const GPtrArray *paths, const GError *error, gpointer user_data
+)
+{
+    Application *application = user_data;
+    ApplicationEvidenceBatchContext *context = NULL;
+    EvidenceTypeDao *dao = NULL;
+    GPtrArray *types = NULL;
+    GError *local_error = NULL;
+    if (application == NULL || application->main_window == NULL) return;
+    if (error != NULL)
+    {
+        application_present_error(application, "Sélection impossible", error->message);
+        return;
+    }
+    if (paths == NULL || paths->len == 0U)
+    {
+        main_window_set_status(application->main_window, "Import de preuve annulé.");
+        return;
+    }
+    if (paths->len == 1U)
+    {
+        application_on_evidence_file_selected(
+            g_ptr_array_index((GPtrArray *) paths, 0U), NULL, application);
+        return;
+    }
+    dao = evidence_type_dao_new(
+        investigation_session_get_database(application->session), &local_error);
+    if (dao != NULL) types = evidence_type_dao_list_all(dao, &local_error);
+    evidence_type_dao_free(dao);
+    if (types == NULL || types->len == 0U)
+    {
+        application_present_error(application, "Types de preuve indisponibles",
+            local_error != NULL ? local_error->message
+                                : "Aucun type de preuve n'est disponible.");
+        g_clear_error(&local_error);
+        g_clear_pointer(&types, g_ptr_array_unref);
+        return;
+    }
+    context = g_new0(ApplicationEvidenceBatchContext, 1);
+    context->application = application;
+    context->file_paths = g_ptr_array_new_with_free_func(g_free);
+    context->evidence_types = types;
+    context->failures = g_ptr_array_new_with_free_func(g_free);
+    for (guint index = 0U; index < paths->len; index++)
+        g_ptr_array_add(context->file_paths,
+            g_strdup(g_ptr_array_index((GPtrArray *) paths, index)));
+    main_window_set_import_evidence_enabled(application->main_window, FALSE);
+    {
+        char *message = g_strdup_printf(
+            "%u fichiers ont été sélectionnés. Chaque fichier sera révisé "
+            "puis importé séparément avec sa propre empreinte SHA-256.",
+            paths->len);
+        application_message_dialog_present_confirmation(
+            main_window_get_window(application->main_window),
+            APPLICATION_MESSAGE_DIALOG_INFORMATION,
+            "Préparer l'import groupé", message, "Continuer",
+            application_on_batch_selection_confirmed, context);
+        g_free(message);
+    }
+}
+
 /**
  * @brief Traite la demande d'import d'une preuve.
  *
@@ -3702,11 +3941,11 @@ static void application_on_import_evidence_requested(
         return;
     }
 
-    file_dialog_select_file(
+    file_dialog_select_files(
         main_window_get_window(
             application->main_window
         ),
-        application_on_evidence_file_selected,
+        application_on_evidence_files_selected,
         application
     );
 }

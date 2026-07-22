@@ -761,6 +761,11 @@ L'intégrité de la preuve est essentielle.
 
 Les métadonnées permettent notamment de suivre les empreintes cryptographiques.
 
+L'import groupé conserve ce modèle : chaque fichier sélectionné est révisé et
+importé séparément. Les imports sont exécutés séquentiellement afin d'éviter
+les écritures SQLite concurrentes. L'échec d'un fichier n'annule pas les
+preuves déjà importées et apparaît dans le bilan final.
+
 ---
 
 ## 4.6 entites

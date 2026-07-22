@@ -16,6 +16,13 @@ typedef struct
     gpointer user_data;
 } FileDialogContext;
 
+/** @brief Contexte conservé pendant une sélection multiple. */
+typedef struct
+{
+    FileDialogMultipleCallback callback;
+    gpointer user_data;
+} FileDialogMultipleContext;
+
 /**
  * @brief Libère le contexte du dialogue.
  */
@@ -233,4 +240,59 @@ void file_dialog_select_file(
     g_object_unref(
         dialog
     );
+}
+
+/** @brief Traite le résultat du sélecteur multiple. */
+static void file_dialog_on_files_selected(
+    GObject *source_object, GAsyncResult *result, gpointer user_data
+)
+{
+    FileDialogMultipleContext *context = user_data;
+    GListModel *files = NULL;
+    GPtrArray *paths = NULL;
+    GError *error = NULL;
+    files = gtk_file_dialog_open_multiple_finish(
+        GTK_FILE_DIALOG(source_object), result, &error);
+    if (files == NULL)
+    {
+        if (error != NULL && g_error_matches(
+                error, GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED))
+            context->callback(NULL, NULL, context->user_data);
+        else context->callback(NULL, error, context->user_data);
+        g_clear_error(&error); g_free(context); return;
+    }
+    paths = g_ptr_array_new_with_free_func(g_free);
+    for (guint index = 0U; index < g_list_model_get_n_items(files); index++)
+    {
+        GFile *file = g_list_model_get_item(files, index);
+        char *path = g_file_get_path(file);
+        if (path == NULL)
+        {
+            g_set_error_literal(&error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                "Un fichier sélectionné ne possède pas de chemin local.");
+            g_object_unref(file); break;
+        }
+        g_ptr_array_add(paths, path); g_object_unref(file);
+    }
+    if (error != NULL) context->callback(NULL, error, context->user_data);
+    else context->callback(paths, NULL, context->user_data);
+    g_clear_error(&error); g_ptr_array_unref(paths); g_object_unref(files);
+    g_free(context);
+}
+
+void file_dialog_select_files(
+    GtkWindow *parent, FileDialogMultipleCallback callback, gpointer user_data
+)
+{
+    GtkFileDialog *dialog = NULL;
+    FileDialogMultipleContext *context = NULL;
+    if (callback == NULL) return;
+    context = g_new0(FileDialogMultipleContext, 1);
+    context->callback = callback; context->user_data = user_data;
+    dialog = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dialog, "Sélectionner des fichiers de preuve");
+    gtk_file_dialog_set_modal(dialog, TRUE);
+    gtk_file_dialog_open_multiple(dialog, parent, NULL,
+        file_dialog_on_files_selected, context);
+    g_object_unref(dialog);
 }

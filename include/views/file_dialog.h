@@ -30,6 +30,23 @@ typedef void (*FileDialogCallback)(
 );
 
 /**
+ * @brief Fonction appelée après une sélection multiple.
+ *
+ * paths est un tableau emprunté de chemins locaux possédés par le dialogue.
+ * Il n'est valide que pendant l'appel. Une annulation transmet NULL sans
+ * erreur.
+ *
+ * @param paths Chemins sélectionnés, ou NULL.
+ * @param error Erreur de sélection, ou NULL.
+ * @param user_data Données fournies lors de l'ouverture.
+ */
+typedef void (*FileDialogMultipleCallback)(
+    const GPtrArray *paths,
+    const GError *error,
+    gpointer user_data
+);
+
+/**
  * @brief Ouvre un dialogue permettant de sélectionner un fichier.
  *
  * @param parent Fenêtre parente, éventuellement NULL.
@@ -39,6 +56,18 @@ typedef void (*FileDialogCallback)(
 void file_dialog_select_file(
     GtkWindow *parent,
     FileDialogCallback callback,
+    gpointer user_data
+);
+
+/**
+ * @brief Ouvre un dialogue permettant de sélectionner plusieurs fichiers.
+ * @param parent Fenêtre parente, éventuellement NULL.
+ * @param callback Fonction appelée à la fermeture du dialogue.
+ * @param user_data Données transmises au callback.
+ */
+void file_dialog_select_files(
+    GtkWindow *parent,
+    FileDialogMultipleCallback callback,
     gpointer user_data
 );
 
