@@ -149,7 +149,9 @@ Le socle actuel comprend notamment :
 - affichage sélectionnable des sorties standard et d’erreur, sans persistance ;
 - révision des réponses DNS sous forme de propositions avant intégration ;
 - sélection explicite et intégration transactionnelle des propositions DNS
-  compatibles, avec normalisation et détection des doublons.
+  compatibles, avec normalisation et détection des doublons ;
+- création transactionnelle des relations DNS `resolves_to`, `aliases_to` et
+  `uses_name_server` depuis l'entité interrogée.
 
 Les outils actuellement présents dans le catalogue initial sont :
 

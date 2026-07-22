@@ -136,6 +136,7 @@ struct MainWindow
  */
 static void main_window_on_osint_action_requested(
     const char *action_identifier,
+    const char *target_identifier,
     const char *target_value,
     gpointer user_data
 )
@@ -149,6 +150,7 @@ static void main_window_on_osint_action_requested(
 
     main_window->osint_action_callback(
         action_identifier,
+        target_identifier,
         target_value,
         main_window->osint_action_user_data
     );

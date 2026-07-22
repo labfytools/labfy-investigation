@@ -104,6 +104,20 @@ char *osint_dns_proposal_dup_normalized_value(
     const OsintDnsProposal *proposal
 );
 
+/**
+ * @brief Retourne le type de relation correspondant au type DNS.
+ *
+ * A, AAAA et PTR utilisent `resolves_to`, CNAME utilise `aliases_to` et NS
+ * utilise `uses_name_server`.
+ *
+ * @param proposal Proposition consultée.
+ *
+ * @return Identifiant statique de relation, ou NULL.
+ */
+const char *osint_dns_proposal_get_relation_type(
+    const OsintDnsProposal *proposal
+);
+
 G_END_DECLS
 
 #endif

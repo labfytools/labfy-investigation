@@ -84,11 +84,13 @@ typedef void (*WorkspaceAddRelationCallback)(
  * Les chaînes sont empruntées et uniquement valides pendant l'appel.
  *
  * @param action_identifier Identifiant stable de l'action.
+ * @param target_identifier UUID de la sélection ciblée.
  * @param target_value Valeur métier ciblée par l'action.
  * @param user_data Données empruntées fournies par l'appelant.
  */
 typedef void (*WorkspaceOsintActionCallback)(
     const char *action_identifier,
+    const char *target_identifier,
     const char *target_value,
     gpointer user_data
 );

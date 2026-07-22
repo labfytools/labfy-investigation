@@ -162,6 +162,7 @@ typedef struct
 typedef struct
 {
     Application *application;
+    char *target_identifier;
     char *target_value;
 } ApplicationOsintActionContext;
 
@@ -169,6 +170,7 @@ typedef struct
 typedef struct
 {
     Application *application;
+    char *source_entity_identifier;
     GPtrArray *proposals;
 } ApplicationOsintReviewContext;
 
@@ -189,6 +191,7 @@ static void application_osint_review_context_free(gpointer user_data)
     ApplicationOsintReviewContext *context = user_data;
     if (context == NULL) return;
     g_clear_pointer(&context->proposals, g_ptr_array_unref);
+    g_free(context->source_entity_identifier);
     g_free(context);
 }
 
@@ -198,16 +201,21 @@ static void application_on_osint_integration_confirmed(
     gpointer user_data
 )
 {
-    Application *application = user_data;
+    ApplicationOsintReviewContext *review_context = user_data;
+    Application *application = review_context != NULL
+        ? review_context->application : NULL;
     const InvestigationProject *project = NULL;
     Database *database = NULL;
     const char *database_path = NULL;
     guint inserted_count = 0U;
     guint skipped_count = 0U;
+    guint inserted_relation_count = 0U;
+    guint skipped_relation_count = 0U;
     char *message = NULL;
     GError *error = NULL;
 
-    if (application == NULL || application->session == NULL ||
+    if (application == NULL || review_context->source_entity_identifier == NULL ||
+        application->session == NULL ||
         application->main_window == NULL)
     {
         return;
@@ -218,8 +226,9 @@ static void application_on_osint_integration_confirmed(
     database_path = project != NULL
         ? investigation_project_get_database_path(project) : NULL;
     if (!osint_dns_integration_apply(
-            database, selected_proposals, &inserted_count, &skipped_count,
-            &error
+            database, review_context->source_entity_identifier,
+            selected_proposals, &inserted_count, &skipped_count,
+            &inserted_relation_count, &skipped_relation_count, &error
         ))
     {
         application_present_error(
@@ -233,10 +242,12 @@ static void application_on_osint_integration_confirmed(
     }
 
     message = g_strdup_printf(
-        "%u entité(s) créée(s), %u proposition(s) ignorée(s).\n\n"
+        "%u entité(s) créée(s), %u entité(s) réutilisée(s) ou ignorée(s).\n"
+        "%u relation(s) créée(s), %u relation(s) ignorée(s).\n\n"
         "La provenance complète devra être ajoutée par une future migration "
         "du schéma OSINT.",
-        inserted_count, skipped_count
+        inserted_count, skipped_count,
+        inserted_relation_count, skipped_relation_count
     );
     application_message_dialog_present(
         main_window_get_window(application->main_window),
@@ -260,7 +271,7 @@ static void application_on_osint_prepare_integration(gpointer user_data)
         main_window_get_window(context->application->main_window),
         context->proposals,
         application_on_osint_integration_confirmed,
-        context->application
+        context
     );
 }
 
@@ -279,6 +290,7 @@ static void application_osint_action_context_free(
     }
 
     g_free(context->target_value);
+    g_free(context->target_identifier);
     g_free(context);
 }
 
@@ -1178,9 +1190,13 @@ static void application_on_dns_lookup_completed(
         if (review_context != NULL)
         {
             review_context->application = application;
+            review_context->source_entity_identifier = g_strdup(
+                context->target_identifier
+            );
             review_context->proposals = g_ptr_array_ref(proposals);
         }
-        if (review_context == NULL || review_context->proposals == NULL)
+        if (review_context == NULL || review_context->proposals == NULL ||
+            review_context->source_entity_identifier == NULL)
         {
             application_osint_review_context_free(review_context);
             review_context = NULL;
@@ -1224,6 +1240,7 @@ static void application_on_dns_lookup_completed(
  */
 static void application_start_dns_lookup(
     Application *application,
+    const char *target_identifier,
     const char *target_value
 )
 {
@@ -1236,6 +1253,7 @@ static void application_start_dns_lookup(
 
     if (application == NULL || application->task_manager == NULL ||
         application->tool_initializer == NULL || target_value == NULL ||
+        target_identifier == NULL || !g_uuid_string_is_valid(target_identifier) ||
         !osint_dns_query_is_valid_target(target_value))
     {
         if (application != NULL)
@@ -1274,10 +1292,12 @@ static void application_start_dns_lookup(
     if (context != NULL)
     {
         context->application = application;
+        context->target_identifier = g_strdup(target_identifier);
         context->target_value = g_strdup(target_value);
     }
 
-    if (context == NULL || context->target_value == NULL)
+    if (context == NULL || context->target_identifier == NULL ||
+        context->target_value == NULL)
     {
         application_osint_action_context_free(context);
         tool_task_free(tool_task);
@@ -1319,6 +1339,7 @@ static void application_start_dns_lookup(
  */
 static void application_on_osint_action_requested(
     const char *action_identifier,
+    const char *target_identifier,
     const char *target_value,
     gpointer user_data
 )
@@ -1327,7 +1348,9 @@ static void application_on_osint_action_requested(
 
     if (g_strcmp0(action_identifier, "dns-preview") == 0)
     {
-        application_start_dns_lookup(application, target_value);
+        application_start_dns_lookup(
+            application, target_identifier, target_value
+        );
         return;
     }
 

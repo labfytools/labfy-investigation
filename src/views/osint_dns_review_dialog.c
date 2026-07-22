@@ -142,18 +142,25 @@ static GtkWidget *osint_dns_review_dialog_create_row(
 {
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     const char *entity_type = osint_dns_proposal_get_entity_type(proposal);
+    const char *relation_type = osint_dns_proposal_get_relation_type(proposal);
     char *normalized_value = osint_dns_proposal_dup_normalized_value(proposal);
-    const gboolean compatible = entity_type != NULL && normalized_value != NULL;
+    const gboolean compatible = entity_type != NULL && relation_type != NULL &&
+        normalized_value != NULL;
     char *title = g_strdup_printf(
         "%s  →  %s",
         osint_dns_proposal_get_record_type(proposal),
         osint_dns_proposal_get_value(proposal)
     );
     char *details = g_strdup_printf(
-        "Cible : %s\nPropriétaire : %s\nType Labfy : %s",
+        "Cible : %s\nPropriétaire : %s\nType Labfy : %s\n"
+        "Relation prévue : %s — %s → %s",
         osint_dns_proposal_get_target(proposal),
         osint_dns_proposal_get_owner(proposal),
-        compatible ? entity_type : "non pris en charge"
+        compatible ? entity_type : "non pris en charge",
+        osint_dns_proposal_get_target(proposal),
+        compatible ? relation_type : "non prise en charge",
+        normalized_value != NULL ? normalized_value
+                                 : osint_dns_proposal_get_value(proposal)
     );
     GtkWidget *selection_button = gtk_check_button_new_with_label(title);
     GtkWidget *details_label = gtk_label_new(details);

@@ -6,10 +6,12 @@
 #include "core/osint_dns_integration.h"
 
 #include "dao/entity_dao.h"
+#include "dao/relation_dao.h"
 #include "database/error.h"
 #include "database/transaction.h"
 #include "models/entity_record.h"
 #include "models/osint_dns_proposal.h"
+#include "models/relation_record.h"
 
 #include <gio/gio.h>
 #include <string.h>
@@ -50,6 +52,18 @@ static char *osint_dns_integration_build_key(
     return g_strdup_printf("%s\n%s", entity_type, value);
 }
 
+/** @brief Construit la clé anti-doublon d'une relation orientée. */
+static char *osint_dns_integration_build_relation_key(
+    const char *source_identifier,
+    const char *target_identifier,
+    const char *relation_type
+)
+{
+    return g_strdup_printf(
+        "%s\n%s\n%s", source_identifier, target_identifier, relation_type
+    );
+}
+
 /** @brief Renseigne une erreur littérale si possible. */
 static void osint_dns_integration_set_error(
     GError **error,
@@ -68,25 +82,38 @@ GQuark osint_dns_integration_error_quark(void)
 
 gboolean osint_dns_integration_apply(
     Database *database,
+    const char *source_entity_identifier,
     GPtrArray *selected_proposals,
-    guint *out_inserted_count,
-    guint *out_skipped_count,
+    guint *out_inserted_entity_count,
+    guint *out_skipped_entity_count,
+    guint *out_inserted_relation_count,
+    guint *out_skipped_relation_count,
     GError **error
 )
 {
     EntityDao *entity_dao = NULL;
+    RelationDao *relation_dao = NULL;
     GPtrArray *existing_entities = NULL;
+    GPtrArray *existing_relations = NULL;
     GHashTable *known_entities = NULL;
+    GHashTable *known_relations = NULL;
+    EntityRecord *source_entity = NULL;
     GDateTime *now = NULL;
     char *timestamp = NULL;
-    guint inserted_count = 0U;
-    guint skipped_count = 0U;
+    guint inserted_entity_count = 0U;
+    guint skipped_entity_count = 0U;
+    guint inserted_relation_count = 0U;
+    guint skipped_relation_count = 0U;
     gboolean success = FALSE;
 
     g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
-    if (out_inserted_count != NULL) *out_inserted_count = 0U;
-    if (out_skipped_count != NULL) *out_skipped_count = 0U;
-    if (database == NULL || selected_proposals == NULL ||
+    if (out_inserted_entity_count != NULL) *out_inserted_entity_count = 0U;
+    if (out_skipped_entity_count != NULL) *out_skipped_entity_count = 0U;
+    if (out_inserted_relation_count != NULL) *out_inserted_relation_count = 0U;
+    if (out_skipped_relation_count != NULL) *out_skipped_relation_count = 0U;
+    if (database == NULL || source_entity_identifier == NULL ||
+        !g_uuid_string_is_valid(source_entity_identifier) ||
+        selected_proposals == NULL ||
         selected_proposals->len == 0U)
     {
         osint_dns_integration_set_error(
@@ -98,9 +125,27 @@ gboolean osint_dns_integration_apply(
 
     entity_dao = entity_dao_new(database, error);
     if (entity_dao == NULL) return FALSE;
+    relation_dao = relation_dao_new(database, error);
+    if (relation_dao == NULL) goto cleanup;
+    source_entity = entity_dao_find_by_identifier(
+        entity_dao, source_entity_identifier, error
+    );
+    if (source_entity == NULL)
+    {
+        if (error == NULL || *error == NULL)
+            osint_dns_integration_set_error(
+                error, OSINT_DNS_INTEGRATION_ERROR_INVALID_ARGUMENT,
+                "L'entité source de la résolution DNS est introuvable."
+            );
+        goto cleanup;
+    }
     existing_entities = entity_dao_list_all(entity_dao, error);
     if (existing_entities == NULL) goto cleanup;
-    known_entities = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    existing_relations = relation_dao_list_all(relation_dao, error);
+    if (existing_relations == NULL) goto cleanup;
+    known_entities = g_hash_table_new_full(
+        g_str_hash, g_str_equal, g_free, g_free
+    );
     for (guint index = 0; index < existing_entities->len; index++)
     {
         const EntityRecord *entity = g_ptr_array_index(existing_entities, index);
@@ -108,14 +153,32 @@ gboolean osint_dns_integration_apply(
         char *normalized_value = osint_dns_integration_normalize_existing_value(
             entity_type, entity_record_get_value(entity)
         );
-        g_hash_table_add(
+        g_hash_table_insert(
             known_entities,
             osint_dns_integration_build_key(
                 entity_type,
                 normalized_value
-            )
+            ),
+            g_strdup(entity_record_get_identifier(entity))
         );
         g_free(normalized_value);
+    }
+    known_relations = g_hash_table_new_full(
+        g_str_hash, g_str_equal, g_free, NULL
+    );
+    for (guint index = 0; index < existing_relations->len; index++)
+    {
+        const RelationRecord *relation = g_ptr_array_index(
+            existing_relations, index
+        );
+        g_hash_table_add(
+            known_relations,
+            osint_dns_integration_build_relation_key(
+                relation_record_get_source_entity_identifier(relation),
+                relation_record_get_target_entity_identifier(relation),
+                relation_record_get_relation_type(relation)
+            )
+        );
     }
 
     now = g_date_time_new_now_utc();
@@ -146,60 +209,131 @@ gboolean osint_dns_integration_apply(
             selected_proposals, index
         );
         const char *entity_type = osint_dns_proposal_get_entity_type(proposal);
+        const char *relation_type =
+            osint_dns_proposal_get_relation_type(proposal);
         char *normalized_value = osint_dns_proposal_dup_normalized_value(proposal);
         char *entity_key = NULL;
-        char *identifier = NULL;
+        char *target_identifier = NULL;
         char *description = NULL;
         EntityRecord *entity = NULL;
+        RelationRecord *relation = NULL;
+        char *relation_identifier = NULL;
+        char *relation_key = NULL;
+        char *relation_label = NULL;
+        char *relation_justification = NULL;
         GError *model_error = NULL;
 
-        if (entity_type == NULL || normalized_value == NULL)
+        if (entity_type == NULL || relation_type == NULL ||
+            normalized_value == NULL)
         {
-            skipped_count++;
+            skipped_entity_count++;
+            skipped_relation_count++;
             g_free(normalized_value);
             continue;
         }
         entity_key = osint_dns_integration_build_key(entity_type, normalized_value);
-        if (g_hash_table_contains(known_entities, entity_key))
+        target_identifier = g_strdup(
+            g_hash_table_lookup(known_entities, entity_key)
+        );
+        if (target_identifier != NULL)
         {
-            skipped_count++;
-            g_free(entity_key);
-            g_free(normalized_value);
-            continue;
+            skipped_entity_count++;
         }
-
-        identifier = g_uuid_string_random();
-        description = g_strdup_printf(
-            "Proposition DNS %s obtenue avec dns.dig depuis %s. "
-            "Résultat OSINT à vérifier.",
-            osint_dns_proposal_get_record_type(proposal),
-            osint_dns_proposal_get_target(proposal)
-        );
-        entity = entity_record_new(
-            identifier, entity_type, normalized_value, normalized_value,
-            description, 50, timestamp, timestamp, ENTITY_STATUS_ACTIVE,
-            &model_error
-        );
-        if (entity == NULL || !entity_dao_insert(entity_dao, entity, error))
+        else
         {
-            if (error != NULL && *error == NULL && model_error != NULL)
-                g_propagate_error(error, g_steal_pointer(&model_error));
+            target_identifier = g_uuid_string_random();
+            description = g_strdup_printf(
+                "Proposition DNS %s obtenue avec dns.dig depuis %s. "
+                "Résultat OSINT à vérifier.",
+                osint_dns_proposal_get_record_type(proposal),
+                osint_dns_proposal_get_target(proposal)
+            );
+            entity = entity_record_new(
+                target_identifier, entity_type, normalized_value,
+                normalized_value, description, 50, timestamp, timestamp,
+                ENTITY_STATUS_ACTIVE, &model_error
+            );
+            if (entity == NULL || !entity_dao_insert(entity_dao, entity, error))
+            {
+                if (error != NULL && *error == NULL && model_error != NULL)
+                    g_propagate_error(error, g_steal_pointer(&model_error));
+                entity_record_free(entity);
+                g_clear_error(&model_error);
+                g_free(description);
+                g_free(target_identifier);
+                g_free(entity_key);
+                g_free(normalized_value);
+                database_transaction_rollback(database);
+                goto cleanup;
+            }
+            g_hash_table_insert(
+                known_entities, entity_key, g_strdup(target_identifier)
+            );
+            entity_key = NULL;
+            inserted_entity_count++;
             entity_record_free(entity);
             g_clear_error(&model_error);
             g_free(description);
-            g_free(identifier);
-            g_free(entity_key);
-            g_free(normalized_value);
-            database_transaction_rollback(database);
-            goto cleanup;
         }
 
-        g_hash_table_add(known_entities, entity_key);
-        inserted_count++;
-        entity_record_free(entity);
-        g_clear_error(&model_error);
-        g_free(description);
-        g_free(identifier);
+        relation_key = osint_dns_integration_build_relation_key(
+            source_entity_identifier, target_identifier, relation_type
+        );
+        if (g_strcmp0(source_entity_identifier, target_identifier) == 0 ||
+            g_hash_table_contains(known_relations, relation_key))
+        {
+            skipped_relation_count++;
+        }
+        else
+        {
+            relation_identifier = g_uuid_string_random();
+            relation_label = g_strdup_printf(
+                "%s — %s → %s",
+                osint_dns_proposal_get_target(proposal), relation_type,
+                normalized_value
+            );
+            relation_justification = g_strdup_printf(
+                "Relation DNS %s obtenue avec dns.dig depuis %s. "
+                "Résultat OSINT à vérifier.",
+                osint_dns_proposal_get_record_type(proposal),
+                osint_dns_proposal_get_target(proposal)
+            );
+            relation = relation_record_new(
+                relation_identifier, source_entity_identifier,
+                target_identifier, relation_type, relation_label,
+                relation_justification, 50, timestamp, timestamp,
+                RELATION_STATUS_ACTIVE, &model_error
+            );
+            if (relation == NULL ||
+                !relation_dao_insert(relation_dao, relation, error))
+            {
+                if (error != NULL && *error == NULL && model_error != NULL)
+                    g_propagate_error(error, g_steal_pointer(&model_error));
+                relation_record_free(relation);
+                g_clear_error(&model_error);
+                g_free(relation_identifier);
+                g_free(relation_label);
+                g_free(relation_justification);
+                g_free(relation_key);
+                g_free(target_identifier);
+                g_free(entity_key);
+                g_free(normalized_value);
+                database_transaction_rollback(database);
+                goto cleanup;
+            }
+            g_hash_table_add(known_relations, relation_key);
+            relation_key = NULL;
+            inserted_relation_count++;
+            relation_record_free(relation);
+            g_clear_error(&model_error);
+            g_free(relation_identifier);
+            g_free(relation_label);
+            g_free(relation_justification);
+        }
+
+        g_free(relation_key);
+        g_free(target_identifier);
+        g_free(entity_key);
         g_free(normalized_value);
     }
 
@@ -215,14 +349,24 @@ gboolean osint_dns_integration_apply(
         goto cleanup;
     }
     success = TRUE;
-    if (out_inserted_count != NULL) *out_inserted_count = inserted_count;
-    if (out_skipped_count != NULL) *out_skipped_count = skipped_count;
+    if (out_inserted_entity_count != NULL)
+        *out_inserted_entity_count = inserted_entity_count;
+    if (out_skipped_entity_count != NULL)
+        *out_skipped_entity_count = skipped_entity_count;
+    if (out_inserted_relation_count != NULL)
+        *out_inserted_relation_count = inserted_relation_count;
+    if (out_skipped_relation_count != NULL)
+        *out_skipped_relation_count = skipped_relation_count;
 
 cleanup:
     g_free(timestamp);
     g_clear_pointer(&now, g_date_time_unref);
     g_clear_pointer(&known_entities, g_hash_table_unref);
+    g_clear_pointer(&known_relations, g_hash_table_unref);
     g_clear_pointer(&existing_entities, g_ptr_array_unref);
+    g_clear_pointer(&existing_relations, g_ptr_array_unref);
+    entity_record_free(source_entity);
+    relation_dao_free(relation_dao);
     entity_dao_free(entity_dao);
     return success;
 }

@@ -1109,8 +1109,10 @@ enregistrées.
 ### Limite actuelle de la traçabilité OSINT
 
 L'intégration DNS initiale peut créer des entités `domain_name` et
-`ip_address`. La description de l'entité conserve une indication minimale :
-outil `dns.dig`, cible interrogée et type d'enregistrement.
+`ip_address`, ainsi que les relations `resolves_to`, `aliases_to` et
+`uses_name_server`. La description de l'entité et la justification de la
+relation conservent une indication minimale : outil `dns.dig`, cible
+interrogée et type d'enregistrement.
 
 Cette information ne remplace pas une provenance structurée. Une migration
 future devra introduire un objet de résultat OSINT capable de conserver au

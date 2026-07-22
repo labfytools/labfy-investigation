@@ -565,7 +565,9 @@ $(TEST_OSINT_DNS_INTEGRATION): \
 	src/models/osint_dns_proposal.c \
 	src/models/osint_dns_query.c \
 	src/models/entity_record.c \
+	src/models/relation_record.c \
 	src/dao/entity_dao.c \
+	src/dao/relation_dao.c \
 	src/database/database.c \
 	src/database/schema.c \
 	src/database/statement.c \

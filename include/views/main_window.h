@@ -125,11 +125,13 @@ typedef void (*MainWindowAddRelationCallback)(
  * @brief Callback appelé lors du déclenchement d'une action OSINT.
  *
  * @param action_identifier Identifiant stable de l'action.
+ * @param target_identifier UUID de la sélection ciblée.
  * @param target_value Valeur métier ciblée.
  * @param user_data Données privées fournies par l'appelant.
  */
 typedef void (*MainWindowOsintActionCallback)(
     const char *action_identifier,
+    const char *target_identifier,
     const char *target_value,
     gpointer user_data
 );

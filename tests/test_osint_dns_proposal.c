@@ -67,10 +67,17 @@ static void test_entity_mapping_and_normalization(void)
 
     g_assert_cmpstr(osint_dns_proposal_get_entity_type(ipv4), ==, "ip_address");
     g_assert_cmpstr(ipv4_value, ==, "192.0.2.10");
+    g_assert_cmpstr(
+        osint_dns_proposal_get_relation_type(ipv4), ==, "resolves_to"
+    );
     g_assert_cmpstr(ipv6_value, ==, "2001:db8::1");
     g_assert_cmpstr(osint_dns_proposal_get_entity_type(domain), ==, "domain_name");
     g_assert_cmpstr(domain_value, ==, "www.example.org");
+    g_assert_cmpstr(
+        osint_dns_proposal_get_relation_type(domain), ==, "aliases_to"
+    );
     g_assert_null(osint_dns_proposal_get_entity_type(unsupported));
+    g_assert_null(osint_dns_proposal_get_relation_type(unsupported));
     g_assert_null(osint_dns_proposal_dup_normalized_value(unsupported));
 
     g_free(ipv4_value);

@@ -147,6 +147,7 @@ static void workspace_on_osint_action_clicked(
         "osint-action-identifier"
     );
     const char *target_value = NULL;
+    const char *target_identifier = NULL;
 
     if (workspace == NULL || workspace->osint_tools_status_label == NULL)
     {
@@ -165,9 +166,13 @@ static void workspace_on_osint_action_clicked(
     target_value = osint_selection_context_get_value(
         workspace->osint_selection_context
     );
+    target_identifier = osint_selection_context_get_identifier(
+        workspace->osint_selection_context
+    );
 
     if (workspace->osint_action_callback == NULL ||
-        action_identifier == NULL || target_value == NULL)
+        action_identifier == NULL || target_identifier == NULL ||
+        target_value == NULL)
     {
         gtk_label_set_text(
             GTK_LABEL(workspace->osint_tools_status_label),
@@ -187,6 +192,7 @@ static void workspace_on_osint_action_clicked(
 
     workspace->osint_action_callback(
         action_identifier,
+        target_identifier,
         target_value,
         workspace->osint_action_user_data
     );

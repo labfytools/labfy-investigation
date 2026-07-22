@@ -210,3 +210,19 @@ char *osint_dns_proposal_dup_normalized_value(
     }
     return NULL;
 }
+
+const char *osint_dns_proposal_get_relation_type(
+    const OsintDnsProposal *proposal
+)
+{
+    const char *record_type = osint_dns_proposal_get_record_type(proposal);
+    if (g_strcmp0(record_type, "A") == 0 ||
+        g_strcmp0(record_type, "AAAA") == 0 ||
+        g_strcmp0(record_type, "PTR") == 0)
+        return "resolves_to";
+    if (g_strcmp0(record_type, "CNAME") == 0)
+        return "aliases_to";
+    if (g_strcmp0(record_type, "NS") == 0)
+        return "uses_name_server";
+    return NULL;
+}
