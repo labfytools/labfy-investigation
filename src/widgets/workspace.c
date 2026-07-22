@@ -90,6 +90,13 @@ struct Workspace
     GtkWidget *verify_evidence_button;
     GtkWidget *edit_evidence_button;
     GtkWidget *analyze_eml_button;
+    GtkWidget *evidence_preview_stack;
+    GtkWidget *evidence_preview_status;
+    GtkWidget *evidence_preview_picture;
+    GtkWidget *evidence_preview_video;
+    GtkWidget *evidence_preview_expand_button;
+    char *evidence_preview_path;
+    gboolean evidence_preview_is_video;
 
     char *selected_evidence_identifier;
 
@@ -579,6 +586,79 @@ static const char *workspace_get_integrity_status_text(
         default:
             return "Statut inconnu";
     }
+}
+
+/** @brief Affiche une erreur asynchrone produite par le moteur vidéo. */
+static void workspace_on_video_error_changed(GObject *object,
+    GParamSpec *parameter, gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    const GError *error = NULL;
+    (void) parameter;
+    if (workspace == NULL || !GTK_IS_MEDIA_STREAM(object)) return;
+    error = gtk_media_stream_get_error(GTK_MEDIA_STREAM(object));
+    if (error == NULL) return;
+    gtk_label_set_text(GTK_LABEL(workspace->evidence_preview_status),
+        error->message != NULL ? error->message :
+        "Le moteur vidéo ne peut pas lire ce fichier.");
+    gtk_stack_set_visible_child_name(GTK_STACK(
+        workspace->evidence_preview_stack), "status");
+    gtk_widget_set_sensitive(workspace->evidence_preview_expand_button,
+        FALSE);
+}
+
+/** @brief Arrête et détache le média vidéo actuellement affiché. */
+static void workspace_clear_evidence_preview(Workspace *workspace)
+{
+    GtkMediaStream *stream = NULL;
+    if (workspace == NULL) return;
+    if (workspace->evidence_preview_video != NULL)
+    {
+        stream = gtk_video_get_media_stream(
+            GTK_VIDEO(workspace->evidence_preview_video));
+        if (stream != NULL)
+        {
+            g_signal_handlers_disconnect_by_data(stream, workspace);
+            gtk_media_stream_pause(stream);
+        }
+        gtk_video_set_media_stream(GTK_VIDEO(
+            workspace->evidence_preview_video), NULL);
+    }
+    if (workspace->evidence_preview_picture != NULL)
+        gtk_picture_set_paintable(GTK_PICTURE(
+            workspace->evidence_preview_picture), NULL);
+    g_clear_pointer(&workspace->evidence_preview_path, g_free);
+    workspace->evidence_preview_is_video = FALSE;
+    if (workspace->evidence_preview_expand_button != NULL)
+        gtk_widget_set_sensitive(workspace->evidence_preview_expand_button,
+            FALSE);
+}
+
+/** @brief Ouvre le média courant dans une fenêtre d'aperçu agrandie. */
+static void workspace_on_expand_evidence_preview(GtkButton *button,
+    gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    GtkWindow *window = NULL;
+    GtkWidget *content = NULL;
+    (void) button;
+    if (workspace == NULL || workspace->evidence_preview_path == NULL) return;
+    window = GTK_WINDOW(gtk_window_new());
+    gtk_window_set_title(window, "Aperçu de la preuve");
+    gtk_window_set_default_size(window, 960, 720);
+    if (workspace->evidence_preview_is_video)
+    {
+        content = gtk_video_new_for_filename(workspace->evidence_preview_path);
+        gtk_video_set_autoplay(GTK_VIDEO(content), FALSE);
+    }
+    else
+    {
+        content = gtk_picture_new_for_filename(workspace->evidence_preview_path);
+        gtk_picture_set_can_shrink(GTK_PICTURE(content), TRUE);
+        gtk_picture_set_content_fit(GTK_PICTURE(content), GTK_CONTENT_FIT_CONTAIN);
+    }
+    gtk_window_set_child(window, content);
+    gtk_window_present(window);
 }
 
 /** @brief Convertit le statut d'une relation en texte utilisateur. */
@@ -1208,6 +1288,38 @@ Workspace *workspace_new(void)
         GTK_BOX(evidence_content),
         workspace->evidence_name_label
     );
+
+    workspace->evidence_preview_stack = gtk_stack_new();
+    workspace->evidence_preview_status = gtk_label_new(
+        "Aucun aperçu disponible pour cette preuve.");
+    workspace->evidence_preview_picture = gtk_picture_new();
+    workspace->evidence_preview_video = gtk_video_new();
+    workspace->evidence_preview_expand_button =
+        gtk_button_new_with_label("Agrandir l’aperçu");
+    gtk_widget_set_size_request(workspace->evidence_preview_stack, -1, 360);
+    gtk_widget_set_hexpand(workspace->evidence_preview_stack, TRUE);
+    gtk_picture_set_can_shrink(GTK_PICTURE(
+        workspace->evidence_preview_picture), TRUE);
+    gtk_picture_set_content_fit(GTK_PICTURE(
+        workspace->evidence_preview_picture), GTK_CONTENT_FIT_CONTAIN);
+    gtk_video_set_autoplay(GTK_VIDEO(workspace->evidence_preview_video), FALSE);
+    gtk_stack_add_named(GTK_STACK(workspace->evidence_preview_stack),
+        workspace->evidence_preview_status, "status");
+    gtk_stack_add_named(GTK_STACK(workspace->evidence_preview_stack),
+        workspace->evidence_preview_picture, "image");
+    gtk_stack_add_named(GTK_STACK(workspace->evidence_preview_stack),
+        workspace->evidence_preview_video, "video");
+    gtk_stack_set_visible_child_name(GTK_STACK(
+        workspace->evidence_preview_stack), "status");
+    gtk_widget_set_halign(workspace->evidence_preview_expand_button,
+        GTK_ALIGN_START);
+    gtk_widget_set_sensitive(workspace->evidence_preview_expand_button, FALSE);
+    g_signal_connect(workspace->evidence_preview_expand_button, "clicked",
+        G_CALLBACK(workspace_on_expand_evidence_preview), workspace);
+    gtk_box_append(GTK_BOX(evidence_content),
+        workspace->evidence_preview_stack);
+    gtk_box_append(GTK_BOX(evidence_content),
+        workspace->evidence_preview_expand_button);
 
     workspace->verify_evidence_button =
         gtk_button_new_with_label(
@@ -2339,6 +2451,11 @@ void workspace_set_selected_evidence(
         return;
     }
 
+    workspace_clear_evidence_preview(workspace);
+    if (workspace->evidence_preview_stack != NULL)
+        gtk_stack_set_visible_child_name(GTK_STACK(
+            workspace->evidence_preview_stack), "status");
+
     g_clear_pointer(
         &workspace->selected_evidence_identifier,
         g_free
@@ -2518,6 +2635,75 @@ void workspace_set_selected_evidence(
     g_free(
         human_size
     );
+}
+
+void workspace_set_evidence_preview(Workspace *workspace,
+    const char *file_path, const char *display_name)
+{
+    GFile *file = NULL;
+    GFileInfo *info = NULL;
+    const char *content_type = NULL;
+    char *mime_type = NULL;
+    GtkMediaStream *stream = NULL;
+    GError *error = NULL;
+    if (workspace == NULL) return;
+    workspace_clear_evidence_preview(workspace);
+    if (file_path == NULL || file_path[0] == '\0')
+    {
+        gtk_label_set_text(GTK_LABEL(workspace->evidence_preview_status),
+            "Aucun aperçu disponible pour cette preuve.");
+        gtk_stack_set_visible_child_name(GTK_STACK(
+            workspace->evidence_preview_stack), "status");
+        return;
+    }
+    file = g_file_new_for_path(file_path);
+    info = g_file_query_info(file, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE,
+        G_FILE_QUERY_INFO_NONE, NULL, &error);
+    if (info != NULL) content_type = g_file_info_get_content_type(info);
+    if (content_type != NULL) mime_type = g_content_type_get_mime_type(
+        content_type);
+    if (mime_type != NULL && g_str_has_prefix(mime_type, "image/"))
+    {
+        gtk_picture_set_filename(GTK_PICTURE(
+            workspace->evidence_preview_picture), file_path);
+        gtk_stack_set_visible_child_name(GTK_STACK(
+            workspace->evidence_preview_stack), "image");
+        workspace->evidence_preview_is_video = FALSE;
+    }
+    else if (mime_type != NULL && g_str_has_prefix(mime_type, "video/"))
+    {
+        stream = gtk_media_file_new_for_filename(file_path);
+        g_signal_connect(stream, "notify::error",
+            G_CALLBACK(workspace_on_video_error_changed), workspace);
+        gtk_video_set_media_stream(GTK_VIDEO(
+            workspace->evidence_preview_video), stream);
+        g_object_unref(stream);
+        gtk_stack_set_visible_child_name(GTK_STACK(
+            workspace->evidence_preview_stack), "video");
+        workspace->evidence_preview_is_video = TRUE;
+    }
+    else
+    {
+        char *message = g_strdup_printf(
+            "Aperçu indisponible pour %s%s%s.",
+            display_name != NULL ? display_name : "ce fichier",
+            error != NULL ? " : " : "",
+            error != NULL ? error->message : "format non pris en charge");
+        gtk_label_set_text(GTK_LABEL(workspace->evidence_preview_status),
+            message);
+        gtk_stack_set_visible_child_name(GTK_STACK(
+            workspace->evidence_preview_stack), "status");
+        g_free(message);
+        goto cleanup;
+    }
+    workspace->evidence_preview_path = g_strdup(file_path);
+    gtk_widget_set_sensitive(workspace->evidence_preview_expand_button,
+        workspace->evidence_preview_path != NULL);
+cleanup:
+    g_clear_error(&error);
+    g_free(mime_type);
+    g_clear_object(&info);
+    g_clear_object(&file);
 }
 
 gboolean workspace_select_graph_entity(
@@ -3048,6 +3234,8 @@ void workspace_free(Workspace *workspace)
     {
         return;
     }
+
+    workspace_clear_evidence_preview(workspace);
 
     g_clear_pointer(
         &workspace->osint_selection_context,

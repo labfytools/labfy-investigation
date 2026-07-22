@@ -1727,6 +1727,14 @@ void main_window_set_selected_evidence(
     );
 }
 
+void main_window_set_evidence_preview(MainWindow *main_window,
+    const char *file_path, const char *display_name)
+{
+    if (main_window == NULL) return;
+    workspace_set_evidence_preview(main_window->workspace, file_path,
+        display_name);
+}
+
 void main_window_free(
     MainWindow *main_window
 )

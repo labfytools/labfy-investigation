@@ -411,6 +411,10 @@ void main_window_set_selected_evidence(
     const EvidenceRecord *evidence_record
 );
 
+/** @brief Transmet au workspace un chemin absolu validé pour l'aperçu. */
+void main_window_set_evidence_preview(MainWindow *main_window,
+    const char *file_path, const char *display_name);
+
 
 /**
  * @brief Affiche l'état de chargement du graphe.

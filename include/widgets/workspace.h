@@ -166,6 +166,15 @@ void workspace_set_selected_evidence(
 );
 
 /**
+ * @brief Affiche l'aperçu local d'un fichier image ou vidéo.
+ *
+ * file_path doit être un chemin absolu déjà validé par l'application.
+ * Passer NULL libère l'aperçu courant.
+ */
+void workspace_set_evidence_preview(Workspace *workspace,
+    const char *file_path, const char *display_name);
+
+/**
  * @brief Sélectionne une entité dans le graphe affiché.
  *
  * La sélection actualise également le volet de détails et le contexte OSINT.

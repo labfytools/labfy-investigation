@@ -4404,6 +4404,13 @@ static void application_on_evidence_selected(
     const char *original_name =
         NULL;
 
+    const InvestigationProject *project = NULL;
+    const char *investigation_root = NULL;
+    const char *relative_path = NULL;
+    char *canonical_root = NULL;
+    char *candidate_path = NULL;
+    char *canonical_path = NULL;
+
     char *status_message =
         NULL;
 
@@ -4579,6 +4586,27 @@ static void application_on_evidence_selected(
         evidence_record
     );
 
+    project = investigation_session_get_project(application->session);
+    investigation_root = project != NULL
+        ? investigation_project_get_root_path(project) : NULL;
+    relative_path = evidence_record_get_relative_path(evidence_record);
+    if (investigation_root != NULL && relative_path != NULL)
+    {
+        canonical_root = g_canonicalize_filename(investigation_root, NULL);
+        candidate_path = g_build_filename(investigation_root,
+            relative_path, NULL);
+        canonical_path = g_canonicalize_filename(candidate_path, NULL);
+        if (canonical_root != NULL && canonical_path != NULL &&
+            g_str_has_prefix(canonical_path, canonical_root) &&
+            canonical_path[strlen(canonical_root)] == G_DIR_SEPARATOR &&
+            g_file_test(canonical_path, G_FILE_TEST_IS_REGULAR))
+        {
+            main_window_set_evidence_preview(application->main_window,
+                canonical_path,
+                evidence_record_get_original_name(evidence_record));
+        }
+    }
+
     original_name =
         evidence_record_get_original_name(
             evidence_record
@@ -4601,6 +4629,9 @@ static void application_on_evidence_selected(
     g_free(
         status_message
     );
+    g_free(canonical_path);
+    g_free(candidate_path);
+    g_free(canonical_root);
 
     evidence_record_free(
         evidence_record
