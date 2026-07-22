@@ -16,12 +16,12 @@
 /**
  * @brief Version actuelle du schéma SQLite.
  */
-#define DATABASE_SCHEMA_VERSION_CURRENT 5
+#define DATABASE_SCHEMA_VERSION_CURRENT 6
 
 /**
  * @brief Version actuelle sous forme textuelle pour metadata.
  */
-#define DATABASE_SCHEMA_VERSION_CURRENT_TEXT "5"
+#define DATABASE_SCHEMA_VERSION_CURRENT_TEXT "6"
 
 /**
  * @brief Nom de l'application enregistré dans les métadonnées.
@@ -730,6 +730,24 @@ rollback:
     return false;
 }
 
+/** @brief Applique atomiquement la migration du schéma V5 vers V6. */
+static bool database_migrate_v5_to_v6(Database *database)
+{
+    bool transaction_started = false;
+    if (database == NULL || !database_transaction_begin(database))
+        return false;
+    transaction_started = true;
+    if (!schema_install_v6(database) ||
+        !database_update_schema_version(database, "6") ||
+        !database_transaction_commit(database))
+        goto rollback;
+    return true;
+rollback:
+    if (transaction_started && !database_transaction_rollback(database))
+        g_warning("Impossible d’annuler la migration SQLite V5 vers V6.");
+    return false;
+}
+
 /**
  * @brief Garantit atomiquement la présence des extensions du schéma courant.
  */
@@ -934,6 +952,12 @@ bool database_migrate_to_latest(
                 schema_version = 5;
                 break;
 
+            case 5:
+                if (!database_migrate_v5_to_v6(database))
+                    return false;
+                schema_version = 6;
+                break;
+
             default:
                 database_set_error(
                     database,
@@ -1056,6 +1080,11 @@ bool database_initialize(
     }
 
     if (!schema_install_v5(database))
+    {
+        goto rollback;
+    }
+
+    if (!schema_install_v6(database))
     {
         goto rollback;
     }

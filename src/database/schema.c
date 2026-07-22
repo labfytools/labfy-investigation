@@ -221,6 +221,12 @@ bool schema_install_v5(Database *database)
         "la migration SQLite V5");
 }
 
+bool schema_install_v6(Database *database)
+{
+    return schema_execute_file(database, "database/schema_v6.sql",
+        "la migration SQLite V6");
+}
+
 bool schema_ensure_current(
     Database *database
 )

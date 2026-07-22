@@ -44,6 +44,23 @@ static void test_person_entity_create(void)
     record = entity_dao_find_by_identifier(dao, identifier, &error);
     assert(record != NULL && error == NULL);
     assert(entity_record_get_person_role(record) == PERSON_ROLE_VICTIM);
+    entity_record_free(record); record = NULL;
+    assert(person_entity_service_update_role(database, identifier,
+        PERSON_ROLE_IMPERSONATED_IDENTITY, &error));
+    record = entity_dao_find_by_identifier(dao, identifier, &error);
+    assert(record != NULL && error == NULL);
+    assert(entity_record_get_person_role(record) ==
+        PERSON_ROLE_IMPERSONATED_IDENTITY);
+    assert(strcmp(person_role_to_code(PERSON_ROLE_IMPERSONATED_IDENTITY),
+        "impersonated_identity") == 0);
+    assert(strcmp(person_role_get_label(PERSON_ROLE_IMPERSONATED_IDENTITY),
+        "Identité usurpée") == 0);
+    assert(person_entity_service_update_display_name(database, identifier,
+        "Vraie identité", &error));
+    entity_record_free(record); record = NULL;
+    record = entity_dao_find_by_identifier(dao, identifier, &error);
+    assert(record != NULL && error == NULL);
+    assert(strcmp(entity_record_get_label(record), "Vraie identité") == 0);
     entity_record_free(record); entity_dao_free(dao); database_close(database);
     assert(g_remove(path) == 0); assert(g_rmdir(directory) == 0);
     g_free(identifier); g_free(path); g_free(directory);

@@ -135,6 +135,8 @@ struct MainWindow
     gpointer person_role_user_data;
     MainWindowPersonConfidenceCallback person_confidence_callback;
     gpointer person_confidence_user_data;
+    MainWindowPersonNameCallback person_name_callback;
+    gpointer person_name_user_data;
 
     MainWindowOsintActionCallback
         osint_action_callback;
@@ -551,6 +553,16 @@ static void main_window_on_person_confidence_changed(
             main_window->person_confidence_user_data);
 }
 
+/** @brief Relaie la modification du nom affiché d'une personne. */
+static void main_window_on_person_name_changed(const char *entity_identifier,
+    const char *display_name, gpointer user_data)
+{
+    MainWindow *main_window = user_data;
+    if (main_window != NULL && main_window->person_name_callback != NULL)
+        main_window->person_name_callback(entity_identifier, display_name,
+            main_window->person_name_user_data);
+}
+
 /**
  * @brief Relaie la demande de vérification provenant du Workspace.
  */
@@ -895,6 +907,8 @@ MainWindow *main_window_new(
         main_window_on_person_role_changed, main_window);
     workspace_set_person_confidence_callback(main_window->workspace,
         main_window_on_person_confidence_changed, main_window);
+    workspace_set_person_name_callback(main_window->workspace,
+        main_window_on_person_name_changed, main_window);
 
     workspace_set_osint_action_callback(
         main_window->workspace,
@@ -1716,6 +1730,14 @@ void main_window_set_person_confidence_callback(MainWindow *main_window,
     if (main_window == NULL) return;
     main_window->person_confidence_callback = callback;
     main_window->person_confidence_user_data = user_data;
+}
+
+void main_window_set_person_name_callback(MainWindow *main_window,
+    MainWindowPersonNameCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->person_name_callback = callback;
+    main_window->person_name_user_data = user_data;
 }
 
 void main_window_set_quit_callback(

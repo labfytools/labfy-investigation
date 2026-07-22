@@ -3343,6 +3343,8 @@ static void investigation_graph_view_draw_entity(
                 cairo_set_source_rgb(cairo_context, 0.62, 0.32, 0.08); break;
             case PERSON_ROLE_RELATED_PERSON:
                 cairo_set_source_rgb(cairo_context, 0.38, 0.20, 0.52); break;
+            case PERSON_ROLE_IMPERSONATED_IDENTITY:
+                cairo_set_source_rgb(cairo_context, 0.61, 0.35, 0.71); break;
             case PERSON_ROLE_UNCATEGORIZED:
             default:
                 cairo_set_source_rgb(cairo_context, 0.25, 0.27, 0.31); break;

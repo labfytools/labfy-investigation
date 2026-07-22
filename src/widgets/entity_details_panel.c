@@ -33,6 +33,8 @@ struct EntityDetailsPanel
     GtkDropDown *person_role_dropdown;
     GtkSpinButton *person_confidence_spin;
     GtkWidget *person_confidence_button;
+    GtkEntry *person_name_entry;
+    GtkWidget *person_name_button;
 
     char *selected_entity_identifier;
 
@@ -50,7 +52,25 @@ struct EntityDetailsPanel
     gboolean updating_person_role;
     EntityDetailsPanelPersonConfidenceCallback person_confidence_callback;
     gpointer person_confidence_user_data;
+    EntityDetailsPanelPersonNameCallback person_name_callback;
+    gpointer person_name_user_data;
 };
+
+/** @brief Relaie le nouveau nom affiché explicitement enregistré. */
+static void entity_details_panel_on_person_name_clicked(GtkButton *button,
+    gpointer user_data)
+{
+    EntityDetailsPanel *details_panel = user_data;
+    const char *name = NULL;
+    (void) button;
+    if (details_panel == NULL || details_panel->person_name_callback == NULL ||
+        details_panel->selected_entity_identifier == NULL) return;
+    name = gtk_editable_get_text(GTK_EDITABLE(details_panel->person_name_entry));
+    if (name == NULL || name[0] == '\0') return;
+    details_panel->person_name_callback(
+        details_panel->selected_entity_identifier, name,
+        details_panel->person_name_user_data);
+}
 
 /** @brief Relaie la confiance explicitement enregistrée par l'utilisateur. */
 static void entity_details_panel_on_person_confidence_clicked(
@@ -80,7 +100,7 @@ static void entity_details_panel_on_person_role_changed(GObject *object,
         details_panel->selected_entity_identifier == NULL)
         return;
     selected = gtk_drop_down_get_selected(details_panel->person_role_dropdown);
-    if (selected > PERSON_ROLE_RELATED_PERSON) return;
+    if (selected > PERSON_ROLE_IMPERSONATED_IDENTITY) return;
     details_panel->person_role_callback(
         details_panel->selected_entity_identifier, (PersonRole) selected,
         details_panel->person_role_user_data);
@@ -744,7 +764,7 @@ EntityDetailsPanel *entity_details_panel_new(void)
     details_panel->person_role_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     person_role_labels = gtk_string_list_new(NULL);
     for (guint role = PERSON_ROLE_UNCATEGORIZED;
-         role <= PERSON_ROLE_RELATED_PERSON; role++)
+         role <= PERSON_ROLE_IMPERSONATED_IDENTITY; role++)
         gtk_string_list_append(person_role_labels,
             person_role_get_label((PersonRole) role));
     details_panel->person_role_dropdown = GTK_DROP_DOWN(
@@ -764,12 +784,25 @@ EntityDetailsPanel *entity_details_panel_new(void)
         GTK_WIDGET(details_panel->person_confidence_spin));
     gtk_box_append(GTK_BOX(details_panel->person_role_box),
         details_panel->person_confidence_button);
+    details_panel->person_name_entry = GTK_ENTRY(gtk_entry_new());
+    gtk_entry_set_placeholder_text(details_panel->person_name_entry,
+        "Nom réel ou nom affiché");
+    details_panel->person_name_button = gtk_button_new_with_label(
+        "Enregistrer le nom");
+    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+        gtk_label_new("Nom affiché dans le graphe"));
+    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+        GTK_WIDGET(details_panel->person_name_entry));
+    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+        details_panel->person_name_button);
     gtk_box_append(GTK_BOX(details_box), details_panel->person_role_box);
     g_signal_connect(details_panel->person_role_dropdown, "notify::selected",
         G_CALLBACK(entity_details_panel_on_person_role_changed), details_panel);
     g_signal_connect(details_panel->person_confidence_button, "clicked",
         G_CALLBACK(entity_details_panel_on_person_confidence_clicked),
         details_panel);
+    g_signal_connect(details_panel->person_name_button, "clicked",
+        G_CALLBACK(entity_details_panel_on_person_name_clicked), details_panel);
 
     if (details_panel->entity_value_label == NULL ||
         details_panel->entity_type_label == NULL ||
@@ -896,6 +929,9 @@ void entity_details_panel_set_entity(
         (guint) entity_record_get_person_role(entity_record));
     gtk_spin_button_set_value(details_panel->person_confidence_spin,
         entity_record_get_confidence(entity_record));
+    gtk_editable_set_text(GTK_EDITABLE(details_panel->person_name_entry),
+        entity_record_get_label(entity_record) != NULL
+            ? entity_record_get_label(entity_record) : "");
     details_panel->updating_person_role = FALSE;
 
     entity_details_panel_update_add_relation_button(
@@ -1159,6 +1195,15 @@ void entity_details_panel_set_person_confidence_callback(
     if (details_panel == NULL) return;
     details_panel->person_confidence_callback = callback;
     details_panel->person_confidence_user_data = user_data;
+}
+
+void entity_details_panel_set_person_name_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelPersonNameCallback callback, gpointer user_data)
+{
+    if (details_panel == NULL) return;
+    details_panel->person_name_callback = callback;
+    details_panel->person_name_user_data = user_data;
 }
 
 gboolean entity_details_panel_is_open(

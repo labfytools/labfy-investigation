@@ -1161,11 +1161,11 @@ compte via `preuve_entites`. La création des deux lignes et de cette liaison
 est transactionnelle : aucun nœud incomplet n'est conservé si une étape
 échoue.
 
-### Rôles d'enquête des personnes — schéma V5
+### Rôles d'enquête des personnes — schémas V5 et V6
 
 La table `person_roles` associe une entité de type personne à une catégorie
-d'enquête contrôlée : scammer présumé, victime, témoin, suspect, personne liée
-ou non catégorisée. La clé étrangère avec suppression en cascade évite les
+d'enquête contrôlée : scammer présumé, victime, témoin, suspect, personne liée,
+identité usurpée ou non catégorisée. La clé étrangère avec suppression en cascade évite les
 rôles orphelins. Le code stable est persisté ; le libellé et la couleur restent
 des choix de présentation.
 

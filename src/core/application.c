@@ -5033,6 +5033,35 @@ static void application_on_person_confidence_changed(
         investigation_project_get_database_path(project));
 }
 
+/** @brief Enregistre le nom affiché choisi dans la fiche personne. */
+static void application_on_person_name_changed(const char *entity_identifier,
+    const char *display_name, gpointer user_data)
+{
+    Application *application = user_data;
+    Database *database = NULL;
+    const InvestigationProject *project = NULL;
+    GError *error = NULL;
+    if (application == NULL || application->session == NULL) return;
+    database = investigation_session_get_database(application->session);
+    project = investigation_session_get_project(application->session);
+    if (!person_entity_service_update_display_name(database, entity_identifier,
+            display_name, &error))
+    {
+        application_present_error(application, "Nom non enregistré",
+            error != NULL ? error->message :
+            "Impossible de modifier le nom affiché de cette personne.");
+        g_clear_error(&error);
+        return;
+    }
+    g_free(application->pending_entity_selection_identifier);
+    application->pending_entity_selection_identifier =
+        g_strdup(entity_identifier);
+    main_window_set_status(application->main_window,
+        "Nom enregistré. Actualisation du graphe…");
+    application_start_graph_loading(application,
+        investigation_project_get_database_path(project));
+}
+
 /** @brief Libère le contexte d'édition d'une relation. */
 static void application_edit_relation_context_free(
     ApplicationEditRelationContext *context)
@@ -6705,6 +6734,8 @@ static void application_on_activate(
         application_on_person_role_changed, application);
     main_window_set_person_confidence_callback(application->main_window,
         application_on_person_confidence_changed, application);
+    main_window_set_person_name_callback(application->main_window,
+        application_on_person_name_changed, application);
 
     main_window_set_osint_action_callback(
         application->main_window,

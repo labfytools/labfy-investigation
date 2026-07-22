@@ -42,5 +42,15 @@ gboolean person_entity_service_update_role(Database *database,
  */
 gboolean person_entity_service_update_confidence(Database *database,
     const char *entity_identifier, gint confidence, GError **error);
+/**
+ * @brief Enregistre le nom affiché d'une personne existante.
+ * @param database Connexion ouverte empruntée.
+ * @param entity_identifier UUID de la personne.
+ * @param display_name Nouveau nom non vide.
+ * @param error Destination facultative d'une erreur.
+ * @return TRUE lorsque la modification est validée.
+ */
+gboolean person_entity_service_update_display_name(Database *database,
+    const char *entity_identifier, const char *display_name, GError **error);
 G_END_DECLS
 #endif

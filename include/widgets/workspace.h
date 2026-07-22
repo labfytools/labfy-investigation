@@ -114,6 +114,9 @@ typedef void (*WorkspaceOsintActionCallback)(
     const char *target_value,
     gpointer user_data
 );
+/** @brief Callback appelé pour modifier le nom affiché d'une personne. */
+typedef void (*WorkspacePersonNameCallback)(const char *entity_identifier,
+    const char *display_name, gpointer user_data);
 
 /** @brief Callback appelé pour modifier les métadonnées d'une preuve. */
 typedef void (*WorkspaceEditEvidenceCallback)(
@@ -365,6 +368,9 @@ void workspace_set_person_confidence_callback(Workspace *workspace,
 void workspace_set_graph_loading(
     Workspace *workspace
 );
+/** @brief Définit le callback de modification du nom affiché. */
+void workspace_set_person_name_callback(Workspace *workspace,
+    WorkspacePersonNameCallback callback, gpointer user_data);
 
 /**
  * @brief Affiche le graphe chargé avec sa disposition persistée.

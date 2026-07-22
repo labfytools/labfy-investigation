@@ -17,6 +17,58 @@ static gboolean person_entity_service_status_valid(const char *status)
         g_strcmp0(status, "confirmed") == 0;
 }
 
+gboolean person_entity_service_update_display_name(Database *database,
+    const char *entity_identifier, const char *display_name, GError **error)
+{
+    static const char sql[] =
+        "UPDATE entites SET label=trim(?), updated_at=? WHERE id=? AND "
+        "type_id=(SELECT id FROM types_entite WHERE code='person');";
+    DatabaseStatement *statement = NULL;
+    GDateTime *now = NULL;
+    char *timestamp = NULL;
+    char *normalized = NULL;
+    gboolean active = FALSE, success = FALSE;
+    g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+    normalized = display_name != NULL ? g_strdup(display_name) : NULL;
+    if (normalized != NULL) g_strstrip(normalized);
+    if (database == NULL || entity_identifier == NULL ||
+        !g_uuid_string_is_valid(entity_identifier) || normalized == NULL ||
+        normalized[0] == '\0')
+    {
+        g_set_error_literal(error, g_quark_from_static_string(
+            "person-entity-service-error"), 6,
+            "Le nom affiché de la personne est invalide.");
+        g_free(normalized);
+        return FALSE;
+    }
+    now = g_date_time_new_now_utc();
+    timestamp = now != NULL ? g_date_time_format(now,
+        "%Y-%m-%dT%H:%M:%SZ") : NULL;
+    if (timestamp == NULL || !database_transaction_begin(database))
+        goto cleanup;
+    active = TRUE;
+    statement = database_statement_prepare(database, sql);
+    if (statement == NULL || !database_statement_bind_text(statement, 1,
+            normalized) || !database_statement_bind_text(statement, 2,
+            timestamp) || !database_statement_bind_text(statement, 3,
+            entity_identifier) || database_statement_step(statement) !=
+            DATABASE_STATEMENT_STEP_DONE)
+        goto cleanup;
+    database_statement_finalize(statement); statement = NULL;
+    if (!database_transaction_commit(database)) goto cleanup;
+    active = FALSE; success = TRUE;
+cleanup:
+    database_statement_finalize(statement);
+    if (!success && active) database_transaction_rollback(database);
+    if (!success && error != NULL && *error == NULL)
+        g_set_error_literal(error, g_quark_from_static_string(
+            "person-entity-service-error"), 7,
+            "Le nom affiché n'a pas pu être enregistré.");
+    g_free(normalized); g_free(timestamp);
+    g_clear_pointer(&now, g_date_time_unref);
+    return success;
+}
+
 gboolean person_entity_service_update_confidence(Database *database,
     const char *entity_identifier, gint confidence, GError **error)
 {

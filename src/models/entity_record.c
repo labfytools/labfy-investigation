@@ -613,6 +613,8 @@ const char *person_role_to_code(PersonRole role)
         case PERSON_ROLE_WITNESS: return "witness";
         case PERSON_ROLE_SUSPECT: return "suspect";
         case PERSON_ROLE_RELATED_PERSON: return "related_person";
+        case PERSON_ROLE_IMPERSONATED_IDENTITY:
+            return "impersonated_identity";
         default: return NULL;
     }
 }
@@ -626,6 +628,8 @@ PersonRole person_role_from_code(const char *code)
     if (g_strcmp0(code, "suspect") == 0) return PERSON_ROLE_SUSPECT;
     if (g_strcmp0(code, "related_person") == 0)
         return PERSON_ROLE_RELATED_PERSON;
+    if (g_strcmp0(code, "impersonated_identity") == 0)
+        return PERSON_ROLE_IMPERSONATED_IDENTITY;
     return PERSON_ROLE_UNCATEGORIZED;
 }
 
@@ -638,6 +642,7 @@ const char *person_role_get_label(PersonRole role)
         case PERSON_ROLE_WITNESS: return "Témoin";
         case PERSON_ROLE_SUSPECT: return "Suspect";
         case PERSON_ROLE_RELATED_PERSON: return "Personne liée";
+        case PERSON_ROLE_IMPERSONATED_IDENTITY: return "Identité usurpée";
         case PERSON_ROLE_UNCATEGORIZED:
         default: return "Non catégorisé";
     }

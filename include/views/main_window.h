@@ -170,6 +170,9 @@ typedef void (*MainWindowOsintActionCallback)(
     const char *target_value,
     gpointer user_data
 );
+/** @brief Callback appelé pour modifier le nom affiché d'une personne. */
+typedef void (*MainWindowPersonNameCallback)(const char *entity_identifier,
+    const char *display_name, gpointer user_data);
 
 /**
  * @brief Définit le callback de vérification d'une preuve.
@@ -287,6 +290,9 @@ void main_window_set_osint_action_callback(
     MainWindowOsintActionCallback callback,
     gpointer user_data
 );
+/** @brief Définit le callback de modification du nom affiché. */
+void main_window_set_person_name_callback(MainWindow *main_window,
+    MainWindowPersonNameCallback callback, gpointer user_data);
 
 /**
  * @brief Définit le callback du bouton « Nouvelle enquête ».

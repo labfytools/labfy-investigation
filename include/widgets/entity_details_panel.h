@@ -60,6 +60,13 @@ typedef void (*EntityDetailsPanelPersonConfidenceCallback)(
     gpointer user_data
 );
 
+/** @brief Callback appelé pour enregistrer le nom affiché d'une personne. */
+typedef void (*EntityDetailsPanelPersonNameCallback)(
+    const char *entity_identifier,
+    const char *display_name,
+    gpointer user_data
+);
+
 /**
  * @brief Crée un volet de détails fermé.
  *
@@ -152,6 +159,13 @@ void entity_details_panel_set_person_role_callback(
 void entity_details_panel_set_person_confidence_callback(
     EntityDetailsPanel *details_panel,
     EntityDetailsPanelPersonConfidenceCallback callback,
+    gpointer user_data
+);
+
+/** @brief Définit le callback de modification du nom affiché. */
+void entity_details_panel_set_person_name_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelPersonNameCallback callback,
     gpointer user_data
 );
 
