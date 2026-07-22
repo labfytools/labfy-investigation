@@ -18,6 +18,15 @@ typedef struct OsintAction OsintAction;
 /** @brief Catalogue opaque possédant ses actions. */
 typedef struct OsintActionCatalog OsintActionCatalog;
 
+/** @brief État d'une dépendance externe vu par le catalogue OSINT. */
+typedef enum
+{
+    OSINT_ACTION_TOOL_STATE_UNKNOWN,
+    OSINT_ACTION_TOOL_STATE_AVAILABLE,
+    OSINT_ACTION_TOOL_STATE_MISSING,
+    OSINT_ACTION_TOOL_STATE_INCOMPATIBLE
+} OsintActionToolState;
+
 /**
  * @brief Crée le catalogue initial déterministe.
  *
@@ -48,6 +57,21 @@ GPtrArray *osint_action_catalog_list_compatible(
     const OsintSelectionContext *context
 );
 
+/**
+ * @brief Actualise les actions dépendant d'un outil externe.
+ *
+ * @param catalog Catalogue à modifier.
+ * @param tool_identifier Identifiant stable de l'outil.
+ * @param state État traduit par la couche applicative.
+ * @param version Version détectée facultative.
+ */
+void osint_action_catalog_update_tool_state(
+    OsintActionCatalog *catalog,
+    const char *tool_identifier,
+    OsintActionToolState state,
+    const char *version
+);
+
 /** @brief Retourne l'identifiant stable emprunté d'une action. */
 const char *osint_action_get_identifier(const OsintAction *action);
 
@@ -67,6 +91,9 @@ gboolean osint_action_is_available(const OsintAction *action);
 
 /** @brief Retourne l'explication d'indisponibilité, ou NULL. */
 const char *osint_action_get_unavailable_reason(const OsintAction *action);
+
+/** @brief Retourne la version copiée de l'outil requis, ou NULL. */
+const char *osint_action_get_tool_version(const OsintAction *action);
 
 G_END_DECLS
 

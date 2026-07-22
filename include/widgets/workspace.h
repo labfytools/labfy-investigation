@@ -8,6 +8,7 @@
 
 #include "core/investigation_node.h"
 #include "models/evidence_record.h"
+#include "models/osint_action_catalog.h"
 
 #include <gtk/gtk.h>
 
@@ -153,6 +154,21 @@ gboolean workspace_select_graph_entity(
 gboolean workspace_select_graph_relation(
     Workspace *workspace,
     const char *relation_identifier
+);
+
+/**
+ * @brief Actualise l'état d'un outil requis par les actions OSINT.
+ *
+ * @param workspace Zone de travail.
+ * @param tool_identifier Identifiant stable de l'outil.
+ * @param state État traduit par la couche applicative.
+ * @param version Version détectée facultative.
+ */
+void workspace_set_osint_tool_state(
+    Workspace *workspace,
+    const char *tool_identifier,
+    OsintActionToolState state,
+    const char *version
 );
 
 /**

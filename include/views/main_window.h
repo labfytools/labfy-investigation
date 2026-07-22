@@ -12,6 +12,7 @@
 #include "core/task_manager.h"
 #include "widgets/evidence_category_model.h"
 #include "models/evidence_record.h"
+#include "models/osint_action_catalog.h"
 
 #include <gtk/gtk.h>
 
@@ -401,6 +402,21 @@ void main_window_reset_graph_layout(
 void main_window_set_status(
     MainWindow *main_window,
     const char *status_text
+);
+
+/**
+ * @brief Transmet au workspace l'état d'un outil OSINT externe.
+ *
+ * @param main_window Fenêtre principale.
+ * @param tool_identifier Identifiant stable de l'outil.
+ * @param state État traduit par l'application.
+ * @param version Version détectée facultative.
+ */
+void main_window_set_osint_tool_state(
+    MainWindow *main_window,
+    const char *tool_identifier,
+    OsintActionToolState state,
+    const char *version
 );
 
 /**

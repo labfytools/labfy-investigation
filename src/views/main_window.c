@@ -1225,6 +1225,26 @@ void main_window_set_status(
     );
 }
 
+void main_window_set_osint_tool_state(
+    MainWindow *main_window,
+    const char *tool_identifier,
+    OsintActionToolState state,
+    const char *version
+)
+{
+    if (main_window == NULL)
+    {
+        return;
+    }
+
+    workspace_set_osint_tool_state(
+        main_window->workspace,
+        tool_identifier,
+        state,
+        version
+    );
+}
+
 void main_window_set_tree_selection_callback(
     MainWindow *main_window,
     InvestigationTreeViewSelectionCallback callback,

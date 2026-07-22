@@ -18,7 +18,7 @@ static OsintSelectionContext *create_entity_context(const char *type)
 static void test_domain_actions(void)
 {
     OsintActionCatalog *catalog = osint_action_catalog_new_defaults();
-    OsintSelectionContext *context = create_entity_context("domain");
+    OsintSelectionContext *context = create_entity_context("domain_name");
     GPtrArray *actions = osint_action_catalog_list_compatible(catalog, context);
 
     g_assert_nonnull(actions);
@@ -28,7 +28,7 @@ static void test_domain_actions(void)
     g_assert_true(osint_action_is_available(g_ptr_array_index(actions, 0)));
     g_assert_false(osint_action_is_available(g_ptr_array_index(actions, 1)));
     g_assert_cmpstr(osint_action_get_required_tool_identifier(
-        g_ptr_array_index(actions, 1)), ==, "dig");
+        g_ptr_array_index(actions, 1)), ==, "dns.dig");
     g_assert_nonnull(osint_action_get_unavailable_reason(
         g_ptr_array_index(actions, 1)));
 
@@ -59,11 +59,40 @@ static void test_invalid_arguments(void)
     osint_action_catalog_free(NULL);
 }
 
+static void test_tool_states(void)
+{
+    OsintActionCatalog *catalog = osint_action_catalog_new_defaults();
+    OsintSelectionContext *context = create_entity_context("domain_name");
+    GPtrArray *actions = NULL;
+
+    osint_action_catalog_update_tool_state(
+        catalog, "dns.dig", OSINT_ACTION_TOOL_STATE_AVAILABLE, "DiG 9.20"
+    );
+    actions = osint_action_catalog_list_compatible(catalog, context);
+    g_assert_true(osint_action_is_available(g_ptr_array_index(actions, 1)));
+    g_assert_cmpstr(osint_action_get_tool_version(g_ptr_array_index(actions, 1)),
+        ==, "DiG 9.20");
+    g_ptr_array_unref(actions);
+
+    osint_action_catalog_update_tool_state(
+        catalog, "dns.dig", OSINT_ACTION_TOOL_STATE_MISSING, NULL
+    );
+    actions = osint_action_catalog_list_compatible(catalog, context);
+    g_assert_false(osint_action_is_available(g_ptr_array_index(actions, 1)));
+    g_assert_nonnull(osint_action_get_unavailable_reason(
+        g_ptr_array_index(actions, 1)));
+    g_ptr_array_unref(actions);
+
+    osint_selection_context_free(context);
+    osint_action_catalog_free(catalog);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/osint-action-catalog/domain", test_domain_actions);
     g_test_add_func("/osint-action-catalog/non-domain", test_non_domain_actions);
     g_test_add_func("/osint-action-catalog/invalid", test_invalid_arguments);
+    g_test_add_func("/osint-action-catalog/tool-states", test_tool_states);
     return g_test_run();
 }

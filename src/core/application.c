@@ -730,6 +730,42 @@ static void application_present_error(
 );
 
 /**
+ * @brief Publie dans l'interface les états du registre d'outils.
+ */
+static void application_publish_osint_tool_states(
+    Application *application
+)
+{
+    ToolRegistry *tool_registry = NULL;
+    gsize tool_index = 0;
+
+    if (application == NULL || application->main_window == NULL ||
+        application->tool_initializer == NULL)
+    {
+        return;
+    }
+
+    tool_registry = tool_initializer_get_registry(application->tool_initializer);
+    for (tool_index = 0;
+         tool_registry != NULL && tool_index < tool_registry_get_count(tool_registry);
+         tool_index++)
+    {
+        const ToolInfo *tool_info = tool_registry_get_tool(tool_registry, tool_index);
+        OsintActionToolState state = OSINT_ACTION_TOOL_STATE_UNKNOWN;
+        if (tool_info_get_availability(tool_info) == TOOL_AVAILABILITY_AVAILABLE)
+            state = OSINT_ACTION_TOOL_STATE_AVAILABLE;
+        else if (tool_info_get_availability(tool_info) == TOOL_AVAILABILITY_MISSING)
+            state = OSINT_ACTION_TOOL_STATE_MISSING;
+        main_window_set_osint_tool_state(
+            application->main_window,
+            tool_info_get_identifier(tool_info),
+            state,
+            tool_info_get_detected_version(tool_info)
+        );
+    }
+}
+
+/**
  * @brief Traite la fin de l’initialisation des outils externes.
  *
  * Ce callback est exécuté sur le contexte principal GLib.
@@ -828,6 +864,8 @@ static void application_on_tool_initialization_completed(
 
             break;
     }
+
+    application_publish_osint_tool_states(application);
 }
 
 /**

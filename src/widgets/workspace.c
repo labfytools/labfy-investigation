@@ -259,9 +259,13 @@ static void workspace_update_osint_tools_menu(
             compatible_actions,
             action_index
         );
-        GtkWidget *action_button = gtk_button_new_with_label(
-            osint_action_get_label(action)
-        );
+        const char *tool_version = osint_action_get_tool_version(action);
+        char *button_label = tool_version != NULL && tool_version[0] != '\0'
+            ? g_strdup_printf("%s — %s", osint_action_get_label(action), tool_version)
+            : g_strdup(osint_action_get_label(action));
+        GtkWidget *action_button = gtk_button_new_with_label(button_label);
+
+        g_free(button_label);
 
         if (action_button == NULL)
         {
@@ -2321,6 +2325,30 @@ gboolean workspace_select_graph_relation(
     return investigation_graph_view_select_relation(
         workspace->graph_view,
         relation_identifier
+    );
+}
+
+void workspace_set_osint_tool_state(
+    Workspace *workspace,
+    const char *tool_identifier,
+    OsintActionToolState state,
+    const char *version
+)
+{
+    if (workspace == NULL || workspace->osint_action_catalog == NULL)
+    {
+        return;
+    }
+
+    osint_action_catalog_update_tool_state(
+        workspace->osint_action_catalog,
+        tool_identifier,
+        state,
+        version
+    );
+    workspace_update_osint_tools_menu(
+        workspace,
+        workspace->osint_selection_context
     );
 }
 

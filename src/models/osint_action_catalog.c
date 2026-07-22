@@ -15,6 +15,7 @@ struct OsintAction
     char *required_tool_identifier;
     gboolean available;
     char *unavailable_reason;
+    char *tool_version;
 };
 
 struct OsintActionCatalog
@@ -28,6 +29,7 @@ static void osint_action_free(gpointer data)
     OsintAction *action = data;
     if (action == NULL) return;
     g_free(action->unavailable_reason);
+    g_free(action->tool_version);
     g_free(action->compatible_type);
     g_free(action->required_tool_identifier);
     g_free(action->description);
@@ -83,8 +85,8 @@ OsintActionCatalog *osint_action_catalog_new_defaults(void)
     dns_action = osint_action_new(
         "dns-preview", "Résolution DNS",
         "Préfiguration de l'adaptateur DNS.",
-        OSINT_SELECTION_CONTEXT_KIND_ENTITY, "domain", "dig", FALSE,
-        "L'adaptateur DNS n'est pas encore intégré."
+        OSINT_SELECTION_CONTEXT_KIND_ENTITY, "domain_name", "dns.dig", FALSE,
+        "L'outil requis n'a pas encore été vérifié."
     );
     if (catalog->actions == NULL || demonstration_action == NULL ||
         dns_action == NULL)
@@ -134,6 +136,35 @@ GPtrArray *osint_action_catalog_list_compatible(
     return compatible_actions;
 }
 
+void osint_action_catalog_update_tool_state(
+    OsintActionCatalog *catalog,
+    const char *tool_identifier,
+    OsintActionToolState state,
+    const char *version
+)
+{
+    guint index = 0;
+    if (catalog == NULL || catalog->actions == NULL ||
+        tool_identifier == NULL || tool_identifier[0] == '\0') return;
+    for (index = 0; index < catalog->actions->len; index++)
+    {
+        OsintAction *action = g_ptr_array_index(catalog->actions, index);
+        if (g_strcmp0(action->required_tool_identifier, tool_identifier) != 0)
+            continue;
+        g_clear_pointer(&action->tool_version, g_free);
+        g_clear_pointer(&action->unavailable_reason, g_free);
+        action->available = state == OSINT_ACTION_TOOL_STATE_AVAILABLE;
+        if (action->available)
+            action->tool_version = g_strdup(version);
+        else if (state == OSINT_ACTION_TOOL_STATE_MISSING)
+            action->unavailable_reason = g_strdup("L'outil requis est absent.");
+        else if (state == OSINT_ACTION_TOOL_STATE_INCOMPATIBLE)
+            action->unavailable_reason = g_strdup("La version installée est incompatible.");
+        else
+            action->unavailable_reason = g_strdup("L'outil requis n'a pas encore été vérifié.");
+    }
+}
+
 void osint_action_catalog_free(OsintActionCatalog *catalog)
 {
     if (catalog == NULL) return;
@@ -153,3 +184,5 @@ gboolean osint_action_is_available(const OsintAction *action)
 { return action != NULL && action->available; }
 const char *osint_action_get_unavailable_reason(const OsintAction *action)
 { return action != NULL ? action->unavailable_reason : NULL; }
+const char *osint_action_get_tool_version(const OsintAction *action)
+{ return action != NULL ? action->tool_version : NULL; }
