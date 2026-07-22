@@ -6,6 +6,7 @@
 #include "widgets/entity_details_panel.h"
 
 #include "models/entity_record.h"
+#include "models/evidence_record.h"
 
 #include <glib.h>
 
@@ -35,6 +36,8 @@ struct EntityDetailsPanel
     GtkWidget *person_confidence_button;
     GtkEntry *person_name_entry;
     GtkWidget *person_name_button;
+    GtkWidget *person_evidence_button;
+    GtkWidget *person_evidence_summary_label;
 
     char *selected_entity_identifier;
 
@@ -54,7 +57,19 @@ struct EntityDetailsPanel
     gpointer person_confidence_user_data;
     EntityDetailsPanelPersonNameCallback person_name_callback;
     gpointer person_name_user_data;
+    EntityDetailsPanelPersonEvidenceCallback person_evidence_callback;
+    gpointer person_evidence_user_data;
 };
+/** @brief Relaie la demande de gestion des preuves d'une personne. */
+static void entity_details_panel_on_person_evidence_clicked(GtkButton *button,
+    gpointer user_data)
+{
+    EntityDetailsPanel *panel = user_data; (void) button;
+    if (panel != NULL && panel->person_evidence_callback != NULL &&
+        panel->selected_entity_identifier != NULL)
+        panel->person_evidence_callback(panel->selected_entity_identifier,
+            panel->person_evidence_user_data);
+}
 
 /** @brief Relaie le nouveau nom affiché explicitement enregistré. */
 static void entity_details_panel_on_person_name_clicked(GtkButton *button,
@@ -795,6 +810,22 @@ EntityDetailsPanel *entity_details_panel_new(void)
         GTK_WIDGET(details_panel->person_name_entry));
     gtk_box_append(GTK_BOX(details_panel->person_role_box),
         details_panel->person_name_button);
+    details_panel->person_evidence_button = gtk_button_new_with_label(
+        "Gérer les pièces jointes");
+    details_panel->person_evidence_summary_label = gtk_label_new(
+        "Pièces jointes : chargement…");
+    gtk_label_set_xalign(GTK_LABEL(
+        details_panel->person_evidence_summary_label), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(
+        details_panel->person_evidence_summary_label), TRUE);
+    gtk_label_set_selectable(GTK_LABEL(
+        details_panel->person_evidence_summary_label), TRUE);
+    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+        gtk_label_new("Preuves associées à cette personne"));
+    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+        details_panel->person_evidence_summary_label);
+    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+        details_panel->person_evidence_button);
     gtk_box_append(GTK_BOX(details_box), details_panel->person_role_box);
     g_signal_connect(details_panel->person_role_dropdown, "notify::selected",
         G_CALLBACK(entity_details_panel_on_person_role_changed), details_panel);
@@ -803,6 +834,8 @@ EntityDetailsPanel *entity_details_panel_new(void)
         details_panel);
     g_signal_connect(details_panel->person_name_button, "clicked",
         G_CALLBACK(entity_details_panel_on_person_name_clicked), details_panel);
+    g_signal_connect(details_panel->person_evidence_button, "clicked",
+        G_CALLBACK(entity_details_panel_on_person_evidence_clicked), details_panel);
 
     if (details_panel->entity_value_label == NULL ||
         details_panel->entity_type_label == NULL ||
@@ -1204,6 +1237,36 @@ void entity_details_panel_set_person_name_callback(
     if (details_panel == NULL) return;
     details_panel->person_name_callback = callback;
     details_panel->person_name_user_data = user_data;
+}
+void entity_details_panel_set_person_evidence_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelPersonEvidenceCallback callback, gpointer user_data)
+{
+    if (details_panel == NULL) return;
+    details_panel->person_evidence_callback = callback;
+    details_panel->person_evidence_user_data = user_data;
+}
+void entity_details_panel_set_person_evidences(EntityDetailsPanel *panel,
+    const GPtrArray *records)
+{
+    GString *text = NULL;
+    if (panel == NULL || panel->person_evidence_summary_label == NULL) return;
+    text = g_string_new(NULL);
+    if (records == NULL || records->len == 0)
+        g_string_append(text, "Aucune pièce jointe");
+    else
+        for (guint index = 0; index < records->len; index++)
+        {
+            const EvidenceRecord *record = g_ptr_array_index(records, index);
+            if (record == NULL) continue;
+            if (text->len > 0) g_string_append_c(text, '\n');
+            g_string_append_printf(text, "• %s — %s",
+                evidence_record_get_original_name(record),
+                evidence_record_get_type_identifier(record));
+        }
+    gtk_label_set_text(GTK_LABEL(panel->person_evidence_summary_label),
+        text->str);
+    g_string_free(text, TRUE);
 }
 
 gboolean entity_details_panel_is_open(

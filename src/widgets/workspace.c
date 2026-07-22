@@ -143,6 +143,10 @@ struct Workspace
     gpointer person_confidence_user_data;
     WorkspacePersonNameCallback person_name_callback;
     gpointer person_name_user_data;
+    WorkspacePersonEvidenceCallback person_evidence_callback;
+    gpointer person_evidence_user_data;
+    WorkspaceEntitySelectedCallback entity_selected_callback;
+    gpointer entity_selected_user_data;
 
     WorkspaceOsintActionCallback
         osint_action_callback;
@@ -741,6 +745,10 @@ static void workspace_on_graph_node_selected(
     {
         workspace->osint_selection_context =
             osint_selection_context_new_entity(entity_record, NULL);
+        if (workspace->entity_selected_callback != NULL)
+            workspace->entity_selected_callback(
+                entity_record_get_identifier(entity_record),
+                workspace->entity_selected_user_data);
     }
 
     if (workspace->entity_details_panel != NULL)
@@ -919,6 +927,15 @@ static void workspace_on_person_name_changed(const char *entity_identifier,
     if (workspace != NULL && workspace->person_name_callback != NULL)
         workspace->person_name_callback(entity_identifier, display_name,
             workspace->person_name_user_data);
+}
+/** @brief Relaie la gestion des preuves d'une personne. */
+static void workspace_on_person_evidence_requested(const char *identifier,
+    gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    if (workspace != NULL && workspace->person_evidence_callback != NULL)
+        workspace->person_evidence_callback(identifier,
+            workspace->person_evidence_user_data);
 }
 
 /**
@@ -1855,6 +1872,9 @@ Workspace *workspace_new(void)
     entity_details_panel_set_person_name_callback(
         workspace->entity_details_panel, workspace_on_person_name_changed,
         workspace);
+    entity_details_panel_set_person_evidence_callback(
+        workspace->entity_details_panel,
+        workspace_on_person_evidence_requested, workspace);
 
     gtk_overlay_set_child(
         GTK_OVERLAY(
@@ -3334,6 +3354,27 @@ void workspace_set_person_name_callback(Workspace *workspace,
     if (workspace == NULL) return;
     workspace->person_name_callback = callback;
     workspace->person_name_user_data = user_data;
+}
+void workspace_set_person_evidence_callback(Workspace *workspace,
+    WorkspacePersonEvidenceCallback callback, gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->person_evidence_callback = callback;
+    workspace->person_evidence_user_data = user_data;
+}
+void workspace_set_entity_selected_callback(Workspace *workspace,
+    WorkspaceEntitySelectedCallback callback, gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->entity_selected_callback = callback;
+    workspace->entity_selected_user_data = user_data;
+}
+void workspace_set_person_evidences(Workspace *workspace,
+    const GPtrArray *records)
+{
+    if (workspace == NULL) return;
+    entity_details_panel_set_person_evidences(
+        workspace->entity_details_panel, records);
 }
 
 void workspace_reset_graph_layout(

@@ -176,6 +176,12 @@ typedef void (*MainWindowOsintActionCallback)(
 /** @brief Callback appelé pour modifier le nom affiché d'une personne. */
 typedef void (*MainWindowPersonNameCallback)(const char *entity_identifier,
     const char *display_name, gpointer user_data);
+/** @brief Callback appelé pour gérer les preuves d'une personne. */
+typedef void (*MainWindowPersonEvidenceCallback)(
+    const char *entity_identifier, gpointer user_data);
+/** @brief Callback appelé quand une entité est sélectionnée. */
+typedef void (*MainWindowEntitySelectedCallback)(
+    const char *entity_identifier, gpointer user_data);
 
 /**
  * @brief Définit le callback de vérification d'une preuve.
@@ -299,6 +305,15 @@ void main_window_set_osint_action_callback(
 /** @brief Définit le callback de modification du nom affiché. */
 void main_window_set_person_name_callback(MainWindow *main_window,
     MainWindowPersonNameCallback callback, gpointer user_data);
+/** @brief Définit le callback de gestion des preuves d'une personne. */
+void main_window_set_person_evidence_callback(MainWindow *main_window,
+    MainWindowPersonEvidenceCallback callback, gpointer user_data);
+/** @brief Définit le callback de sélection d'une entité. */
+void main_window_set_entity_selected_callback(MainWindow *main_window,
+    MainWindowEntitySelectedCallback callback, gpointer user_data);
+/** @brief Affiche les preuves de la personne sélectionnée. */
+void main_window_set_person_evidences(MainWindow *main_window,
+    const GPtrArray *evidence_records);
 
 /**
  * @brief Définit le callback du bouton « Nouvelle enquête ».

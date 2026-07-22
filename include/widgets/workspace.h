@@ -120,6 +120,12 @@ typedef void (*WorkspaceOsintActionCallback)(
 /** @brief Callback appelé pour modifier le nom affiché d'une personne. */
 typedef void (*WorkspacePersonNameCallback)(const char *entity_identifier,
     const char *display_name, gpointer user_data);
+/** @brief Callback appelé pour gérer les preuves d'une personne. */
+typedef void (*WorkspacePersonEvidenceCallback)(
+    const char *entity_identifier, gpointer user_data);
+/** @brief Callback appelé quand une entité devient sélectionnée. */
+typedef void (*WorkspaceEntitySelectedCallback)(
+    const char *entity_identifier, gpointer user_data);
 
 /** @brief Callback appelé pour modifier les métadonnées d'une preuve. */
 typedef void (*WorkspaceEditEvidenceCallback)(
@@ -377,6 +383,15 @@ void workspace_set_graph_loading(
 /** @brief Définit le callback de modification du nom affiché. */
 void workspace_set_person_name_callback(Workspace *workspace,
     WorkspacePersonNameCallback callback, gpointer user_data);
+/** @brief Définit le callback de gestion des preuves d'une personne. */
+void workspace_set_person_evidence_callback(Workspace *workspace,
+    WorkspacePersonEvidenceCallback callback, gpointer user_data);
+/** @brief Définit le callback de sélection d'une entité. */
+void workspace_set_entity_selected_callback(Workspace *workspace,
+    WorkspaceEntitySelectedCallback callback, gpointer user_data);
+/** @brief Affiche les preuves de la personne sélectionnée. */
+void workspace_set_person_evidences(Workspace *workspace,
+    const GPtrArray *evidence_records);
 
 /**
  * @brief Affiche le graphe chargé avec sa disposition persistée.

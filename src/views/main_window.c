@@ -139,6 +139,10 @@ struct MainWindow
     gpointer person_confidence_user_data;
     MainWindowPersonNameCallback person_name_callback;
     gpointer person_name_user_data;
+    MainWindowPersonEvidenceCallback person_evidence_callback;
+    gpointer person_evidence_user_data;
+    MainWindowEntitySelectedCallback entity_selected_callback;
+    gpointer entity_selected_user_data;
 
     MainWindowOsintActionCallback
         osint_action_callback;
@@ -574,6 +578,24 @@ static void main_window_on_person_name_changed(const char *entity_identifier,
         main_window->person_name_callback(entity_identifier, display_name,
             main_window->person_name_user_data);
 }
+/** @brief Relaie la gestion des preuves d'une personne. */
+static void main_window_on_person_evidence_requested(const char *identifier,
+    gpointer user_data)
+{
+    MainWindow *window = user_data;
+    if (window != NULL && window->person_evidence_callback != NULL)
+        window->person_evidence_callback(identifier,
+            window->person_evidence_user_data);
+}
+/** @brief Relaie la sélection d'une entité vers le contrôleur. */
+static void main_window_on_entity_selected(const char *identifier,
+    gpointer user_data)
+{
+    MainWindow *window = user_data;
+    if (window != NULL && window->entity_selected_callback != NULL)
+        window->entity_selected_callback(identifier,
+            window->entity_selected_user_data);
+}
 
 /**
  * @brief Relaie la demande de vérification provenant du Workspace.
@@ -923,6 +945,10 @@ MainWindow *main_window_new(
         main_window_on_person_confidence_changed, main_window);
     workspace_set_person_name_callback(main_window->workspace,
         main_window_on_person_name_changed, main_window);
+    workspace_set_person_evidence_callback(main_window->workspace,
+        main_window_on_person_evidence_requested, main_window);
+    workspace_set_entity_selected_callback(main_window->workspace,
+        main_window_on_entity_selected, main_window);
 
     workspace_set_osint_action_callback(
         main_window->workspace,
@@ -1760,6 +1786,26 @@ void main_window_set_person_name_callback(MainWindow *main_window,
     if (main_window == NULL) return;
     main_window->person_name_callback = callback;
     main_window->person_name_user_data = user_data;
+}
+void main_window_set_person_evidence_callback(MainWindow *main_window,
+    MainWindowPersonEvidenceCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->person_evidence_callback = callback;
+    main_window->person_evidence_user_data = user_data;
+}
+void main_window_set_entity_selected_callback(MainWindow *main_window,
+    MainWindowEntitySelectedCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->entity_selected_callback = callback;
+    main_window->entity_selected_user_data = user_data;
+}
+void main_window_set_person_evidences(MainWindow *main_window,
+    const GPtrArray *records)
+{
+    if (main_window == NULL) return;
+    workspace_set_person_evidences(main_window->workspace, records);
 }
 
 void main_window_set_quit_callback(

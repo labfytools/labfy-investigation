@@ -66,6 +66,9 @@ typedef void (*EntityDetailsPanelPersonNameCallback)(
     const char *display_name,
     gpointer user_data
 );
+/** @brief Callback appelé pour gérer les preuves d'une personne. */
+typedef void (*EntityDetailsPanelPersonEvidenceCallback)(
+    const char *entity_identifier, gpointer user_data);
 
 /**
  * @brief Crée un volet de détails fermé.
@@ -168,6 +171,17 @@ void entity_details_panel_set_person_name_callback(
     EntityDetailsPanelPersonNameCallback callback,
     gpointer user_data
 );
+/** @brief Définit le callback de gestion des preuves d'une personne. */
+void entity_details_panel_set_person_evidence_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelPersonEvidenceCallback callback, gpointer user_data);
+/**
+ * @brief Affiche les preuves associées à la personne courante.
+ * @param details_panel Volet à mettre à jour.
+ * @param evidence_records Tableau emprunté de EvidenceRecord, ou NULL.
+ */
+void entity_details_panel_set_person_evidences(
+    EntityDetailsPanel *details_panel, const GPtrArray *evidence_records);
 
 /**
  * @brief Indique si le volet est actuellement ouvert.

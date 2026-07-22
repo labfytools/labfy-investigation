@@ -39,6 +39,7 @@
 #include "views/osint_dns_review_dialog.h"
 #include "views/osint_execution_history_dialog.h"
 #include "dao/evidence_dao.h"
+#include "dao/evidence_entity_dao.h"
 #include "dao/entity_dao.h"
 #include "dao/relation_dao.h"
 #include "dao/relation_evidence_dao.h"
@@ -58,6 +59,7 @@
 #include "views/create_social_account_dialog.h"
 #include "views/create_person_dialog.h"
 #include "views/eml_analysis_dialog.h"
+#include "views/manage_entity_evidence_dialog.h"
 
 #include <gtk/gtk.h>
 #include <errno.h>
@@ -5176,6 +5178,144 @@ static void application_on_person_name_changed(const char *entity_identifier,
         investigation_project_get_database_path(project));
 }
 
+/** @brief Charge et affiche les preuves liées à l'entité sélectionnée. */
+static void application_on_entity_selected(const char *entity_identifier,
+    gpointer user_data)
+{
+    Application *application = user_data; Database *database = NULL;
+    EvidenceEntityDao *link_dao = NULL; EvidenceDao *evidence_dao = NULL;
+    GPtrArray *identifiers = NULL; GPtrArray *records = NULL;
+    GError *error = NULL;
+    if (application == NULL || application->session == NULL ||
+        entity_identifier == NULL) return;
+    database = investigation_session_get_database(application->session);
+    link_dao = evidence_entity_dao_new(database, &error);
+    if (link_dao == NULL) goto cleanup;
+    evidence_dao = evidence_dao_new(database, &error);
+    if (evidence_dao == NULL) goto cleanup;
+    identifiers = evidence_entity_dao_list_evidence_identifiers(link_dao,
+        entity_identifier, &error);
+    if (identifiers == NULL) goto cleanup;
+    records = g_ptr_array_new_with_free_func((GDestroyNotify)
+        evidence_record_free);
+    for (guint index = 0; index < identifiers->len; index++)
+    {
+        EvidenceRecord *record = evidence_dao_find_by_identifier(evidence_dao,
+            g_ptr_array_index(identifiers, index), &error);
+        if (record == NULL) goto cleanup;
+        g_ptr_array_add(records, record);
+    }
+    main_window_set_person_evidences(application->main_window, records);
+cleanup:
+    if (error != NULL)
+        main_window_set_person_evidences(application->main_window, NULL);
+    g_clear_error(&error); g_clear_pointer(&records, g_ptr_array_unref);
+    g_clear_pointer(&identifiers, g_ptr_array_unref);
+    evidence_dao_free(evidence_dao); evidence_entity_dao_free(link_dao);
+}
+
+/** @brief Contexte possédé par la gestion des preuves d'une personne. */
+typedef struct { Application *application; char *entity_identifier; }
+    ApplicationPersonEvidenceContext;
+/** @brief Libère le contexte de gestion des preuves. */
+static void application_person_evidence_context_free(
+    ApplicationPersonEvidenceContext *context)
+{
+    if (context == NULL) return;
+    g_free(context->entity_identifier); g_free(context);
+}
+/** @brief Synchronise atomiquement les preuves choisies. */
+static void application_on_person_evidences_selected(GPtrArray *selected,
+    gpointer user_data)
+{
+    ApplicationPersonEvidenceContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    Database *database = NULL; EvidenceEntityDao *dao = NULL;
+    GPtrArray *existing = NULL; GError *error = NULL;
+    gboolean active = FALSE;
+    if (selected == NULL || application == NULL || application->session == NULL)
+        goto cleanup;
+    database = investigation_session_get_database(application->session);
+    dao = evidence_entity_dao_new(database, &error);
+    if (dao == NULL || !database_transaction_begin(database)) goto failure;
+    active = TRUE;
+    existing = evidence_entity_dao_list_evidence_identifiers(dao,
+        context->entity_identifier, &error);
+    if (existing == NULL) goto failure;
+    for (guint index = 0; index < existing->len; index++)
+    {
+        const char *identifier = g_ptr_array_index(existing, index);
+        gboolean retained = FALSE;
+        for (guint wanted = 0; wanted < selected->len; wanted++)
+            if (g_strcmp0(identifier, g_ptr_array_index(selected, wanted)) == 0)
+                retained = TRUE;
+        if (!retained && !evidence_entity_dao_unlink(dao, identifier,
+                context->entity_identifier, &error)) goto failure;
+    }
+    for (guint index = 0; index < selected->len; index++)
+    {
+        const char *identifier = g_ptr_array_index(selected, index);
+        gboolean exists = FALSE;
+        if (!evidence_entity_dao_exists(dao, identifier,
+                context->entity_identifier, &exists, &error) ||
+            (!exists && !evidence_entity_dao_link(dao, identifier,
+                context->entity_identifier, &error))) goto failure;
+    }
+    if (!database_transaction_commit(database)) goto failure;
+    active = FALSE;
+    main_window_set_status(application->main_window,
+        "Pièces jointes de la personne enregistrées.");
+    application_on_entity_selected(context->entity_identifier, application);
+    goto cleanup;
+failure:
+    if (active) database_transaction_rollback(database);
+    application_present_error(application, "Pièces jointes non enregistrées",
+        error != NULL ? error->message : "La sélection n'a pas pu être enregistrée.");
+cleanup:
+    g_clear_error(&error); g_clear_pointer(&existing, g_ptr_array_unref);
+    g_clear_pointer(&selected, g_ptr_array_unref);
+    evidence_entity_dao_free(dao);
+    application_person_evidence_context_free(context);
+}
+/** @brief Ouvre le gestionnaire des preuves de la personne sélectionnée. */
+static void application_on_person_evidence_requested(
+    const char *entity_identifier, gpointer user_data)
+{
+    Application *application = user_data; Database *database = NULL;
+    EvidenceDao *evidence_dao = NULL; EvidenceEntityDao *link_dao = NULL;
+    GPtrArray *records = NULL; GPtrArray *selected = NULL;
+    ApplicationPersonEvidenceContext *context = NULL;
+    const InvestigationProject *project = NULL; GError *error = NULL;
+    if (application == NULL || application->session == NULL) return;
+    database = investigation_session_get_database(application->session);
+    project = investigation_session_get_project(application->session);
+    evidence_dao = evidence_dao_new(database, &error);
+    if (evidence_dao != NULL) records = evidence_dao_list_all(evidence_dao, &error);
+    link_dao = evidence_entity_dao_new(database, &error);
+    if (link_dao != NULL) selected =
+        evidence_entity_dao_list_evidence_identifiers(link_dao,
+            entity_identifier, &error);
+    if (records == NULL || selected == NULL || project == NULL) goto failure;
+    context = g_new0(ApplicationPersonEvidenceContext, 1);
+    context->application = application;
+    context->entity_identifier = g_strdup(entity_identifier);
+    if (context->entity_identifier == NULL ||
+        !manage_entity_evidence_dialog_present(main_window_get_window(
+            application->main_window), records, selected,
+            investigation_project_get_root_path(project),
+            application_on_person_evidences_selected, context, &error))
+        goto failure;
+    context = NULL; goto cleanup;
+failure:
+    application_person_evidence_context_free(context); context = NULL;
+    application_present_error(application, "Pièces jointes indisponibles",
+        error != NULL ? error->message : "Le gestionnaire n'a pas pu être ouvert.");
+cleanup:
+    g_clear_error(&error); g_clear_pointer(&records, g_ptr_array_unref);
+    g_clear_pointer(&selected, g_ptr_array_unref);
+    evidence_dao_free(evidence_dao); evidence_entity_dao_free(link_dao);
+}
+
 /** @brief Libère le contexte d'édition d'une relation. */
 static void application_edit_relation_context_free(
     ApplicationEditRelationContext *context)
@@ -6852,6 +6992,10 @@ static void application_on_activate(
         application_on_person_confidence_changed, application);
     main_window_set_person_name_callback(application->main_window,
         application_on_person_name_changed, application);
+    main_window_set_person_evidence_callback(application->main_window,
+        application_on_person_evidence_requested, application);
+    main_window_set_entity_selected_callback(application->main_window,
+        application_on_entity_selected, application);
 
     main_window_set_osint_action_callback(
         application->main_window,
