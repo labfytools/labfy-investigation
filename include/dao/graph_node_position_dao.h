@@ -143,6 +143,23 @@ gboolean graph_node_position_dao_delete_all(
     GError **error
 );
 
+gboolean graph_node_position_dao_load_viewport(
+    GraphNodePositionDao *position_dao,
+    double *zoom,
+    double *offset_x,
+    double *offset_y,
+    gboolean *found,
+    GError **error
+);
+
+gboolean graph_node_position_dao_upsert_viewport(
+    GraphNodePositionDao *position_dao,
+    double zoom,
+    double offset_x,
+    double offset_y,
+    GError **error
+);
+
 G_END_DECLS
 
 #endif

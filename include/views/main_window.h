@@ -526,6 +526,11 @@ void main_window_set_graph(
     const InvestigationGraphLayout *graph_layout
 );
 
+gboolean main_window_get_graph_view_transform(
+    MainWindow *main_window, double *zoom, double *offset_x, double *offset_y);
+void main_window_set_graph_view_transform(
+    MainWindow *main_window, double zoom, double offset_x, double offset_y);
+
 /** @brief Sélectionne une relation dans le graphe affiché. */
 gboolean main_window_select_graph_relation(
     MainWindow *main_window,

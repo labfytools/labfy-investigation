@@ -71,6 +71,16 @@ static const char *const graph_node_position_dao_delete_sql =
 static const char *const graph_node_position_dao_delete_all_sql =
     "DELETE FROM graph_layout_positions;";
 
+static const char *const graph_node_position_dao_load_viewport_sql =
+    "SELECT zoom, offset_x, offset_y FROM graph_viewport WHERE id = 1;";
+
+static const char *const graph_node_position_dao_upsert_viewport_sql =
+    "INSERT INTO graph_viewport(id, zoom, offset_x, offset_y, updated_at) "
+    "VALUES(1, ?, ?, ?, ?) "
+    "ON CONFLICT(id) DO UPDATE SET zoom = excluded.zoom, "
+    "offset_x = excluded.offset_x, offset_y = excluded.offset_y, "
+    "updated_at = excluded.updated_at;";
+
 /**
  * @brief Enregistre une erreur littérale.
  */
@@ -867,5 +877,127 @@ cleanup:
         statement
     );
 
+    return success;
+}
+
+gboolean graph_node_position_dao_load_viewport(
+    GraphNodePositionDao *position_dao,
+    double *zoom,
+    double *offset_x,
+    double *offset_y,
+    gboolean *found,
+    GError **error
+)
+{
+    DatabaseStatement *statement = NULL;
+    DatabaseStatementStepResult step_result;
+    gboolean success = FALSE;
+
+    g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+    if (position_dao == NULL || position_dao->database == NULL ||
+        zoom == NULL || offset_x == NULL || offset_y == NULL || found == NULL)
+    {
+        graph_node_position_dao_set_error_literal(error,
+            GRAPH_NODE_POSITION_DAO_ERROR_INVALID_ARGUMENT,
+            "Les paramètres de chargement du cadrage sont invalides.");
+        return FALSE;
+    }
+
+    *found = FALSE;
+    statement = database_statement_prepare(position_dao->database,
+        graph_node_position_dao_load_viewport_sql);
+    if (statement == NULL)
+    {
+        graph_node_position_dao_set_database_error(position_dao, error,
+            GRAPH_NODE_POSITION_DAO_ERROR_PREPARE,
+            "Impossible de préparer le chargement du cadrage");
+        return FALSE;
+    }
+
+    step_result = database_statement_step(statement);
+    if (step_result == DATABASE_STATEMENT_STEP_ROW)
+    {
+        if (!database_statement_column_double(statement, 0, zoom) ||
+            !database_statement_column_double(statement, 1, offset_x) ||
+            !database_statement_column_double(statement, 2, offset_y) ||
+            !isfinite(*zoom) || *zoom <= 0.0 ||
+            !isfinite(*offset_x) || !isfinite(*offset_y))
+        {
+            graph_node_position_dao_set_error_literal(error,
+                GRAPH_NODE_POSITION_DAO_ERROR_READ,
+                "Le cadrage enregistré est invalide.");
+            goto cleanup;
+        }
+        *found = TRUE;
+    }
+    else if (step_result == DATABASE_STATEMENT_STEP_ERROR)
+    {
+        graph_node_position_dao_set_database_error(position_dao, error,
+            GRAPH_NODE_POSITION_DAO_ERROR_EXECUTE,
+            "Impossible de charger le cadrage");
+        goto cleanup;
+    }
+    success = TRUE;
+
+cleanup:
+    database_statement_finalize(statement);
+    return success;
+}
+
+gboolean graph_node_position_dao_upsert_viewport(
+    GraphNodePositionDao *position_dao,
+    double zoom,
+    double offset_x,
+    double offset_y,
+    GError **error
+)
+{
+    DatabaseStatement *statement = NULL;
+    char *updated_at = NULL;
+    gboolean success = FALSE;
+
+    g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+    if (position_dao == NULL || position_dao->database == NULL ||
+        !isfinite(zoom) || zoom <= 0.0 ||
+        !isfinite(offset_x) || !isfinite(offset_y))
+    {
+        graph_node_position_dao_set_error_literal(error,
+            GRAPH_NODE_POSITION_DAO_ERROR_INVALID_ARGUMENT,
+            "Le cadrage du graphe est invalide.");
+        return FALSE;
+    }
+
+    updated_at = graph_node_position_dao_create_utc_timestamp();
+    statement = database_statement_prepare(position_dao->database,
+        graph_node_position_dao_upsert_viewport_sql);
+    if (updated_at == NULL || statement == NULL)
+    {
+        graph_node_position_dao_set_database_error(position_dao, error,
+            GRAPH_NODE_POSITION_DAO_ERROR_PREPARE,
+            "Impossible de préparer l'enregistrement du cadrage");
+        goto cleanup;
+    }
+    if (!database_statement_bind_double(statement, 1, zoom) ||
+        !database_statement_bind_double(statement, 2, offset_x) ||
+        !database_statement_bind_double(statement, 3, offset_y) ||
+        !database_statement_bind_text(statement, 4, updated_at))
+    {
+        graph_node_position_dao_set_database_error(position_dao, error,
+            GRAPH_NODE_POSITION_DAO_ERROR_BIND,
+            "Impossible de lier les données du cadrage");
+        goto cleanup;
+    }
+    if (database_statement_step(statement) != DATABASE_STATEMENT_STEP_DONE)
+    {
+        graph_node_position_dao_set_database_error(position_dao, error,
+            GRAPH_NODE_POSITION_DAO_ERROR_EXECUTE,
+            "Impossible d'enregistrer le cadrage");
+        goto cleanup;
+    }
+    success = TRUE;
+
+cleanup:
+    database_statement_finalize(statement);
+    g_free(updated_at);
     return success;
 }

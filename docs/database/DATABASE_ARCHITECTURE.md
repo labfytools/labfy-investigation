@@ -2269,6 +2269,12 @@ Cette stratégie préserve les positions existantes tout en permettant aux
 nœuds de relation de suivre exactement le même cycle de chargement,
 d'enregistrement et de réinitialisation que les nœuds d'entité.
 
+Le cadrage global est stocké séparément dans la ligne unique de
+`graph_viewport`. Elle conserve le niveau de zoom et les décalages horizontal
+et vertical du canevas. Ces valeurs sont enregistrées à la fermeture de
+l'enquête et restaurées lors de son premier chargement, afin que la vue
+réapparaisse exactement à l'endroit où l'utilisateur l'avait laissée.
+
 ---
 
 # 12. Conclusion

@@ -447,6 +447,11 @@ void workspace_set_graph(
     const InvestigationGraphLayout *graph_layout
 );
 
+gboolean workspace_get_graph_view_transform(
+    Workspace *workspace, double *zoom, double *offset_x, double *offset_y);
+void workspace_set_graph_view_transform(
+    Workspace *workspace, double zoom, double offset_x, double offset_y);
+
 /**
  * @brief Affiche une erreur de chargement du graphe.
  *

@@ -1421,6 +1421,22 @@ void main_window_set_graph(
     );
 }
 
+gboolean main_window_get_graph_view_transform(
+    MainWindow *main_window, double *zoom, double *offset_x, double *offset_y)
+{
+    return main_window != NULL &&
+        workspace_get_graph_view_transform(
+            main_window->workspace, zoom, offset_x, offset_y);
+}
+
+void main_window_set_graph_view_transform(
+    MainWindow *main_window, double zoom, double offset_x, double offset_y)
+{
+    if (main_window != NULL)
+        workspace_set_graph_view_transform(
+            main_window->workspace, zoom, offset_x, offset_y);
+}
+
 gboolean main_window_select_graph_relation(MainWindow *main_window,
     const char *relation_identifier)
 {

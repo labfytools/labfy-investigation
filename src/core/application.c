@@ -137,6 +137,7 @@ struct Application
     InvestigationGraphModel *graph_model;
     InvestigationGraphLayout *graph_layout;
     guint64 graph_load_generation;
+    gboolean graph_viewport_restored;
 
     char *selected_evidence_identifier;
     char *pending_relation_selection_identifier;
@@ -251,6 +252,59 @@ static void application_start_graph_loading(
     Application *application,
     const char *database_path
 );
+
+static void application_save_graph_viewport(Application *application)
+{
+    GraphNodePositionDao *dao = NULL;
+    GError *error = NULL;
+    double zoom = 0.0;
+    double offset_x = 0.0;
+    double offset_y = 0.0;
+
+    if (application == NULL || application->session == NULL ||
+        application->main_window == NULL ||
+        !main_window_get_graph_view_transform(application->main_window,
+            &zoom, &offset_x, &offset_y))
+        return;
+
+    dao = graph_node_position_dao_new(
+        investigation_session_get_database(application->session), &error);
+    if (dao == NULL || !graph_node_position_dao_upsert_viewport(
+            dao, zoom, offset_x, offset_y, &error))
+        g_warning("Impossible d'enregistrer le cadrage du graphe : %s",
+            error != NULL ? error->message : "erreur inconnue");
+
+    graph_node_position_dao_free(dao);
+    g_clear_error(&error);
+}
+
+static void application_restore_graph_viewport(Application *application)
+{
+    GraphNodePositionDao *dao = NULL;
+    GError *error = NULL;
+    gboolean found = FALSE;
+    double zoom = 0.0;
+    double offset_x = 0.0;
+    double offset_y = 0.0;
+
+    if (application == NULL || application->graph_viewport_restored ||
+        application->session == NULL || application->main_window == NULL)
+        return;
+
+    dao = graph_node_position_dao_new(
+        investigation_session_get_database(application->session), &error);
+    if (dao != NULL && graph_node_position_dao_load_viewport(
+            dao, &zoom, &offset_x, &offset_y, &found, &error) && found)
+        main_window_set_graph_view_transform(
+            application->main_window, zoom, offset_x, offset_y);
+    else if (error != NULL)
+        g_warning("Impossible de restaurer le cadrage du graphe : %s",
+            error->message);
+
+    application->graph_viewport_restored = TRUE;
+    graph_node_position_dao_free(dao);
+    g_clear_error(&error);
+}
 
 static void application_present_error(
     Application *application,
@@ -1067,6 +1121,8 @@ static void application_on_graph_loaded(
         application->graph_model,
         application->graph_layout
     );
+
+    application_restore_graph_viewport(application);
 
     if (application->pending_relation_selection_identifier != NULL)
     {
@@ -2609,12 +2665,14 @@ static gboolean application_install_session(
         application->tree_model
     );
 
+    application_save_graph_viewport(application);
     investigation_session_close(
         application->session
     );
 
     application->tree_model = new_tree_model;
     application->session = new_session;
+    application->graph_viewport_restored = FALSE;
 
     main_window_set_tree_model(
         application->main_window,
@@ -8067,6 +8125,8 @@ void application_free(
     application_cancel_graph_loading(
         application
     );
+
+    application_save_graph_viewport(application);
 
     application_clear_graph(
         application

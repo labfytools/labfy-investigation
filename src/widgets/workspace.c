@@ -3229,6 +3229,24 @@ void workspace_set_graph(
     );
 }
 
+gboolean workspace_get_graph_view_transform(
+    Workspace *workspace, double *zoom, double *offset_x, double *offset_y)
+{
+    if (workspace == NULL || workspace->graph_state != WORKSPACE_GRAPH_STATE_READY)
+        return FALSE;
+    return investigation_graph_view_get_view_transform(
+        workspace->graph_view, zoom, offset_x, offset_y);
+}
+
+void workspace_set_graph_view_transform(
+    Workspace *workspace, double zoom, double offset_x, double offset_y)
+{
+    if (workspace == NULL || workspace->graph_state != WORKSPACE_GRAPH_STATE_READY)
+        return;
+    investigation_graph_view_set_view_transform(
+        workspace->graph_view, zoom, offset_x, offset_y);
+}
+
 void workspace_set_graph_error(
     Workspace *workspace,
     const char *message
