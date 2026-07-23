@@ -525,7 +525,7 @@ static void test_database_initialize_valid_database(void)
         "FROM investigation;"
     );
 
-    assert(strcmp(schema_version, "6") == 0);
+    assert(strcmp(schema_version, "7") == 0);
     test_database_assert_table_exists(database, "osint_executions");
     test_database_assert_table_exists(database, "osint_execution_entities");
     test_database_assert_table_exists(database, "osint_execution_relations");

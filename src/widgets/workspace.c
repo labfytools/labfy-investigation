@@ -2620,8 +2620,17 @@ void workspace_set_selected_node(
 
     gtk_stack_set_visible_child_name(
         GTK_STACK(workspace->stack),
-        WORKSPACE_PAGE_NODE_INFORMATION
+        node_type == INVESTIGATION_NODE_FILE
+            ? WORKSPACE_PAGE_EVIDENCE_INFORMATION
+            : WORKSPACE_PAGE_NODE_INFORMATION
     );
+
+    if (node_type == INVESTIGATION_NODE_FILE)
+    {
+        gtk_label_set_text(GTK_LABEL(workspace->evidence_name_label),
+            node_name != NULL ? node_name : "Fichier");
+        workspace_set_evidence_preview(workspace, node_path, node_name);
+    }
 
     g_free(children_text);
     g_free(parent_text);
@@ -2888,7 +2897,10 @@ void workspace_set_evidence_preview(Workspace *workspace,
     else
     {
         char *message = NULL;
-        if (mime_type != NULL && g_strcmp0(mime_type, "text/plain") == 0)
+        if ((mime_type != NULL && g_strcmp0(mime_type, "text/plain") == 0) ||
+            g_str_has_suffix(file_path, ".txt") ||
+            g_str_has_suffix(file_path, ".log") ||
+            g_str_has_suffix(file_path, ".json"))
         {
             char *contents = NULL;
             gsize length = 0;

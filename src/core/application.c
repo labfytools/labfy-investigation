@@ -44,6 +44,7 @@
 #include "dao/relation_dao.h"
 #include "dao/relation_evidence_dao.h"
 #include "dao/osint_execution_dao.h"
+#include "dao/extraction_dao.h"
 #include "models/evidence_type.h"
 #include "widgets/evidence_list_model.h"
 #include "widgets/evidence_category_model.h"
@@ -426,6 +427,7 @@ static void application_on_osint_search_completed(BackgroundTask *task,
     char *output_directory = NULL;
     char *output_name = NULL;
     char *output_path = NULL;
+    guint output_suffix = 0;
     const InvestigationProject *project = NULL;
     GError *error = NULL;
     if (context == NULL || context->application == NULL) return;
@@ -458,12 +460,40 @@ static void application_on_osint_search_completed(BackgroundTask *task,
     output_name = g_strdup_printf("%s-%s.txt", context->target_identifier,
         context->action_identifier);
     output_path = g_build_filename(output_directory, output_name, NULL);
+    while (g_file_test(output_path, G_FILE_TEST_EXISTS))
+    {
+        char *unique_name = g_strdup_printf("%s-%s (%u).txt",
+            context->target_identifier, context->action_identifier,
+            ++output_suffix);
+        g_free(output_name);
+        g_free(output_path);
+        output_name = unique_name;
+        output_path = g_build_filename(output_directory, output_name, NULL);
+    }
     details = g_strdup_printf("Cible : %s\nAction : %s\n\n%s%s%s",
         context->target_value, context->action_identifier,
         stdout_text != NULL ? stdout_text : "",
         stderr_text != NULL && stderr_text[0] != '\0' ? "\n\nErreur :\n" : "",
         stderr_text != NULL ? stderr_text : "");
     if (!g_file_set_contents(output_path, details, -1, &error)) goto failure;
+    {
+        ExtractionDao *extraction_dao = extraction_dao_new(
+            investigation_session_get_database(context->application->session),
+            &error);
+        char *extraction_id = g_uuid_string_random();
+        char *created_at = application_osint_create_timestamp();
+        if (extraction_dao == NULL || extraction_id == NULL || created_at == NULL ||
+            !extraction_dao_insert(extraction_dao, extraction_id, NULL, "entity",
+                context->target_identifier, context->action_identifier,
+                created_at, &error))
+        {
+            extraction_dao_free(extraction_dao);
+            g_free(extraction_id); g_free(created_at);
+            goto failure;
+        }
+        extraction_dao_free(extraction_dao);
+        g_free(extraction_id); g_free(created_at);
+    }
     application_message_dialog_present_details_action(
         main_window_get_window(context->application->main_window),
         APPLICATION_MESSAGE_DIALOG_INFORMATION, "Résultat de la recherche OSINT",
@@ -5018,6 +5048,9 @@ static void application_on_tree_node_selected(
     else
     {
         g_print("Type : fichier\n");
+        main_window_set_evidence_preview(
+            application->main_window,
+            investigation_node_get_path(node), node_name);
     }
 }
 

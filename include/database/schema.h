@@ -87,6 +87,8 @@ bool schema_install_v5(Database *database);
 /** @brief Installe la catégorie d'identité usurpée du schéma V6. */
 bool schema_install_v6(Database *database);
 
+bool schema_install_v7(Database *database);
+
 /**
  * @brief Garantit la présence des extensions du schéma courant V2.
  *

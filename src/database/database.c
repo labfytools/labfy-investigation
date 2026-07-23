@@ -16,12 +16,12 @@
 /**
  * @brief Version actuelle du schéma SQLite.
  */
-#define DATABASE_SCHEMA_VERSION_CURRENT 6
+#define DATABASE_SCHEMA_VERSION_CURRENT 7
 
 /**
  * @brief Version actuelle sous forme textuelle pour metadata.
  */
-#define DATABASE_SCHEMA_VERSION_CURRENT_TEXT "6"
+#define DATABASE_SCHEMA_VERSION_CURRENT_TEXT "7"
 
 /**
  * @brief Nom de l'application enregistré dans les métadonnées.
@@ -956,6 +956,12 @@ bool database_migrate_to_latest(
                 if (!database_migrate_v5_to_v6(database))
                     return false;
                 schema_version = 6;
+                break;
+
+            case 6:
+                if (!schema_install_v7(database))
+                    return false;
+                schema_version = 7;
                 break;
 
             default:
