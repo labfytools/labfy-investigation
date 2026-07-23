@@ -331,6 +331,7 @@ static void application_on_extraction_dropped(
         "Annuler", "Créer une entité", "Rattacher à l'entité", NULL
     };
     char *details = NULL;
+    char *content_preview = NULL;
     GError *error = NULL;
 
     if (application == NULL || application->session == NULL) return;
@@ -348,10 +349,33 @@ static void application_on_extraction_dropped(
         application_extraction_drop_context_free(context);
         return;
     }
+    {
+        const char *content = extraction_drop_info_get_content(context->info);
+        const char *preview_end = content;
+        guint line_count = 0U;
+
+        while (preview_end != NULL && *preview_end != '\0' &&
+               (gsize) (preview_end - content) < 800U &&
+               line_count < 12U)
+        {
+            if (*preview_end == '\n') line_count++;
+            preview_end = g_utf8_next_char(preview_end);
+        }
+        content_preview = g_strndup(content,
+            preview_end != NULL ? (gsize) (preview_end - content) : 0U);
+        if (preview_end != NULL && *preview_end != '\0')
+        {
+            char *truncated_preview = g_strconcat(content_preview,
+                "\n\n[… aperçu tronqué, le fichier complet sera conservé]",
+                NULL);
+            g_free(content_preview);
+            content_preview = truncated_preview;
+        }
+    }
     details = g_strdup_printf("Fichier : %s\nSource : %s\n\n%s",
         extraction_drop_info_get_file_name(context->info),
         extraction_drop_info_get_source(context->info),
-        extraction_drop_info_get_content(context->info));
+        content_preview != NULL ? content_preview : "");
     dialog = gtk_alert_dialog_new("Intégrer cette extraction au graphe ?");
     gtk_alert_dialog_set_detail(dialog, details);
     gtk_alert_dialog_set_buttons(dialog, buttons);
@@ -362,6 +386,7 @@ static void application_on_extraction_dropped(
         application_on_extraction_choice_finished, context);
     g_object_unref(dialog);
     g_free(details);
+    g_free(content_preview);
 }
 
 static void application_present_next_batch_metadata(
