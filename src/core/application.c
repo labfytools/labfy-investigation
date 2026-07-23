@@ -138,6 +138,7 @@ struct Application
     InvestigationGraphLayout *graph_layout;
     guint64 graph_load_generation;
     gboolean graph_viewport_restored;
+    guint graph_viewport_save_source_id;
 
     char *selected_evidence_identifier;
     char *pending_relation_selection_identifier;
@@ -276,6 +277,25 @@ static void application_save_graph_viewport(Application *application)
 
     graph_node_position_dao_free(dao);
     g_clear_error(&error);
+}
+
+static gboolean application_save_graph_viewport_timeout(gpointer user_data)
+{
+    Application *application = user_data;
+    if (application == NULL) return G_SOURCE_REMOVE;
+    application->graph_viewport_save_source_id = 0U;
+    application_save_graph_viewport(application);
+    return G_SOURCE_REMOVE;
+}
+
+static void application_on_graph_transform_changed(gpointer user_data)
+{
+    Application *application = user_data;
+    if (application == NULL) return;
+    if (application->graph_viewport_save_source_id != 0U)
+        g_source_remove(application->graph_viewport_save_source_id);
+    application->graph_viewport_save_source_id = g_timeout_add(
+        250U, application_save_graph_viewport_timeout, application);
 }
 
 static void application_restore_graph_viewport(Application *application)
@@ -2665,6 +2685,11 @@ static gboolean application_install_session(
         application->tree_model
     );
 
+    if (application->graph_viewport_save_source_id != 0U)
+    {
+        g_source_remove(application->graph_viewport_save_source_id);
+        application->graph_viewport_save_source_id = 0U;
+    }
     application_save_graph_viewport(application);
     investigation_session_close(
         application->session
@@ -7841,6 +7866,10 @@ static void application_on_activate(
         application_on_graph_node_moved,
         application
     );
+    main_window_set_graph_transform_changed_callback(
+        application->main_window,
+        application_on_graph_transform_changed,
+        application);
     main_window_set_extraction_drop_callback(
         application->main_window, application_on_extraction_dropped,
         application);
@@ -8126,6 +8155,11 @@ void application_free(
         application
     );
 
+    if (application->graph_viewport_save_source_id != 0U)
+    {
+        g_source_remove(application->graph_viewport_save_source_id);
+        application->graph_viewport_save_source_id = 0U;
+    }
     application_save_graph_viewport(application);
 
     application_clear_graph(

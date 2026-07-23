@@ -121,6 +121,8 @@ struct InvestigationGraphView
 
     InvestigationGraphViewNodeMovedCallback node_moved_callback;
     gpointer node_moved_user_data;
+    InvestigationGraphViewTransformChangedCallback transform_changed_callback;
+    gpointer transform_changed_user_data;
     InvestigationGraphViewExtractionDropCallback extraction_drop_callback;
     gpointer extraction_drop_user_data;
 
@@ -317,6 +319,10 @@ static void investigation_graph_view_zoom_at_point(
     gtk_widget_queue_draw(
         graph_view->drawing_area
     );
+
+    if (graph_view->transform_changed_callback != NULL)
+        graph_view->transform_changed_callback(
+            graph_view->transform_changed_user_data);
 }
 
 /**
@@ -513,6 +519,10 @@ static void investigation_graph_view_on_scale_changed(
     gtk_widget_queue_draw(
         graph_view->drawing_area
     );
+
+    if (graph_view->transform_changed_callback != NULL)
+        graph_view->transform_changed_callback(
+            graph_view->transform_changed_user_data);
 }
 
 /**
@@ -1200,6 +1210,10 @@ static void investigation_graph_view_on_drag_update(
         graph_view->offset_y =
             graph_view->drag_origin_offset_y +
             offset_y;
+
+        if (graph_view->transform_changed_callback != NULL)
+            graph_view->transform_changed_callback(
+                graph_view->transform_changed_user_data);
 
         gtk_widget_queue_draw(
             graph_view->drawing_area
@@ -4460,6 +4474,16 @@ void investigation_graph_view_set_node_moved_callback(
 
     graph_view->node_moved_user_data =
         user_data;
+}
+
+void investigation_graph_view_set_transform_changed_callback(
+    InvestigationGraphView *graph_view,
+    InvestigationGraphViewTransformChangedCallback callback,
+    gpointer user_data)
+{
+    if (graph_view == NULL) return;
+    graph_view->transform_changed_callback = callback;
+    graph_view->transform_changed_user_data = user_data;
 }
 
 void investigation_graph_view_set_extraction_drop_callback(

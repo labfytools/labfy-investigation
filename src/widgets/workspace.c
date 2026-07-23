@@ -128,6 +128,8 @@ struct Workspace
 
     gpointer
         graph_node_moved_user_data;
+    WorkspaceGraphTransformChangedCallback graph_transform_changed_callback;
+    gpointer graph_transform_changed_user_data;
 
     WorkspaceExtractionDropCallback extraction_drop_callback;
     gpointer extraction_drop_user_data;
@@ -747,6 +749,14 @@ static void workspace_on_graph_node_moved(
         y,
         workspace->graph_node_moved_user_data
     );
+}
+
+static void workspace_on_graph_transform_changed(gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    if (workspace != NULL && workspace->graph_transform_changed_callback != NULL)
+        workspace->graph_transform_changed_callback(
+            workspace->graph_transform_changed_user_data);
 }
 
 /**
@@ -1966,6 +1976,8 @@ Workspace *workspace_new(void)
         workspace_on_graph_node_moved,
         workspace
     );
+    investigation_graph_view_set_transform_changed_callback(
+        workspace->graph_view, workspace_on_graph_transform_changed, workspace);
     investigation_graph_view_set_extraction_drop_callback(
         workspace->graph_view, workspace_on_extraction_dropped, workspace);
 
@@ -3473,6 +3485,16 @@ void workspace_set_graph_node_moved_callback(
         user_data;
 }
 
+void workspace_set_graph_transform_changed_callback(
+    Workspace *workspace,
+    WorkspaceGraphTransformChangedCallback callback,
+    gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->graph_transform_changed_callback = callback;
+    workspace->graph_transform_changed_user_data = user_data;
+}
+
 void workspace_set_extraction_drop_callback(
     Workspace *workspace,
     WorkspaceExtractionDropCallback callback,
@@ -3680,6 +3702,8 @@ void workspace_free(Workspace *workspace)
         NULL,
         NULL
     );
+    investigation_graph_view_set_transform_changed_callback(
+        workspace->graph_view, NULL, NULL);
 
     entity_details_panel_set_close_callback(
         workspace->entity_details_panel,

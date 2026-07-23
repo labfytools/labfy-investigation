@@ -55,6 +55,7 @@ typedef void (*WorkspaceGraphNodeMovedCallback)(
     double y,
     gpointer user_data
 );
+typedef void (*WorkspaceGraphTransformChangedCallback)(gpointer user_data);
 
 typedef void (*WorkspaceExtractionDropCallback)(
     const char *file_path,
@@ -324,6 +325,10 @@ void workspace_set_graph_node_moved_callback(
     WorkspaceGraphNodeMovedCallback callback,
     gpointer user_data
 );
+void workspace_set_graph_transform_changed_callback(
+    Workspace *workspace,
+    WorkspaceGraphTransformChangedCallback callback,
+    gpointer user_data);
 
 void workspace_set_extraction_drop_callback(
     Workspace *workspace,

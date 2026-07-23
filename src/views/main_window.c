@@ -125,6 +125,8 @@ struct MainWindow
 
     gpointer
         graph_node_moved_user_data;
+    MainWindowGraphTransformChangedCallback graph_transform_changed_callback;
+    gpointer graph_transform_changed_user_data;
 
     MainWindowExtractionDropCallback extraction_drop_callback;
     gpointer extraction_drop_user_data;
@@ -512,6 +514,15 @@ static void main_window_on_graph_node_moved(
         y,
         main_window->graph_node_moved_user_data
     );
+}
+
+static void main_window_on_graph_transform_changed(gpointer user_data)
+{
+    MainWindow *main_window = user_data;
+    if (main_window != NULL &&
+        main_window->graph_transform_changed_callback != NULL)
+        main_window->graph_transform_changed_callback(
+            main_window->graph_transform_changed_user_data);
 }
 
 static void main_window_on_extraction_dropped(const char *file_path,
@@ -978,6 +989,9 @@ MainWindow *main_window_new(
         main_window_on_graph_node_moved,
         main_window
     );
+    workspace_set_graph_transform_changed_callback(
+        main_window->workspace, main_window_on_graph_transform_changed,
+        main_window);
     workspace_set_extraction_drop_callback(main_window->workspace,
         main_window_on_extraction_dropped, main_window);
 
@@ -1803,6 +1817,16 @@ void main_window_set_graph_node_moved_callback(
         user_data;
 }
 
+void main_window_set_graph_transform_changed_callback(
+    MainWindow *main_window,
+    MainWindowGraphTransformChangedCallback callback,
+    gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->graph_transform_changed_callback = callback;
+    main_window->graph_transform_changed_user_data = user_data;
+}
+
 void main_window_set_extraction_drop_callback(
     MainWindow *main_window,
     MainWindowExtractionDropCallback callback,
@@ -2070,6 +2094,8 @@ void main_window_free(
             NULL,
             NULL
         );
+        workspace_set_graph_transform_changed_callback(
+            main_window->workspace, NULL, NULL);
 
         workspace_set_reset_graph_layout_callback(
             main_window->workspace,

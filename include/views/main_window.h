@@ -125,6 +125,7 @@ typedef void (*MainWindowGraphNodeMovedCallback)(
     double y,
     gpointer user_data
 );
+typedef void (*MainWindowGraphTransformChangedCallback)(gpointer user_data);
 
 typedef void (*MainWindowExtractionDropCallback)(
     const char *file_path,
@@ -251,6 +252,10 @@ void main_window_set_graph_node_moved_callback(
     MainWindowGraphNodeMovedCallback callback,
     gpointer user_data
 );
+void main_window_set_graph_transform_changed_callback(
+    MainWindow *main_window,
+    MainWindowGraphTransformChangedCallback callback,
+    gpointer user_data);
 
 void main_window_set_extraction_drop_callback(
     MainWindow *main_window,
