@@ -12,6 +12,7 @@
 #include "models/social_platform.h"
 
 #include <glib.h>
+#include <math.h>
 #include <pango/pangocairo.h>
 
 #define INVESTIGATION_GRAPH_VIEW_MARGIN 32.0
@@ -4640,6 +4641,39 @@ void investigation_graph_view_reset_view(
             graph_view->drawing_area
         );
     }
+}
+
+gboolean investigation_graph_view_get_view_transform(
+    const InvestigationGraphView *graph_view,
+    double *zoom,
+    double *offset_x,
+    double *offset_y)
+{
+    if (graph_view == NULL || graph_view->graph_model == NULL ||
+        zoom == NULL || offset_x == NULL || offset_y == NULL)
+        return FALSE;
+    *zoom = graph_view->zoom;
+    *offset_x = graph_view->offset_x;
+    *offset_y = graph_view->offset_y;
+    return TRUE;
+}
+
+void investigation_graph_view_set_view_transform(
+    InvestigationGraphView *graph_view,
+    double zoom,
+    double offset_x,
+    double offset_y)
+{
+    if (graph_view == NULL ||
+        zoom < INVESTIGATION_GRAPH_VIEW_MIN_ZOOM ||
+        zoom > INVESTIGATION_GRAPH_VIEW_MAX_ZOOM ||
+        !isfinite(zoom) || !isfinite(offset_x) || !isfinite(offset_y))
+        return;
+    graph_view->zoom = zoom;
+    graph_view->offset_x = offset_x;
+    graph_view->offset_y = offset_y;
+    if (graph_view->drawing_area != NULL)
+        gtk_widget_queue_draw(graph_view->drawing_area);
 }
 
 void investigation_graph_view_reset_layout(

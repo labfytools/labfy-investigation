@@ -180,6 +180,10 @@ struct Workspace
     OsintActionCatalog *osint_action_catalog;
 
     WorkspaceGraphState graph_state;
+    gboolean saved_graph_transform_valid;
+    double saved_graph_zoom;
+    double saved_graph_offset_x;
+    double saved_graph_offset_y;
 };
 
 /**
@@ -3051,6 +3055,13 @@ void workspace_set_graph_loading(
         workspace->entity_details_panel
     );
 
+    workspace->saved_graph_transform_valid =
+        investigation_graph_view_get_view_transform(
+            workspace->graph_view,
+            &workspace->saved_graph_zoom,
+            &workspace->saved_graph_offset_x,
+            &workspace->saved_graph_offset_y);
+
     investigation_graph_view_clear(
         workspace->graph_view
     );
@@ -3155,6 +3166,16 @@ void workspace_set_graph(
         workspace->graph_view,
         graph_model
     );
+
+    if (workspace->saved_graph_transform_valid)
+    {
+        investigation_graph_view_set_view_transform(
+            workspace->graph_view,
+            workspace->saved_graph_zoom,
+            workspace->saved_graph_offset_x,
+            workspace->saved_graph_offset_y);
+        workspace->saved_graph_transform_valid = FALSE;
+    }
 
     workspace->graph_state =
         WORKSPACE_GRAPH_STATE_READY;

@@ -248,6 +248,26 @@ void investigation_graph_view_reset_view(
 );
 
 /**
+ * @brief Lit le zoom et le déplacement courants du canvas.
+ *
+ * @return TRUE lorsqu'un graphe est actuellement présenté.
+ */
+gboolean investigation_graph_view_get_view_transform(
+    const InvestigationGraphView *graph_view,
+    double *zoom,
+    double *offset_x,
+    double *offset_y
+);
+
+/** @brief Restaure un zoom et un déplacement précédemment lus. */
+void investigation_graph_view_set_view_transform(
+    InvestigationGraphView *graph_view,
+    double zoom,
+    double offset_x,
+    double offset_y
+);
+
+/**
  * @brief Restaure la disposition déterministe initiale des nœuds.
  *
  * Le zoom et le déplacement global du canvas sont conservés.
