@@ -75,6 +75,9 @@ OsintActionCatalog *osint_action_catalog_new_defaults(void)
     OsintActionCatalog *catalog = g_try_new0(OsintActionCatalog, 1);
     OsintAction *demonstration_action = NULL;
     OsintAction *dns_action = NULL;
+    OsintAction *sherlock_action = NULL;
+    OsintAction *maigret_action = NULL;
+    OsintAction *holehe_action = NULL;
     if (catalog == NULL) return NULL;
     catalog->actions = g_ptr_array_new_with_free_func(osint_action_free);
     demonstration_action = osint_action_new(
@@ -88,16 +91,41 @@ OsintActionCatalog *osint_action_catalog_new_defaults(void)
         OSINT_SELECTION_CONTEXT_KIND_ENTITY, "domain_name", "dns.dig", FALSE,
         "L'outil requis n'a pas encore été vérifié."
     );
+    sherlock_action = osint_action_new(
+        "social-username-sherlock", "Rechercher le pseudo (Sherlock)",
+        "Recherche des profils publics correspondant au pseudo sélectionné.",
+        OSINT_SELECTION_CONTEXT_KIND_ENTITY, "social_account", "osint.sherlock",
+        FALSE, "L'outil requis n'a pas encore été vérifié."
+    );
+    maigret_action = osint_action_new(
+        "social-username-maigret", "Rechercher le pseudo (Maigret)",
+        "Recherche complémentaire de profils publics par pseudo.",
+        OSINT_SELECTION_CONTEXT_KIND_ENTITY, "social_account", "osint.maigret",
+        FALSE, "L'outil requis n'a pas encore été vérifié."
+    );
+    holehe_action = osint_action_new(
+        "email-account-holehe", "Rechercher l'email (Holehe)",
+        "Vérification publique optionnelle des services associés à l'email.",
+        OSINT_SELECTION_CONTEXT_KIND_ENTITY, "email_address", "osint.holehe",
+        FALSE, "L'outil requis n'a pas encore été vérifié."
+    );
     if (catalog->actions == NULL || demonstration_action == NULL ||
-        dns_action == NULL)
+        dns_action == NULL || sherlock_action == NULL || maigret_action == NULL ||
+        holehe_action == NULL)
     {
         osint_action_free(demonstration_action);
         osint_action_free(dns_action);
+        osint_action_free(sherlock_action);
+        osint_action_free(maigret_action);
+        osint_action_free(holehe_action);
         osint_action_catalog_free(catalog);
         return NULL;
     }
     g_ptr_array_add(catalog->actions, demonstration_action);
     g_ptr_array_add(catalog->actions, dns_action);
+    g_ptr_array_add(catalog->actions, sherlock_action);
+    g_ptr_array_add(catalog->actions, maigret_action);
+    g_ptr_array_add(catalog->actions, holehe_action);
     return catalog;
 }
 
@@ -107,6 +135,21 @@ static gint osint_action_compare(gconstpointer first, gconstpointer second)
     const OsintAction *const *a = first;
     const OsintAction *const *b = second;
     return g_strcmp0((*a)->label, (*b)->label);
+}
+
+/** @brief Regroupe les types de comptes sociaux pour les recherches publiques. */
+static gboolean osint_action_social_type_matches(const char *expected,
+    const char *actual)
+{
+    gboolean expected_social = g_strcmp0(expected, "social_account") == 0;
+    gboolean actual_social = actual != NULL &&
+        (g_strcmp0(actual, "social_account") == 0 ||
+         g_strcmp0(actual, "instagram_account") == 0 ||
+         g_strcmp0(actual, "tiktok_account") == 0 ||
+         g_strcmp0(actual, "facebook_account") == 0 ||
+         g_strcmp0(actual, "telegram_account") == 0 ||
+         g_strcmp0(actual, "x_account") == 0);
+    return expected_social && actual_social;
 }
 
 GPtrArray *osint_action_catalog_list_compatible(
@@ -126,9 +169,11 @@ GPtrArray *osint_action_catalog_list_compatible(
         gboolean kind_matches = action->target_kind ==
             OSINT_SELECTION_CONTEXT_KIND_UNKNOWN ||
             action->target_kind == osint_selection_context_get_kind(context);
+        const char *context_type = osint_selection_context_get_type(context);
         gboolean type_matches = action->compatible_type == NULL ||
-            g_strcmp0(action->compatible_type,
-                osint_selection_context_get_type(context)) == 0;
+            g_strcmp0(action->compatible_type, context_type) == 0 ||
+            osint_action_social_type_matches(action->compatible_type,
+                context_type);
         if (kind_matches && type_matches)
             g_ptr_array_add(compatible_actions, action);
     }

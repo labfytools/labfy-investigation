@@ -218,6 +218,7 @@ typedef struct
 typedef struct
 {
     Application *application;
+    char *action_identifier;
     char *target_identifier;
     char *target_value;
     char *started_at;
@@ -231,6 +232,8 @@ typedef struct
     char *execution_identifier;
     GPtrArray *proposals;
 } ApplicationOsintReviewContext;
+static char *application_osint_output_to_utf8(GBytes *bytes);
+static char *application_osint_create_timestamp(void);
 /** @brief Contexte possédé pendant la révision d'une analyse EML. */
 typedef struct { Application *application; char *evidence_identifier; }
     ApplicationEmlReviewContext;
@@ -380,8 +383,151 @@ static void application_osint_action_context_free(
 
     g_free(context->target_value);
     g_free(context->target_identifier);
+    g_free(context->action_identifier);
     g_free(context->started_at);
     g_free(context);
+}
+
+/** @brief Extrait un pseudo final depuis une URL de profil social. */
+static char *application_osint_search_target(const char *action_identifier,
+    const char *target_value)
+{
+    char *target = g_strdup(target_value != NULL ? target_value : "");
+    char *query = NULL;
+    char *slash = NULL;
+    if (target == NULL) return NULL;
+    if (g_str_has_prefix(action_identifier, "social-"))
+    {
+        query = strchr(target, '?');
+        if (query != NULL) *query = '\0';
+        slash = strrchr(target, '/');
+        if (slash != NULL && slash[1] != '\0')
+        {
+            char *username = g_strdup(slash + 1);
+            g_free(target);
+            target = username;
+        }
+    }
+    return target;
+}
+
+/** @brief Présente et archive la sortie d'une recherche sociale/email. */
+static void application_on_osint_search_completed(BackgroundTask *task,
+    gpointer user_data)
+{
+    ApplicationOsintActionContext *context = user_data;
+    const ToolTaskResult *task_result = NULL;
+    const ToolProcessResult *process_result = NULL;
+    GBytes *stdout_bytes = NULL;
+    GBytes *stderr_bytes = NULL;
+    char *stdout_text = NULL;
+    char *stderr_text = NULL;
+    char *details = NULL;
+    char *output_directory = NULL;
+    char *output_name = NULL;
+    char *output_path = NULL;
+    const InvestigationProject *project = NULL;
+    GError *error = NULL;
+    if (context == NULL || context->application == NULL) return;
+    if (background_task_get_state(task) == BACKGROUND_TASK_STATE_CANCELLED)
+    {
+        main_window_set_status(context->application->main_window,
+            "Recherche OSINT annulée.");
+        return;
+    }
+    if (background_task_get_state(task) != BACKGROUND_TASK_STATE_COMPLETED)
+    {
+        error = background_task_dup_error(task);
+        application_present_error(context->application, "Recherche OSINT impossible",
+            error != NULL ? error->message : "L'outil OSINT a échoué.");
+        g_clear_error(&error);
+        return;
+    }
+    task_result = tool_task_result_from_background_task(task);
+    process_result = tool_task_result_get_process_result(task_result);
+    stdout_bytes = tool_process_result_ref_stdout(process_result);
+    stderr_bytes = tool_process_result_ref_stderr(process_result);
+    stdout_text = application_osint_output_to_utf8(stdout_bytes);
+    stderr_text = application_osint_output_to_utf8(stderr_bytes);
+    project = investigation_session_get_project(context->application->session);
+    output_directory = project != NULL ? g_build_filename(
+        investigation_project_get_root_path(project), "02_Preuves_Traitees",
+        "Extractions", "OSINT", NULL) : NULL;
+    if (output_directory == NULL || g_mkdir_with_parents(output_directory, 0750) != 0)
+        goto failure;
+    output_name = g_strdup_printf("%s-%s.txt", context->target_identifier,
+        context->action_identifier);
+    output_path = g_build_filename(output_directory, output_name, NULL);
+    details = g_strdup_printf("Cible : %s\nAction : %s\n\n%s%s%s",
+        context->target_value, context->action_identifier,
+        stdout_text != NULL ? stdout_text : "",
+        stderr_text != NULL && stderr_text[0] != '\0' ? "\n\nErreur :\n" : "",
+        stderr_text != NULL ? stderr_text : "");
+    if (!g_file_set_contents(output_path, details, -1, &error)) goto failure;
+    application_message_dialog_present_details_action(
+        main_window_get_window(context->application->main_window),
+        APPLICATION_MESSAGE_DIALOG_INFORMATION, "Résultat de la recherche OSINT",
+        "La sortie publique a été archivée dans les preuves traitées.",
+        details, NULL, NULL, NULL, NULL);
+    goto cleanup;
+failure:
+    application_present_error(context->application, "Archivage OSINT impossible",
+        error != NULL ? error->message : "La sortie n'a pas pu être conservée.");
+cleanup:
+    g_clear_error(&error); g_clear_pointer(&stdout_bytes, g_bytes_unref);
+    g_clear_pointer(&stderr_bytes, g_bytes_unref); g_free(stdout_text);
+    g_free(stderr_text); g_free(details); g_free(output_directory);
+    g_free(output_name); g_free(output_path);
+}
+
+/** @brief Lance Sherlock, Maigret ou Holehe selon l'action choisie. */
+static void application_start_osint_search(Application *application,
+    const char *action_identifier, const char *target_identifier,
+    const char *target_value)
+{
+    const char *tool_identifier = NULL;
+    const char *arguments[4] = { NULL, NULL, NULL, NULL };
+    char *search_target = NULL;
+    ToolTask *tool_task = NULL;
+    BackgroundTask *background_task = NULL;
+    ApplicationOsintActionContext *context = NULL;
+    GError *error = NULL;
+    if (g_strcmp0(action_identifier, "social-username-sherlock") == 0)
+    { tool_identifier = "osint.sherlock"; arguments[0] = "--print-found";
+      arguments[1] = "--no-color"; }
+    else if (g_strcmp0(action_identifier, "social-username-maigret") == 0)
+    { tool_identifier = "osint.maigret"; arguments[0] = "--json";
+      arguments[1] = "simple"; }
+    else if (g_strcmp0(action_identifier, "email-account-holehe") == 0)
+    { tool_identifier = "osint.holehe"; arguments[0] = "--no-color"; }
+    else return;
+    search_target = application_osint_search_target(action_identifier, target_value);
+    arguments[2] = search_target;
+    tool_task = tool_task_new(tool_initializer_get_registry(application->tool_initializer),
+        tool_identifier, "Recherche OSINT", arguments, NULL, &error);
+    if (tool_task == NULL) goto failure;
+    context = g_new0(ApplicationOsintActionContext, 1);
+    context->application = application;
+    context->action_identifier = g_strdup(action_identifier);
+    context->target_identifier = g_strdup(target_identifier);
+    context->target_value = g_strdup(search_target);
+    context->started_at = application_osint_create_timestamp();
+    background_task = tool_task_get_background_task(tool_task);
+    if (context->action_identifier == NULL || context->target_identifier == NULL ||
+        context->target_value == NULL || context->started_at == NULL ||
+        !task_manager_add(application->task_manager, background_task, &error) ||
+        !tool_task_start(tool_task, application_on_osint_search_completed, context,
+            application_osint_action_context_free, &error)) goto failure;
+    context = NULL;
+    main_window_set_status(application->main_window,
+        "Recherche OSINT lancée ; progression disponible dans les tâches.");
+    goto cleanup;
+failure:
+    application_osint_action_context_free(context);
+    application_present_error(application, "Recherche OSINT impossible",
+        error != NULL ? error->message : "Impossible de démarrer l'outil.");
+cleanup:
+    g_clear_error(&error); tool_task_free(tool_task); g_free(search_target);
 }
 
 /**
@@ -1675,6 +1821,15 @@ static void application_on_osint_action_requested(
         application_start_dns_lookup(
             application, target_identifier, target_value
         );
+        return;
+    }
+
+    if (g_strcmp0(action_identifier, "social-username-sherlock") == 0 ||
+        g_strcmp0(action_identifier, "social-username-maigret") == 0 ||
+        g_strcmp0(action_identifier, "email-account-holehe") == 0)
+    {
+        application_start_osint_search(application, action_identifier,
+            target_identifier, target_value);
         return;
     }
 
@@ -7555,6 +7710,36 @@ static void application_on_activate(
     );
 }
 
+/** @brief Ajoute le répertoire privé des outils OSINT au PATH du processus. */
+static void application_prepare_osint_tool_path(void)
+{
+    const char *current_path = g_getenv("PATH");
+    const char *home_directory = g_get_home_dir();
+    char *osint_directory = NULL;
+    char *new_path = NULL;
+
+    if (home_directory == NULL || home_directory[0] == '\0') return;
+    osint_directory = g_build_filename(home_directory, ".local", "share",
+        "labfy-osint", "bin", NULL);
+    if (!g_file_test(osint_directory, G_FILE_TEST_IS_DIR))
+    {
+        g_free(osint_directory);
+        return;
+    }
+    if (current_path != NULL && g_strstr_len(current_path, -1,
+            osint_directory) != NULL)
+    {
+        g_free(osint_directory);
+        return;
+    }
+    new_path = g_strdup_printf("%s%s%s", osint_directory,
+        current_path != NULL && current_path[0] != '\0' ? G_SEARCHPATH_SEPARATOR_S :
+        "", current_path != NULL ? current_path : "");
+    g_setenv("PATH", new_path, TRUE);
+    g_free(new_path);
+    g_free(osint_directory);
+}
+
 Application *application_new(void)
 {
     Application *application = NULL;
@@ -7564,6 +7749,8 @@ Application *application_new(void)
         Application,
         1
     );
+
+    application_prepare_osint_tool_path();
 
     application->task_manager =
         task_manager_new();

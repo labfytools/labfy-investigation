@@ -84,6 +84,21 @@ static const char *const tool_catalog_qpdf_version_arguments[] =
     "--version",
     NULL
 };
+static const char *const tool_catalog_sherlock_version_arguments[] =
+{
+    "--version",
+    NULL
+};
+static const char *const tool_catalog_maigret_version_arguments[] =
+{
+    "--version",
+    NULL
+};
+static const char *const tool_catalog_holehe_version_arguments[] =
+{
+    "--version",
+    NULL
+};
 
 /**
  * @brief Catalogue statique initial.
@@ -173,6 +188,30 @@ static const ToolCatalogEntry tool_catalog_entries[] =
         .executable_name = "qpdf",
         .requirement = TOOL_REQUIREMENT_OPTIONAL,
         .version_arguments = tool_catalog_qpdf_version_arguments,
+        .version_argument_count = 1
+    },
+    {
+        .identifier = "osint.sherlock",
+        .display_name = "Sherlock",
+        .executable_name = "sherlock",
+        .requirement = TOOL_REQUIREMENT_OPTIONAL,
+        .version_arguments = tool_catalog_sherlock_version_arguments,
+        .version_argument_count = 1
+    },
+    {
+        .identifier = "osint.maigret",
+        .display_name = "Maigret",
+        .executable_name = "maigret",
+        .requirement = TOOL_REQUIREMENT_OPTIONAL,
+        .version_arguments = tool_catalog_maigret_version_arguments,
+        .version_argument_count = 1
+    },
+    {
+        .identifier = "osint.holehe",
+        .display_name = "Holehe (vérification email)",
+        .executable_name = "holehe",
+        .requirement = TOOL_REQUIREMENT_OPTIONAL,
+        .version_arguments = tool_catalog_holehe_version_arguments,
         .version_argument_count = 1
     }
 };

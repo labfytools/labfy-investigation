@@ -50,6 +50,34 @@ static void test_non_domain_actions(void)
     osint_action_catalog_free(catalog);
 }
 
+static void test_social_and_email_actions(void)
+{
+    OsintActionCatalog *catalog = osint_action_catalog_new_defaults();
+    OsintSelectionContext *social = create_entity_context("social_account");
+    OsintSelectionContext *email = create_entity_context("email_address");
+    OsintSelectionContext *instagram = create_entity_context("instagram_account");
+    OsintSelectionContext *facebook = create_entity_context("facebook_account");
+    GPtrArray *actions = osint_action_catalog_list_compatible(catalog, social);
+    GPtrArray *email_actions = osint_action_catalog_list_compatible(catalog, email);
+    GPtrArray *instagram_actions = osint_action_catalog_list_compatible(catalog, instagram);
+    GPtrArray *facebook_actions = osint_action_catalog_list_compatible(catalog, facebook);
+    g_assert_cmpuint(actions->len, ==, 3U);
+    g_assert_cmpuint(email_actions->len, ==, 2U);
+    g_assert_cmpuint(instagram_actions->len, ==, 3U);
+    g_assert_cmpuint(facebook_actions->len, ==, 3U);
+    g_assert_cmpstr(osint_action_get_identifier(g_ptr_array_index(email_actions, 1)),
+        ==, "email-account-holehe");
+    g_ptr_array_unref(actions);
+    g_ptr_array_unref(email_actions);
+    g_ptr_array_unref(instagram_actions);
+    g_ptr_array_unref(facebook_actions);
+    osint_selection_context_free(social);
+    osint_selection_context_free(email);
+    osint_selection_context_free(instagram);
+    osint_selection_context_free(facebook);
+    osint_action_catalog_free(catalog);
+}
+
 static void test_invalid_arguments(void)
 {
     OsintActionCatalog *catalog = osint_action_catalog_new_defaults();
@@ -92,6 +120,7 @@ int main(int argc, char **argv)
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/osint-action-catalog/domain", test_domain_actions);
     g_test_add_func("/osint-action-catalog/non-domain", test_non_domain_actions);
+    g_test_add_func("/osint-action-catalog/social-email", test_social_and_email_actions);
     g_test_add_func("/osint-action-catalog/invalid", test_invalid_arguments);
     g_test_add_func("/osint-action-catalog/tool-states", test_tool_states);
     return g_test_run();

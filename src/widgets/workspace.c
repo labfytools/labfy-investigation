@@ -444,6 +444,18 @@ static void workspace_update_osint_tools_menu(
     g_clear_pointer(&compatible_actions, g_ptr_array_unref);
 }
 
+/** @brief Ouvre le menu OSINT depuis le bouton de la fiche entité. */
+static void workspace_on_entity_osint_requested(const char *entity_identifier,
+    gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    (void) entity_identifier;
+    if (workspace == NULL || workspace->osint_tools_popover == NULL) return;
+    workspace_update_osint_tools_menu(workspace,
+        workspace->osint_selection_context);
+    gtk_popover_popup(GTK_POPOVER(workspace->osint_tools_popover));
+}
+
 /**
  * @brief Ajoute une ligne de métadonnée dans la grille.
  *
@@ -1945,6 +1957,8 @@ Workspace *workspace_new(void)
     entity_details_panel_set_person_evidence_callback(
         workspace->entity_details_panel,
         workspace_on_person_evidence_requested, workspace);
+    entity_details_panel_set_osint_callback(workspace->entity_details_panel,
+        workspace_on_entity_osint_requested, workspace);
 
     gtk_overlay_set_child(
         GTK_OVERLAY(

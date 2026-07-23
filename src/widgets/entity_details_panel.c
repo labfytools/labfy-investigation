@@ -19,6 +19,7 @@ struct EntityDetailsPanel
     GtkWidget *root_revealer;
     GtkWidget *frame;
     GtkWidget *add_relation_button;
+    GtkWidget *osint_button;
     GtkWidget *close_button;
 
     GtkWidget *entity_title_label;
@@ -40,6 +41,7 @@ struct EntityDetailsPanel
     GtkWidget *person_evidence_summary_label;
 
     char *selected_entity_identifier;
+    char *selected_entity_type;
 
     EntityDetailsPanelCloseCallback close_callback;
     gpointer close_user_data;
@@ -59,7 +61,32 @@ struct EntityDetailsPanel
     gpointer person_name_user_data;
     EntityDetailsPanelPersonEvidenceCallback person_evidence_callback;
     gpointer person_evidence_user_data;
+    EntityDetailsPanelOsintCallback osint_callback;
+    gpointer osint_user_data;
 };
+
+/** @brief Indique si un type représente un compte social. */
+static gboolean entity_details_panel_is_social_type(const char *type)
+{
+    return g_strcmp0(type, "social_account") == 0 ||
+        g_strcmp0(type, "instagram_account") == 0 ||
+        g_strcmp0(type, "tiktok_account") == 0 ||
+        g_strcmp0(type, "facebook_account") == 0 ||
+        g_strcmp0(type, "telegram_account") == 0 ||
+        g_strcmp0(type, "x_account") == 0;
+}
+
+/** @brief Transmet la demande de recherche OSINT depuis la fiche. */
+static void entity_details_panel_on_osint_clicked(GtkButton *button,
+    gpointer user_data)
+{
+    EntityDetailsPanel *panel = user_data;
+    (void) button;
+    if (panel != NULL && panel->osint_callback != NULL &&
+        panel->selected_entity_identifier != NULL)
+        panel->osint_callback(panel->selected_entity_identifier,
+            panel->osint_user_data);
+}
 /** @brief Relaie la demande de gestion des preuves d'une personne. */
 static void entity_details_panel_on_person_evidence_clicked(GtkButton *button,
     gpointer user_data)
@@ -418,6 +445,8 @@ EntityDetailsPanel *entity_details_panel_new(void)
         gtk_button_new_from_icon_name(
             "list-add-symbolic"
         );
+    details_panel->osint_button = gtk_button_new_from_icon_name(
+        "system-search-symbolic");
 
     details_panel->close_button =
         gtk_button_new_from_icon_name(
@@ -461,6 +490,7 @@ EntityDetailsPanel *entity_details_panel_new(void)
     if (details_panel->root_revealer == NULL ||
         details_panel->frame == NULL ||
         details_panel->add_relation_button == NULL ||
+        details_panel->osint_button == NULL ||
         details_panel->close_button == NULL ||
         content_box == NULL ||
         header_box == NULL ||
@@ -588,6 +618,10 @@ EntityDetailsPanel *entity_details_panel_new(void)
         details_panel->add_relation_button,
         "flat"
     );
+    gtk_widget_set_tooltip_text(details_panel->osint_button,
+        "Recherches OSINT compatibles");
+    gtk_widget_add_css_class(details_panel->osint_button, "flat");
+    gtk_widget_set_sensitive(details_panel->osint_button, FALSE);
 
     gtk_widget_set_sensitive(
         details_panel->add_relation_button,
@@ -608,6 +642,8 @@ EntityDetailsPanel *entity_details_panel_new(void)
         GTK_BOX(header_box),
         header_label
     );
+
+    gtk_box_append(GTK_BOX(header_box), details_panel->osint_button);
 
     gtk_box_append(
         GTK_BOX(header_box),
@@ -881,6 +917,9 @@ EntityDetailsPanel *entity_details_panel_new(void)
     );
 
     g_signal_connect(
+        details_panel->osint_button, "clicked",
+        G_CALLBACK(entity_details_panel_on_osint_clicked), details_panel);
+    g_signal_connect(
         details_panel->add_relation_button,
         "clicked",
         G_CALLBACK(
@@ -937,6 +976,7 @@ void entity_details_panel_set_entity(
         &details_panel->selected_entity_identifier,
         g_free
     );
+    g_clear_pointer(&details_panel->selected_entity_type, g_free);
 
     if (entity_record == NULL)
     {
@@ -953,6 +993,12 @@ void entity_details_panel_set_entity(
                 entity_record
             )
         );
+    details_panel->selected_entity_type = g_strdup(
+        entity_record_get_type_identifier(entity_record));
+    gtk_widget_set_sensitive(details_panel->osint_button,
+        details_panel->osint_callback != NULL &&
+        (g_strcmp0(details_panel->selected_entity_type, "email_address") == 0 ||
+         entity_details_panel_is_social_type(details_panel->selected_entity_type)));
 
     gboolean is_person = g_strcmp0(entity_record_get_type_identifier(
         entity_record), "person") == 0;
@@ -1098,6 +1144,9 @@ void entity_details_panel_clear(
         &details_panel->selected_entity_identifier,
         g_free
     );
+    g_clear_pointer(&details_panel->selected_entity_type, g_free);
+    if (details_panel->osint_button != NULL)
+        gtk_widget_set_sensitive(details_panel->osint_button, FALSE);
 
     entity_details_panel_update_add_relation_button(
         details_panel
@@ -1245,6 +1294,18 @@ void entity_details_panel_set_person_evidence_callback(
     if (details_panel == NULL) return;
     details_panel->person_evidence_callback = callback;
     details_panel->person_evidence_user_data = user_data;
+}
+void entity_details_panel_set_osint_callback(EntityDetailsPanel *details_panel,
+    EntityDetailsPanelOsintCallback callback, gpointer user_data)
+{
+    if (details_panel == NULL) return;
+    details_panel->osint_callback = callback;
+    details_panel->osint_user_data = user_data;
+    if (details_panel->osint_button != NULL)
+        gtk_widget_set_sensitive(details_panel->osint_button,
+            callback != NULL && details_panel->selected_entity_type != NULL &&
+            (g_strcmp0(details_panel->selected_entity_type, "email_address") == 0 ||
+             entity_details_panel_is_social_type(details_panel->selected_entity_type)));
 }
 void entity_details_panel_set_person_evidences(EntityDetailsPanel *panel,
     const GPtrArray *records)

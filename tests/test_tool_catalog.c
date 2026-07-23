@@ -86,6 +86,24 @@ static const ExpectedToolCatalogEntry expected_catalog_entries[] =
         .display_name = "qpdf",
         .executable_name = "qpdf",
         .version_argument = "--version"
+    },
+    {
+        .identifier = "osint.sherlock",
+        .display_name = "Sherlock",
+        .executable_name = "sherlock",
+        .version_argument = "--version"
+    },
+    {
+        .identifier = "osint.maigret",
+        .display_name = "Maigret",
+        .executable_name = "maigret",
+        .version_argument = "--version"
+    },
+    {
+        .identifier = "osint.holehe",
+        .display_name = "Holehe (vérification email)",
+        .executable_name = "holehe",
+        .version_argument = "--version"
     }
 };
 
