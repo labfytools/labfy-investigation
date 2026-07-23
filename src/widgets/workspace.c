@@ -129,6 +129,9 @@ struct Workspace
     gpointer
         graph_node_moved_user_data;
 
+    WorkspaceExtractionDropCallback extraction_drop_callback;
+    gpointer extraction_drop_user_data;
+
     WorkspaceResetGraphLayoutCallback
         reset_graph_layout_callback;
 
@@ -958,6 +961,15 @@ static void workspace_on_person_evidence_requested(const char *identifier,
     if (workspace != NULL && workspace->person_evidence_callback != NULL)
         workspace->person_evidence_callback(identifier,
             workspace->person_evidence_user_data);
+}
+
+static void workspace_on_extraction_dropped(const char *file_path,
+    const char *target_entity_identifier, gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    if (workspace != NULL && workspace->extraction_drop_callback != NULL)
+        workspace->extraction_drop_callback(file_path, target_entity_identifier,
+            workspace->extraction_drop_user_data);
 }
 
 /**
@@ -1939,6 +1951,8 @@ Workspace *workspace_new(void)
         workspace_on_graph_node_moved,
         workspace
     );
+    investigation_graph_view_set_extraction_drop_callback(
+        workspace->graph_view, workspace_on_extraction_dropped, workspace);
 
     entity_details_panel_set_close_callback(
         workspace->entity_details_panel,
@@ -3404,6 +3418,16 @@ void workspace_set_graph_node_moved_callback(
 
     workspace->graph_node_moved_user_data =
         user_data;
+}
+
+void workspace_set_extraction_drop_callback(
+    Workspace *workspace,
+    WorkspaceExtractionDropCallback callback,
+    gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->extraction_drop_callback = callback;
+    workspace->extraction_drop_user_data = user_data;
 }
 
 void workspace_set_reset_graph_layout_callback(

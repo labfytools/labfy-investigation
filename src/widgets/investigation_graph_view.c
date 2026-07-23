@@ -120,6 +120,8 @@ struct InvestigationGraphView
 
     InvestigationGraphViewNodeMovedCallback node_moved_callback;
     gpointer node_moved_user_data;
+    InvestigationGraphViewExtractionDropCallback extraction_drop_callback;
+    gpointer extraction_drop_user_data;
 
     double node_drag_pointer_offset_x;
     double node_drag_pointer_offset_y;
@@ -128,7 +130,45 @@ struct InvestigationGraphView
     gboolean dragging;
     gboolean node_dragging;
     gboolean click_suppressed;
+    GtkDropTarget *extraction_drop_target;
 };
+
+static gboolean investigation_graph_view_screen_to_logical(
+    const InvestigationGraphView *graph_view, double screen_x, double screen_y,
+    double *logical_x, double *logical_y);
+static InvestigationGraphNodeLayout *investigation_graph_view_find_node_at(
+    InvestigationGraphView *graph_view, double logical_x, double logical_y);
+
+/** @brief Relaie un chemin d'extraction et l'éventuelle entité visée. */
+static gboolean investigation_graph_view_on_extraction_drop(
+    GtkDropTarget *target, const GValue *value, double x, double y,
+    gpointer user_data)
+{
+    InvestigationGraphView *graph_view = user_data;
+    InvestigationGraphNodeLayout *node_layout = NULL;
+    const char *path = NULL;
+    const char *entity_identifier = NULL;
+    double logical_x = 0.0;
+    double logical_y = 0.0;
+    (void) target;
+    if (graph_view == NULL || value == NULL ||
+        !G_VALUE_HOLDS_STRING(value)) return FALSE;
+    path = g_value_get_string(value);
+    if (path == NULL || path[0] == '\0') return FALSE;
+    if (investigation_graph_view_screen_to_logical(graph_view, x, y,
+            &logical_x, &logical_y))
+    {
+        node_layout = investigation_graph_view_find_node_at(graph_view,
+            logical_x, logical_y);
+        if (node_layout != NULL && node_layout->entity_record != NULL)
+            entity_identifier = entity_record_get_identifier(
+                node_layout->entity_record);
+    }
+    if (graph_view->extraction_drop_callback == NULL) return FALSE;
+    graph_view->extraction_drop_callback(path, entity_identifier,
+        graph_view->extraction_drop_user_data);
+    return TRUE;
+}
 
 static const char *investigation_graph_view_get_node_identifier(
     const InvestigationGraphNodeLayout *node_layout
@@ -3948,6 +3988,13 @@ InvestigationGraphView *investigation_graph_view_new(void)
         TRUE
     );
 
+    graph_view->extraction_drop_target = GTK_DROP_TARGET(
+        gtk_drop_target_new(G_TYPE_STRING, GDK_ACTION_COPY));
+    g_signal_connect(graph_view->extraction_drop_target, "drop",
+        G_CALLBACK(investigation_graph_view_on_extraction_drop), graph_view);
+    gtk_widget_add_controller(graph_view->drawing_area,
+        GTK_EVENT_CONTROLLER(graph_view->extraction_drop_target));
+
     gtk_drawing_area_set_content_width(
         GTK_DRAWING_AREA(
             graph_view->drawing_area
@@ -4412,6 +4459,16 @@ void investigation_graph_view_set_node_moved_callback(
 
     graph_view->node_moved_user_data =
         user_data;
+}
+
+void investigation_graph_view_set_extraction_drop_callback(
+    InvestigationGraphView *graph_view,
+    InvestigationGraphViewExtractionDropCallback callback,
+    gpointer user_data)
+{
+    if (graph_view == NULL) return;
+    graph_view->extraction_drop_callback = callback;
+    graph_view->extraction_drop_user_data = user_data;
 }
 
 const EntityRecord *investigation_graph_view_get_selected_entity(

@@ -67,6 +67,7 @@
 #include "core/exiftool_metadata.h"
 #include "views/metadata_analysis_dialog.h"
 #include "core/pdf_password_recovery.h"
+#include "core/extraction_drop_service.h"
 #include "views/pdf_password_dialog.h"
 
 #include <gtk/gtk.h>
@@ -225,6 +226,13 @@ typedef struct
     char *started_at;
 } ApplicationOsintActionContext;
 
+typedef struct
+{
+    Application *application;
+    ExtractionDropInfo *info;
+    char *target_entity_identifier;
+} ApplicationExtractionDropContext;
+
 /** @brief Données possédées par l'étape de révision OSINT. */
 typedef struct
 {
@@ -249,6 +257,112 @@ static void application_present_error(
     const char *title,
     const char *message
 );
+
+static void application_extraction_drop_context_free(
+    ApplicationExtractionDropContext *context)
+{
+    if (context == NULL) return;
+    extraction_drop_info_free(context->info);
+    g_free(context->target_entity_identifier);
+    g_free(context);
+}
+
+static void application_on_extraction_choice_finished(
+    GObject *source_object, GAsyncResult *result, gpointer user_data)
+{
+    ApplicationExtractionDropContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    GtkAlertDialog *dialog = GTK_ALERT_DIALOG(source_object);
+    const InvestigationProject *project = NULL;
+    Database *database = NULL;
+    GError *error = NULL;
+    int choice = gtk_alert_dialog_choose_finish(dialog, result, &error);
+    gboolean success = FALSE;
+
+    if (application == NULL || application->session == NULL) goto cleanup;
+    if (error != NULL || choice == 0)
+    {
+        main_window_set_status(application->main_window,
+            "Dépôt de l'extraction annulé.");
+        goto cleanup;
+    }
+    database = investigation_session_get_database(application->session);
+    if (choice == 1)
+        success = extraction_drop_service_create_entity(database,
+            context->info, NULL, &error);
+    else if (choice == 2 && context->target_entity_identifier != NULL)
+        success = extraction_drop_service_attach(database, context->info,
+            context->target_entity_identifier, &error);
+    else
+        g_set_error_literal(&error, EXTRACTION_DROP_SERVICE_ERROR,
+            EXTRACTION_DROP_SERVICE_ERROR_INVALID_ARGUMENT,
+            "Déposez l'extraction directement sur une entité pour la rattacher.");
+
+    if (!success)
+    {
+        application_present_error(application,
+            "Intégration de l'extraction impossible",
+            error != NULL ? error->message : "L'association n'a pas été créée.");
+        goto cleanup;
+    }
+    main_window_set_status(application->main_window,
+        choice == 1 ? "Entité créée depuis l'extraction."
+                    : "Extraction rattachée à l'entité.");
+    project = investigation_session_get_project(application->session);
+    if (project != NULL)
+        application_start_graph_loading(application,
+            investigation_project_get_database_path(project));
+
+cleanup:
+    g_clear_error(&error);
+    application_extraction_drop_context_free(context);
+}
+
+static void application_on_extraction_dropped(
+    const char *file_path,
+    const char *target_entity_identifier,
+    gpointer user_data)
+{
+    Application *application = user_data;
+    ApplicationExtractionDropContext *context = NULL;
+    const InvestigationProject *project = NULL;
+    GtkAlertDialog *dialog = NULL;
+    const char *buttons[] = {
+        "Annuler", "Créer une entité", "Rattacher à l'entité", NULL
+    };
+    char *details = NULL;
+    GError *error = NULL;
+
+    if (application == NULL || application->session == NULL) return;
+    project = investigation_session_get_project(application->session);
+    context = g_new0(ApplicationExtractionDropContext, 1);
+    context->application = application;
+    context->target_entity_identifier = g_strdup(target_entity_identifier);
+    context->info = extraction_drop_service_prepare(
+        investigation_project_get_root_path(project), file_path, &error);
+    if (context->info == NULL)
+    {
+        application_present_error(application, "Dépôt refusé",
+            error != NULL ? error->message : "Extraction invalide.");
+        g_clear_error(&error);
+        application_extraction_drop_context_free(context);
+        return;
+    }
+    details = g_strdup_printf("Fichier : %s\nSource : %s\n\n%s",
+        extraction_drop_info_get_file_name(context->info),
+        extraction_drop_info_get_source(context->info),
+        extraction_drop_info_get_content(context->info));
+    dialog = gtk_alert_dialog_new("Intégrer cette extraction au graphe ?");
+    gtk_alert_dialog_set_detail(dialog, details);
+    gtk_alert_dialog_set_buttons(dialog, buttons);
+    gtk_alert_dialog_set_cancel_button(dialog, 0);
+    gtk_alert_dialog_set_default_button(dialog, 0);
+    gtk_alert_dialog_choose(dialog,
+        main_window_get_window(application->main_window), NULL,
+        application_on_extraction_choice_finished, context);
+    g_object_unref(dialog);
+    g_free(details);
+}
 
 static void application_present_next_batch_metadata(
     ApplicationEvidenceBatchContext *context
@@ -7644,6 +7758,9 @@ static void application_on_activate(
         application_on_graph_node_moved,
         application
     );
+    main_window_set_extraction_drop_callback(
+        application->main_window, application_on_extraction_dropped,
+        application);
 
     main_window_set_reset_graph_layout_callback(
         application->main_window,

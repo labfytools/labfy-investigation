@@ -13,6 +13,38 @@
 #include <gtk/gtk.h>
 #include <string.h>
 
+/** @brief Prépare le chemin du fichier pour un glisser-déposer. */
+static GdkContentProvider *investigation_tree_view_on_drag_prepare(
+    GtkDragSource *source, double x, double y, gpointer user_data)
+{
+    const char *path = g_object_get_data(G_OBJECT(source),
+        "investigation-node-path");
+    (void) x; (void) y; (void) user_data;
+    if (path == NULL || path[0] == '\0') return NULL;
+    return gdk_content_provider_new_typed(G_TYPE_STRING, path);
+}
+/** @brief Vérifie qu'un nœud est un fichier `.txt` sous `Extractions`. */
+static gboolean investigation_tree_view_node_is_extraction(
+    const InvestigationNode *node)
+{
+    const InvestigationNode *ancestor = NULL;
+    const char *name = NULL;
+
+    if (node == NULL ||
+        investigation_node_get_type(node) != INVESTIGATION_NODE_FILE)
+        return FALSE;
+    name = investigation_node_get_name(node);
+    if (name == NULL || !g_str_has_suffix(name, ".txt")) return FALSE;
+    ancestor = investigation_node_get_parent(node);
+    while (ancestor != NULL)
+    {
+        if (g_strcmp0(investigation_node_get_name(ancestor),
+                "Extractions") == 0) return TRUE;
+        ancestor = investigation_node_get_parent(ancestor);
+    }
+    return FALSE;
+}
+
 /*
  * InvestigationTreeItem
  * ---------------------
@@ -248,6 +280,7 @@ static void investigation_tree_view_factory_setup(
     GtkWidget *row_box = NULL;
     GtkWidget *image = NULL;
     GtkWidget *label = NULL;
+    GtkDragSource *drag_source = NULL;
 
     (void)factory;
     (void)user_data;
@@ -291,6 +324,14 @@ static void investigation_tree_view_factory_setup(
         GTK_TREE_EXPANDER(expander),
         row_box
     );
+
+    drag_source = gtk_drag_source_new();
+    gtk_drag_source_set_actions(drag_source, GDK_ACTION_COPY);
+    g_signal_connect(drag_source, "prepare",
+        G_CALLBACK(investigation_tree_view_on_drag_prepare), NULL);
+    g_object_set_data(G_OBJECT(row_box), "investigation-drag-source",
+        drag_source);
+    gtk_widget_add_controller(row_box, GTK_EVENT_CONTROLLER(drag_source));
 
     gtk_list_item_set_child(
         list_item,
@@ -406,6 +447,7 @@ static void investigation_tree_view_factory_bind(
     GtkWidget *label = NULL;
 
     const char *node_name = NULL;
+    GtkDragSource *drag_source = NULL;
 
     (void)factory;
     (void)user_data;
@@ -454,6 +496,13 @@ static void investigation_tree_view_factory_bind(
     {
         return;
     }
+
+    drag_source = GTK_DRAG_SOURCE(g_object_get_data(G_OBJECT(row_box),
+        "investigation-drag-source"));
+    if (drag_source != NULL)
+        g_object_set_data_full(G_OBJECT(drag_source), "investigation-node-path",
+            investigation_tree_view_node_is_extraction(node)
+                ? g_strdup(investigation_node_get_path(node)) : NULL, g_free);
 
     image = gtk_widget_get_first_child(
         row_box

@@ -173,6 +173,9 @@ Le socle actuel comprend notamment :
   sorties standard et d'erreur, et objets créés ou réutilisés ;
 - vérification manuelle de l'intégrité des sorties OSINT enregistrées, sans
   réécriture de l'empreinte ou des données contrôlées.
+- glisser-déposer des extractions texte depuis l'arborescence vers le graphe,
+  avec confirmation explicite, création d'entité ou rattachement à une entité
+  existante, sans déplacement du fichier produit ;
 
 Les outils actuellement présents dans le catalogue initial sont :
 

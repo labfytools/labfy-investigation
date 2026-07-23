@@ -2,6 +2,9 @@
 
 ### Added
 
+- Glisser-déposer confirmé des extractions texte vers le graphe, avec
+  persistance de leur association à une entité.
+
 - Initialisation du cycle de vie de l'application.
 - Création du module `Application`.
 - Intégration de GTK4.

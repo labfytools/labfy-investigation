@@ -56,6 +56,12 @@ typedef void (*WorkspaceGraphNodeMovedCallback)(
     gpointer user_data
 );
 
+typedef void (*WorkspaceExtractionDropCallback)(
+    const char *file_path,
+    const char *target_entity_identifier,
+    gpointer user_data
+);
+
 /**
  * @brief Callback appelé lors d'une demande de réinitialisation du graphe.
  *
@@ -314,6 +320,12 @@ void workspace_set_verify_evidence_callback(
 void workspace_set_graph_node_moved_callback(
     Workspace *workspace,
     WorkspaceGraphNodeMovedCallback callback,
+    gpointer user_data
+);
+
+void workspace_set_extraction_drop_callback(
+    Workspace *workspace,
+    WorkspaceExtractionDropCallback callback,
     gpointer user_data
 );
 

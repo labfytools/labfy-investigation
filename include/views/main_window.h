@@ -126,6 +126,12 @@ typedef void (*MainWindowGraphNodeMovedCallback)(
     gpointer user_data
 );
 
+typedef void (*MainWindowExtractionDropCallback)(
+    const char *file_path,
+    const char *target_entity_identifier,
+    gpointer user_data
+);
+
 /**
  * @brief Callback appelé lors d'une demande de réinitialisation du graphe.
  *
@@ -243,6 +249,12 @@ void main_window_set_recover_pdf_password_callback(MainWindow *main_window,
 void main_window_set_graph_node_moved_callback(
     MainWindow *main_window,
     MainWindowGraphNodeMovedCallback callback,
+    gpointer user_data
+);
+
+void main_window_set_extraction_drop_callback(
+    MainWindow *main_window,
+    MainWindowExtractionDropCallback callback,
     gpointer user_data
 );
 

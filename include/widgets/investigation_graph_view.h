@@ -71,6 +71,13 @@ typedef void (*InvestigationGraphViewNodeMovedCallback)(
     gpointer user_data
 );
 
+/** @brief Callback appelé lorsqu'une extraction est déposée sur le graphe. */
+typedef void (*InvestigationGraphViewExtractionDropCallback)(
+    const char *file_path,
+    const char *target_entity_identifier,
+    gpointer user_data
+);
+
 /**
  * @brief Crée une nouvelle vue graphique vide.
  *
@@ -167,6 +174,12 @@ void investigation_graph_view_set_selection_callback(
 void investigation_graph_view_set_node_moved_callback(
     InvestigationGraphView *graph_view,
     InvestigationGraphViewNodeMovedCallback callback,
+    gpointer user_data
+);
+
+void investigation_graph_view_set_extraction_drop_callback(
+    InvestigationGraphView *graph_view,
+    InvestigationGraphViewExtractionDropCallback callback,
     gpointer user_data
 );
 

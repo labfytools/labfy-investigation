@@ -128,6 +128,7 @@ TEST_EML_ANALYZER := tests/test_eml_analyzer
 TEST_IBAN_ANALYZER := tests/test_iban_analyzer
 TEST_EXIFTOOL_METADATA := tests/test_exiftool_metadata
 TEST_PDF_PASSWORD_RECOVERY := tests/test_pdf_password_recovery
+TEST_EXTRACTION_DROP_SERVICE := tests/test_extraction_drop_service
 
 all: $(TARGET)
 
@@ -196,6 +197,22 @@ $(TEST_ERROR): \
 	src/database/transaction.c \
 	src/database/error.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
+$(TEST_EXTRACTION_DROP_SERVICE): \
+	tests/test_extraction_drop_service.c \
+	src/core/extraction_drop_service.c \
+	src/core/file_hash.c \
+	src/dao/evidence_dao.c \
+	src/dao/entity_dao.c \
+	src/dao/evidence_entity_dao.c \
+	src/models/evidence_record.c \
+	src/models/entity_record.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
 $(TEST_INVESTIGATION_RECORD): \
 	tests/test_investigation_record.c \
@@ -746,7 +763,8 @@ test: \
 	$(TEST_EML_ANALYZER) \
 	$(TEST_IBAN_ANALYZER) \
 	$(TEST_EXIFTOOL_METADATA) \
-	$(TEST_PDF_PASSWORD_RECOVERY)
+	$(TEST_PDF_PASSWORD_RECOVERY) \
+	$(TEST_EXTRACTION_DROP_SERVICE)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -809,6 +827,7 @@ test: \
 	@$(TEST_IBAN_ANALYZER)
 	@$(TEST_EXIFTOOL_METADATA)
 	@$(TEST_PDF_PASSWORD_RECOVERY)
+	@$(TEST_EXTRACTION_DROP_SERVICE)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -874,7 +893,8 @@ clean:
 		$(TEST_SOCIAL_ACCOUNT_SERVICE) \
 		$(TEST_SOCIAL_PLATFORM) \
 		$(TEST_PERSON_ENTITY_SERVICE) \
-		$(TEST_EML_ANALYZER)
+		$(TEST_EML_ANALYZER) \
+		$(TEST_EXTRACTION_DROP_SERVICE)
 
 -include $(DEP)
 

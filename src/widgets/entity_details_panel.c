@@ -39,6 +39,7 @@ struct EntityDetailsPanel
     GtkWidget *person_name_button;
     GtkWidget *person_evidence_button;
     GtkWidget *person_evidence_summary_label;
+    GtkWidget *entity_evidence_box;
 
     char *selected_entity_identifier;
     char *selected_entity_type;
@@ -846,6 +847,8 @@ EntityDetailsPanel *entity_details_panel_new(void)
         GTK_WIDGET(details_panel->person_name_entry));
     gtk_box_append(GTK_BOX(details_panel->person_role_box),
         details_panel->person_name_button);
+    details_panel->entity_evidence_box = gtk_box_new(
+        GTK_ORIENTATION_VERTICAL, 6);
     details_panel->person_evidence_button = gtk_button_new_with_label(
         "Gérer les pièces jointes");
     details_panel->person_evidence_summary_label = gtk_label_new(
@@ -856,13 +859,14 @@ EntityDetailsPanel *entity_details_panel_new(void)
         details_panel->person_evidence_summary_label), TRUE);
     gtk_label_set_selectable(GTK_LABEL(
         details_panel->person_evidence_summary_label), TRUE);
-    gtk_box_append(GTK_BOX(details_panel->person_role_box),
-        gtk_label_new("Preuves associées à cette personne"));
-    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+    gtk_box_append(GTK_BOX(details_panel->entity_evidence_box),
+        gtk_label_new("Preuves associées à cette entité"));
+    gtk_box_append(GTK_BOX(details_panel->entity_evidence_box),
         details_panel->person_evidence_summary_label);
-    gtk_box_append(GTK_BOX(details_panel->person_role_box),
+    gtk_box_append(GTK_BOX(details_panel->entity_evidence_box),
         details_panel->person_evidence_button);
     gtk_box_append(GTK_BOX(details_box), details_panel->person_role_box);
+    gtk_box_append(GTK_BOX(details_box), details_panel->entity_evidence_box);
     g_signal_connect(details_panel->person_role_dropdown, "notify::selected",
         G_CALLBACK(entity_details_panel_on_person_role_changed), details_panel);
     g_signal_connect(details_panel->person_confidence_button, "clicked",
