@@ -14,6 +14,7 @@
 #include "widgets/investigation_graph_view.h"
 
 #include <glib.h>
+#include <gio/gio.h>
 
 #define WORKSPACE_PAGE_WELCOME "welcome"
 #define WORKSPACE_PAGE_NODE_INFORMATION "node-information"
@@ -698,6 +699,26 @@ static void workspace_on_expand_evidence_preview(GtkButton *button,
         content = gtk_video_new_for_filename(workspace->evidence_preview_path);
         gtk_video_set_autoplay(GTK_VIDEO(content), FALSE);
     }
+    else if (gtk_stack_get_visible_child(GTK_STACK(
+                 workspace->evidence_preview_stack)) ==
+             workspace->evidence_preview_status)
+    {
+        GFile *file = g_file_new_for_path(workspace->evidence_preview_path);
+        char *uri = g_file_get_uri(file);
+        GError *error = NULL;
+        if (uri == NULL || !g_app_info_launch_default_for_uri(uri, NULL,
+                &error))
+        {
+            gtk_label_set_text(GTK_LABEL(workspace->evidence_preview_status),
+                error != NULL ? error->message :
+                "Impossible d’ouvrir ce document.");
+            g_clear_error(&error);
+        }
+        g_free(uri);
+        g_object_unref(file);
+        gtk_window_destroy(window);
+        return;
+    }
     else
     {
         content = gtk_picture_new_for_filename(workspace->evidence_preview_path);
@@ -706,6 +727,20 @@ static void workspace_on_expand_evidence_preview(GtkButton *button,
     }
     gtk_window_set_child(window, content);
     gtk_window_present(window);
+}
+
+/** @brief Ouvre l’aperçu agrandi lorsqu’un utilisateur clique dessus. */
+static void workspace_on_evidence_preview_clicked(GtkGestureClick *gesture,
+    gint n_press, gdouble x, gdouble y, gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    (void) gesture;
+    (void) x;
+    (void) y;
+    if (workspace == NULL || n_press != 1 ||
+        workspace->evidence_preview_path == NULL)
+        return;
+    workspace_on_expand_evidence_preview(NULL, workspace);
 }
 
 /** @brief Convertit le statut d'une relation en texte utilisateur. */
@@ -842,7 +877,7 @@ static void workspace_on_graph_node_selected(
                 "Source inconnue",
             target_entity != NULL ? entity_record_get_value(target_entity) :
                 "Cible inconnue",
-            relation_record_get_relation_type(relation_record),
+            relation_record_get_relation_type_label(relation_record),
             relation_record_get_confidence(relation_record),
             workspace_get_relation_status_text(
                 relation_record_get_status(relation_record)),
@@ -1370,7 +1405,7 @@ Workspace *workspace_new(void)
     evidence_content =
         gtk_box_new(
             GTK_ORIENTATION_VERTICAL,
-            16
+            8
         );
 
     if (evidence_content == NULL)
@@ -1384,22 +1419,22 @@ Workspace *workspace_new(void)
 
     gtk_widget_set_margin_start(
         evidence_content,
-        24
+        12
     );
 
     gtk_widget_set_margin_end(
         evidence_content,
-        24
+        12
     );
 
     gtk_widget_set_margin_top(
         evidence_content,
-        24
+        12
     );
 
     gtk_widget_set_margin_bottom(
         evidence_content,
-        24
+        12
     );
 
     workspace->evidence_name_label =
@@ -1454,8 +1489,13 @@ Workspace *workspace_new(void)
     workspace->evidence_preview_video = gtk_video_new();
     workspace->evidence_preview_expand_button =
         gtk_button_new_with_label("Agrandir l’aperçu");
-    gtk_widget_set_size_request(workspace->evidence_preview_stack, -1, 360);
+    gtk_widget_set_size_request(workspace->evidence_preview_stack, -1, 180);
+    gtk_widget_set_vexpand(workspace->evidence_preview_stack, FALSE);
     gtk_widget_set_hexpand(workspace->evidence_preview_stack, TRUE);
+    gtk_widget_set_size_request(workspace->evidence_preview_picture, -1, 180);
+    gtk_widget_set_size_request(workspace->evidence_preview_video, -1, 180);
+    gtk_widget_set_vexpand(workspace->evidence_preview_picture, FALSE);
+    gtk_widget_set_vexpand(workspace->evidence_preview_video, FALSE);
     gtk_picture_set_can_shrink(GTK_PICTURE(
         workspace->evidence_preview_picture), TRUE);
     gtk_picture_set_content_fit(GTK_PICTURE(
@@ -1473,6 +1513,23 @@ Workspace *workspace_new(void)
         workspace->evidence_preview_picture, "image");
     gtk_stack_add_named(GTK_STACK(workspace->evidence_preview_stack),
         workspace->evidence_preview_video, "video");
+    {
+        GtkGesture *gesture = gtk_gesture_click_new();
+        gtk_widget_add_controller(workspace->evidence_preview_picture,
+            GTK_EVENT_CONTROLLER(gesture));
+        g_signal_connect(gesture, "released",
+            G_CALLBACK(workspace_on_evidence_preview_clicked), workspace);
+        gesture = gtk_gesture_click_new();
+        gtk_widget_add_controller(workspace->evidence_preview_video,
+            GTK_EVENT_CONTROLLER(gesture));
+        g_signal_connect(gesture, "released",
+            G_CALLBACK(workspace_on_evidence_preview_clicked), workspace);
+        gesture = gtk_gesture_click_new();
+        gtk_widget_add_controller(workspace->evidence_preview_text,
+            GTK_EVENT_CONTROLLER(gesture));
+        g_signal_connect(gesture, "released",
+            G_CALLBACK(workspace_on_evidence_preview_clicked), workspace);
+    }
     gtk_stack_set_visible_child_name(GTK_STACK(
         workspace->evidence_preview_stack), "status");
     gtk_widget_set_halign(workspace->evidence_preview_expand_button,
@@ -2962,7 +3019,8 @@ void workspace_set_evidence_preview(Workspace *workspace,
             g_free(contents);
         }
         message = g_strdup_printf(
-            "Aperçu indisponible pour %s%s%s.",
+            "Aperçu intégré indisponible pour %s%s%s. Utilisez le bouton "
+            "pour ouvrir le document avec l’application associée.",
             display_name != NULL ? display_name : "ce fichier",
             error != NULL ? " : " : "",
             error != NULL ? error->message : "format non pris en charge");
@@ -2970,6 +3028,12 @@ void workspace_set_evidence_preview(Workspace *workspace,
             message);
         gtk_stack_set_visible_child_name(GTK_STACK(
             workspace->evidence_preview_stack), "status");
+        if (g_file_test(file_path, G_FILE_TEST_IS_REGULAR))
+        {
+            workspace->evidence_preview_path = g_strdup(file_path);
+            gtk_widget_set_sensitive(workspace->evidence_preview_expand_button,
+                workspace->evidence_preview_path != NULL);
+        }
         g_free(message);
         goto cleanup;
     }

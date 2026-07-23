@@ -3551,7 +3551,7 @@ static const char *investigation_graph_view_get_relation_title(
     }
 
     relation_type =
-        relation_record_get_relation_type(
+        relation_record_get_relation_type_label(
             relation_record
         );
 

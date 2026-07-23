@@ -99,6 +99,21 @@ RelationRecord *relation_record_new(
     GError **error
 );
 
+RelationRecord *relation_record_new_canonical(
+    const char *identifier,
+    const char *source_entity_identifier,
+    const char *target_entity_identifier,
+    gint64 relation_type_identifier,
+    const char *relation_type_code,
+    const char *relation_type_label,
+    const char *label,
+    const char *justification,
+    gint confidence,
+    const char *created_at,
+    const char *updated_at,
+    RelationStatus status,
+    GError **error);
+
 /**
  * @brief Libère une relation.
  *
@@ -135,6 +150,12 @@ const char *relation_record_get_target_entity_identifier(
 const char *relation_record_get_relation_type(
     const RelationRecord *relation_record
 );
+gint64 relation_record_get_relation_type_identifier(
+    const RelationRecord *relation_record);
+const char *relation_record_get_relation_type_code(
+    const RelationRecord *relation_record);
+const char *relation_record_get_relation_type_label(
+    const RelationRecord *relation_record);
 
 /**
  * @brief Retourne le libellé facultatif.

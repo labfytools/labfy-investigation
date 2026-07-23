@@ -80,6 +80,7 @@ gboolean create_relation_dialog_present(
     GtkWindow *parent,
     const char *source_entity_identifier,
     const GPtrArray *entities,
+    const GPtrArray *relation_types,
     const GPtrArray *evidence_records,
     const char *investigation_root_path,
     CreateRelationDialogCallback callback,
@@ -109,6 +110,7 @@ gboolean edit_relation_dialog_present(
     GtkWindow *parent,
     const RelationRecord *relation_record,
     const GPtrArray *entities,
+    const GPtrArray *relation_types,
     const GPtrArray *evidence_records,
     const GPtrArray *selected_evidence_identifiers,
     const char *investigation_root_path,
@@ -168,6 +170,10 @@ const char *create_relation_dialog_result_get_target_identifier(
 const char *create_relation_dialog_result_get_relation_type(
     const CreateRelationDialogResult *result
 );
+gint64 create_relation_dialog_result_get_relation_type_identifier(
+    const CreateRelationDialogResult *result);
+const char *create_relation_dialog_result_get_relation_type_code(
+    const CreateRelationDialogResult *result);
 
 /**
  * @brief Retourne le libellé facultatif.

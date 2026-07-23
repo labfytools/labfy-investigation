@@ -184,7 +184,7 @@ static gboolean sidebar_filter_relation_row(
     return sidebar_text_contains_search(
                relation_record_get_label(relation_record), search_text) ||
            sidebar_text_contains_search(
-               relation_record_get_relation_type(relation_record), search_text) ||
+               relation_record_get_relation_type_label(relation_record), search_text) ||
            sidebar_text_contains_search(
                entity_record_get_value(source_entity), search_text) ||
            sidebar_text_contains_search(
@@ -1450,7 +1450,7 @@ void sidebar_set_graph_model(
         GtkWidget *title_label = gtk_label_new(
             label != NULL && label[0] != '\0'
                 ? label
-                : relation_record_get_relation_type(relation_record)
+                : relation_record_get_relation_type_label(relation_record)
         );
         GtkWidget *details_label = gtk_label_new(details);
 

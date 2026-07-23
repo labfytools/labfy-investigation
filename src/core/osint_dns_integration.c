@@ -183,7 +183,9 @@ gboolean osint_dns_integration_apply(
             osint_dns_integration_build_relation_key(
                 relation_record_get_source_entity_identifier(relation),
                 relation_record_get_target_entity_identifier(relation),
-                relation_record_get_relation_type(relation)
+                relation_record_get_relation_type_code(relation) != NULL
+                    ? relation_record_get_relation_type_code(relation)
+                    : relation_record_get_relation_type(relation)
             ),
             g_strdup(relation_record_get_identifier(relation))
         );

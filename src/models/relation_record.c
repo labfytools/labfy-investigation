@@ -16,6 +16,8 @@ struct RelationRecord
     char *source_entity_identifier;
     char *target_entity_identifier;
     char *relation_type;
+    gint64 relation_type_identifier;
+    char *relation_type_code;
     char *label;
     char *justification;
 
@@ -511,6 +513,32 @@ cleanup:
     return relation_record;
 }
 
+RelationRecord *relation_record_new_canonical(
+    const char *identifier, const char *source_entity_identifier,
+    const char *target_entity_identifier, gint64 relation_type_identifier,
+    const char *relation_type_code, const char *relation_type_label,
+    const char *label, const char *justification, gint confidence,
+    const char *created_at, const char *updated_at, RelationStatus status,
+    GError **error)
+{
+    RelationRecord *record = NULL;
+    if (relation_type_identifier <= 0)
+    {
+        g_set_error_literal(error, RELATION_RECORD_ERROR,
+            RELATION_RECORD_ERROR_INVALID_TYPE,
+            "L'identifiant du type canonique est invalide.");
+        return NULL;
+    }
+    record = relation_record_new(identifier, source_entity_identifier,
+        target_entity_identifier, relation_type_label, label, justification,
+        confidence, created_at, updated_at, status, error);
+    if (record == NULL) return NULL;
+    record->relation_type_identifier = relation_type_identifier;
+    record->relation_type_code = relation_record_duplicate_optional(
+        relation_type_code);
+    return record;
+}
+
 void relation_record_free(
     RelationRecord *relation_record
 )
@@ -539,6 +567,7 @@ void relation_record_free(
     g_free(
         relation_record->relation_type
     );
+    g_free(relation_record->relation_type_code);
 
     g_free(
         relation_record->target_entity_identifier
@@ -589,8 +618,28 @@ const char *relation_record_get_relation_type(
 )
 {
     return relation_record != NULL
-        ? relation_record->relation_type
+        ? (relation_record->relation_type_code != NULL
+            ? relation_record->relation_type_code
+            : relation_record->relation_type)
         : NULL;
+}
+
+gint64 relation_record_get_relation_type_identifier(
+    const RelationRecord *relation_record)
+{
+    return relation_record != NULL ? relation_record->relation_type_identifier : 0;
+}
+
+const char *relation_record_get_relation_type_code(
+    const RelationRecord *relation_record)
+{
+    return relation_record != NULL ? relation_record->relation_type_code : NULL;
+}
+
+const char *relation_record_get_relation_type_label(
+    const RelationRecord *relation_record)
+{
+    return relation_record != NULL ? relation_record->relation_type : NULL;
 }
 
 const char *relation_record_get_label(

@@ -2275,6 +2275,32 @@ et vertical du canevas. Ces valeurs sont enregistrées à la fermeture de
 l'enquête et restaurées lors de son premier chargement, afin que la vue
 réapparaisse exactement à l'endroit où l'utilisateur l'avait laissée.
 
+## 11.6 Types canoniques de relations
+
+`relation_types` constitue le référentiel persistant des catégories de
+relations. Chaque type possède un identifiant SQLite, un libellé canonique,
+une clé Unicode normalisée unique, une description facultative et un
+indicateur système. Les types utilisés automatiquement possèdent en plus un
+`code` métier stable, indépendant de la langue et du libellé affiché.
+
+Les quatre notions sont distinctes :
+
+- le **code métier stable** pilote les producteurs automatiques tels que DNS ;
+- le **libellé canonique** est affiché dans le graphe et l’interface ;
+- la **clé normalisée** sert uniquement à garantir l’unicité Unicode ;
+- le **libellé libre de la relation** décrit le fait précis observé.
+
+Depuis le schéma V9, `relations.relation_type_id` référence ce référentiel.
+L’unicité d’une relation orientée repose sur la source, la cible et cet
+identifiant canonique. La colonne historique `type_relation` n’est conservée
+que pour la compatibilité des bases antérieures et n’est plus une identité.
+
+La migration V8 vers V9 parcourt les relations par date puis UUID. Elle
+normalise les espaces Unicode, applique NFC et le casefold Unicode, conserve
+la première graphie comme libellé des types personnalisés et rattache chaque
+relation au type obtenu. Les UUID, métadonnées et tables d’association ne sont
+pas reconstruits. Un contrôle `foreign_key_check` précède le COMMIT.
+
 ---
 
 # 12. Conclusion

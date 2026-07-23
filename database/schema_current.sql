@@ -1,7 +1,7 @@
 /******************************************************************************
  * Labfy Investigation
  *
- * Extensions idempotentes du schéma SQLite courant V8
+ * Extensions idempotentes du schéma SQLite courant V9
  ******************************************************************************/
 
 /*
@@ -100,6 +100,19 @@ CREATE TABLE IF NOT EXISTS graph_viewport
     offset_x   REAL NOT NULL CHECK (offset_x = offset_x),
     offset_y   REAL NOT NULL CHECK (offset_y = offset_y),
     updated_at TEXT NOT NULL CHECK (length(updated_at) = 20)
+);
+
+CREATE TABLE IF NOT EXISTS relation_types
+(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE,
+    label TEXT NOT NULL,
+    normalized_key TEXT NOT NULL UNIQUE,
+    description TEXT,
+    is_system INTEGER NOT NULL DEFAULT 0 CHECK (is_system IN (0, 1)),
+    CHECK (code IS NULL OR length(trim(code)) > 0),
+    CHECK (length(trim(label)) > 0),
+    CHECK (length(normalized_key) > 0)
 );
 
 /* Migration idempotente des positions d'entités déjà enregistrées. */

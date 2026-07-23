@@ -33,6 +33,9 @@
 #include "models/evidence_record.h"
 #include "dao/evidence_type_dao.h"
 #include "dao/graph_node_position_dao.h"
+#include "dao/relation_type_dao.h"
+#include "models/relation_type.h"
+#include "core/relation_type_service.h"
 #include "views/evidence_import_dialog.h"
 #include "views/evidence_metadata_dialog.h"
 #include "views/create_relation_dialog.h"
@@ -5593,6 +5596,7 @@ static void application_on_create_relation_completed(
 
     gboolean relation_created =
         FALSE;
+    gint64 relation_type_identifier = 0;
 
     if (application == NULL ||
         application->main_window == NULL)
@@ -5707,11 +5711,33 @@ static void application_on_create_relation_completed(
         goto cleanup;
     }
 
+    relation_type_identifier =
+        create_relation_dialog_result_get_relation_type_identifier(result);
+    if (relation_type_identifier == 0)
+    {
+        RelationTypeService *type_service =
+            relation_type_service_new(database, &error);
+        if (type_service == NULL ||
+            !relation_type_service_create_custom(type_service, relation_type,
+                NULL, &relation_type_identifier, &error))
+        {
+            relation_type_service_free(type_service);
+            application_present_error(application,
+                "Création du type impossible",
+                error != NULL ? error->message :
+                "Le nouveau type n'a pas pu être créé.");
+            goto cleanup;
+        }
+        relation_type_service_free(type_service);
+    }
+
     relation_record =
-        relation_record_new(
+        relation_record_new_canonical(
             relation_identifier,
             source_identifier,
             target_identifier,
+            relation_type_identifier,
+            create_relation_dialog_result_get_relation_type_code(result),
             relation_type,
             create_relation_dialog_result_get_label(
                 result
@@ -6240,6 +6266,7 @@ static void application_on_edit_relation_completed(
     char *timestamp = NULL;
     GError *error = NULL;
     gboolean transaction_active = FALSE;
+    gint64 relation_type_identifier = 0;
 
     if (result == NULL || application == NULL || application->session == NULL)
         goto cleanup;
@@ -6254,10 +6281,28 @@ static void application_on_edit_relation_completed(
     now = g_date_time_new_now_utc();
     timestamp = now != NULL ? g_date_time_format(now,
         "%Y-%m-%dT%H:%M:%SZ") : NULL;
-    updated = relation_record_new(
+    relation_type_identifier =
+        create_relation_dialog_result_get_relation_type_identifier(result);
+    if (relation_type_identifier == 0)
+    {
+        RelationTypeService *type_service =
+            relation_type_service_new(database, &error);
+        if (type_service == NULL ||
+            !relation_type_service_create_custom(type_service,
+                create_relation_dialog_result_get_relation_type(result),
+                NULL, &relation_type_identifier, &error))
+        {
+            relation_type_service_free(type_service);
+            goto failure;
+        }
+        relation_type_service_free(type_service);
+    }
+    updated = relation_record_new_canonical(
         relation_record_get_identifier(existing),
         relation_record_get_source_entity_identifier(existing),
         relation_record_get_target_entity_identifier(existing),
+        relation_type_identifier,
+        create_relation_dialog_result_get_relation_type_code(result),
         create_relation_dialog_result_get_relation_type(result),
         create_relation_dialog_result_get_label(result),
         create_relation_dialog_result_get_justification(result),
@@ -6348,6 +6393,8 @@ static void application_on_edit_relation_requested(
     GPtrArray *entities = NULL;
     GPtrArray *evidences = NULL;
     GPtrArray *selected_evidences = NULL;
+    GPtrArray *relation_types = NULL;
+    RelationTypeDao *relation_type_dao = NULL;
     const InvestigationProject *project = NULL;
     ApplicationEditRelationContext *context = NULL;
     GError *error = NULL;
@@ -6359,6 +6406,7 @@ static void application_on_edit_relation_requested(
     entity_dao = entity_dao_new(database, &error);
     evidence_dao = evidence_dao_new(database, &error);
     relation_evidence_dao = relation_evidence_dao_new(database, &error);
+    relation_type_dao = relation_type_dao_new(database, &error);
     project = investigation_session_get_project(application->session);
     if (relation_dao != NULL)
         relation = relation_dao_find_by_identifier(relation_dao,
@@ -6369,13 +6417,17 @@ static void application_on_edit_relation_requested(
     if (relation_evidence_dao != NULL) selected_evidences =
         relation_evidence_dao_list_evidence_identifiers(relation_evidence_dao,
             relation_identifier, &error);
+    if (relation_type_dao != NULL)
+        relation_types = relation_type_dao_list_all(relation_type_dao, &error);
     if (relation == NULL || entities == NULL || evidences == NULL ||
-        selected_evidences == NULL || project == NULL) goto failure;
+        selected_evidences == NULL || relation_types == NULL ||
+        project == NULL) goto failure;
     context = g_new0(ApplicationEditRelationContext, 1);
     context->application = application;
     context->relation_identifier = g_strdup(relation_identifier);
     if (context->relation_identifier == NULL || !edit_relation_dialog_present(
             main_window_get_window(application->main_window), relation, entities,
+            relation_types,
             evidences, selected_evidences,
             investigation_project_get_root_path(project),
             application_on_edit_relation_completed, context, &error))
@@ -6396,6 +6448,8 @@ cleanup:
     entity_dao_free(entity_dao);
     evidence_dao_free(evidence_dao);
     relation_evidence_dao_free(relation_evidence_dao);
+    relation_type_dao_free(relation_type_dao);
+    g_clear_pointer(&relation_types, g_ptr_array_unref);
     relation_dao_free(relation_dao);
 }
 
@@ -6462,11 +6516,13 @@ static void application_on_add_relation_requested(
         NULL;
 
     EvidenceDao *evidence_dao = NULL;
+    RelationTypeDao *relation_type_dao = NULL;
     const InvestigationProject *project = NULL;
 
     GPtrArray *entities =
         NULL;
     GPtrArray *evidences = NULL;
+    GPtrArray *relation_types = NULL;
 
     GError *error =
         NULL;
@@ -6533,11 +6589,17 @@ static void application_on_add_relation_requested(
         evidences = evidence_dao_list_all(evidence_dao, &error);
     evidence_dao_free(evidence_dao);
 
+    relation_type_dao = relation_type_dao_new(database, &error);
+    if (relation_type_dao != NULL)
+        relation_types = relation_type_dao_list_all(relation_type_dao, &error);
+    relation_type_dao_free(relation_type_dao);
+
     entity_dao_free(
         entity_dao
     );
 
-    if (entities == NULL || evidences == NULL || project == NULL)
+    if (entities == NULL || evidences == NULL || relation_types == NULL ||
+        project == NULL)
     {
         application_present_error(
             application,
@@ -6553,6 +6615,7 @@ static void application_on_add_relation_requested(
 
         g_clear_pointer(&entities, g_ptr_array_unref);
         g_clear_pointer(&evidences, g_ptr_array_unref);
+        g_clear_pointer(&relation_types, g_ptr_array_unref);
 
         return;
     }
@@ -6563,6 +6626,7 @@ static void application_on_add_relation_requested(
             ),
             source_entity_identifier,
             entities,
+            relation_types,
             evidences,
             investigation_project_get_root_path(project),
             application_on_create_relation_completed,
@@ -6587,6 +6651,7 @@ static void application_on_add_relation_requested(
         entities
     );
     g_ptr_array_unref(evidences);
+    g_ptr_array_unref(relation_types);
 }
 
 /**

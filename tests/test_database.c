@@ -525,7 +525,8 @@ static void test_database_initialize_valid_database(void)
         "FROM investigation;"
     );
 
-    assert(strcmp(schema_version, "8") == 0);
+    assert(strcmp(schema_version, "9") == 0);
+    test_database_assert_table_exists(database, "relation_types");
     test_database_assert_table_exists(database, "graph_viewport");
     test_database_assert_table_exists(database, "osint_executions");
     test_database_assert_table_exists(database, "osint_execution_entities");
@@ -990,7 +991,7 @@ static void test_database_migrate_v1_to_v2(void)
     assert(
         strcmp(
             schema_version,
-            "8"
+            "9"
         ) == 0
     );
 

@@ -7,6 +7,8 @@
 
 #include "database/error.h"
 #include "database/statement.h"
+#include "dao/relation_type_dao.h"
+#include "core/relation_type_normalizer.h"
 
 #include <glib.h>
 #include <stdint.h>
@@ -31,6 +33,7 @@ static const char *const relation_dao_insert_sql =
     "    entite_source_id,"
     "    entite_cible_id,"
     "    type_relation,"
+    "    relation_type_id,"
     "    label,"
     "    justification,"
     "    confiance,"
@@ -49,14 +52,15 @@ static const char *const relation_dao_insert_sql =
     "    ?,"
     "    ?,"
     "    ?,"
+    "    ?,"
     "    ?"
     ");";
 
 /** @brief Requête de modification des attributs d'une relation. */
 static const char *const relation_dao_update_sql =
     "UPDATE relations SET "
-    "type_relation = ?, label = ?, justification = ?, confiance = ?, "
-    "updated_at = ?, status = ? WHERE id = ?;";
+    "type_relation = ?, relation_type_id = ?, label = ?, justification = ?, "
+    "confiance = ?, updated_at = ?, status = ? WHERE id = ?;";
 
 /** @brief Requête de suppression d'une relation. */
 static const char *const relation_dao_delete_sql =
@@ -67,38 +71,42 @@ static const char *const relation_dao_delete_sql =
  */
 static const char *const relation_dao_find_by_identifier_sql =
     "SELECT "
-    "    id,"
-    "    entite_source_id,"
-    "    entite_cible_id,"
-    "    type_relation,"
-    "    label,"
-    "    justification,"
-    "    confiance,"
-    "    created_at,"
-    "    updated_at,"
-    "    status "
-    "FROM relations "
-    "WHERE id = ?;";
+    "    r.id,"
+    "    r.entite_source_id,"
+    "    r.entite_cible_id,"
+    "    rt.id,"
+    "    rt.code,"
+    "    rt.label,"
+    "    r.label,"
+    "    r.justification,"
+    "    r.confiance,"
+    "    r.created_at,"
+    "    r.updated_at,"
+    "    r.status "
+    "FROM relations r JOIN relation_types rt ON rt.id=r.relation_type_id "
+    "WHERE r.id = ?;";
 
 /**
  * @brief Requête de chargement de toutes les relations.
  */
 static const char *const relation_dao_list_all_sql =
     "SELECT "
-    "    id,"
-    "    entite_source_id,"
-    "    entite_cible_id,"
-    "    type_relation,"
-    "    label,"
-    "    justification,"
-    "    confiance,"
-    "    created_at,"
-    "    updated_at,"
-    "    status "
-    "FROM relations "
+    "    r.id,"
+    "    r.entite_source_id,"
+    "    r.entite_cible_id,"
+    "    rt.id,"
+    "    rt.code,"
+    "    rt.label,"
+    "    r.label,"
+    "    r.justification,"
+    "    r.confiance,"
+    "    r.created_at,"
+    "    r.updated_at,"
+    "    r.status "
+    "FROM relations r JOIN relation_types rt ON rt.id=r.relation_type_id "
     "ORDER BY "
-    "    created_at ASC,"
-    "    id ASC;";
+    "    r.created_at ASC,"
+    "    r.id ASC;";
 
 /**
  * @brief Requête de comptage.
@@ -133,7 +141,7 @@ static const char *const relation_dao_duplicate_exists_sql =
     "FROM relations "
     "WHERE entite_source_id = ? "
     "AND entite_cible_id = ? "
-    "AND type_relation = ? "
+    "AND relation_type_id = ? "
     "LIMIT 1;";
 
 /**
@@ -492,7 +500,7 @@ static gboolean relation_dao_duplicate_exists(
     RelationDao *relation_dao,
     const char *source_entity_identifier,
     const char *target_entity_identifier,
-    const char *relation_type,
+    gint64 relation_type_identifier,
     gboolean *out_exists,
     GError **error
 )
@@ -510,7 +518,7 @@ static gboolean relation_dao_duplicate_exists(
         relation_dao->database == NULL ||
         source_entity_identifier == NULL ||
         target_entity_identifier == NULL ||
-        relation_type == NULL ||
+        relation_type_identifier <= 0 ||
         out_exists == NULL)
     {
         relation_dao_set_error_literal(
@@ -553,10 +561,10 @@ static gboolean relation_dao_duplicate_exists(
             2,
             target_entity_identifier
         ) ||
-        !database_statement_bind_text(
+        !database_statement_bind_int64(
             statement,
             3,
-            relation_type
+            relation_type_identifier
         ))
     {
         relation_dao_set_database_error(
@@ -626,6 +634,8 @@ static RelationRecord *relation_dao_read_current_record(
 
     char *relation_type =
         NULL;
+    char *relation_type_code = NULL;
+    int64_t relation_type_identifier = 0;
 
     char *label =
         NULL;
@@ -679,39 +689,49 @@ static RelationRecord *relation_dao_read_current_record(
             2,
             &target_entity_identifier
         ) ||
-        !database_statement_column_text(
+        !database_statement_column_int64(
             statement,
             3,
-            &relation_type
+            &relation_type_identifier
         ) ||
         !database_statement_column_text(
             statement,
             4,
-            &label
+            &relation_type_code
         ) ||
         !database_statement_column_text(
             statement,
             5,
-            &justification
+            &relation_type
         ) ||
-        !database_statement_column_int64(
+        !database_statement_column_text(
             statement,
             6,
-            &confidence_value
+            &label
         ) ||
         !database_statement_column_text(
             statement,
             7,
-            &created_at
+            &justification
         ) ||
-        !database_statement_column_text(
+        !database_statement_column_int64(
             statement,
             8,
-            &updated_at
+            &confidence_value
         ) ||
         !database_statement_column_text(
             statement,
             9,
+            &created_at
+        ) ||
+        !database_statement_column_text(
+            statement,
+            10,
+            &updated_at
+        ) ||
+        !database_statement_column_text(
+            statement,
+            11,
             &status_text
         ))
     {
@@ -751,10 +771,12 @@ static RelationRecord *relation_dao_read_current_record(
     }
 
     relation_record =
-        relation_record_new(
+        relation_record_new_canonical(
             identifier,
             source_entity_identifier,
             target_entity_identifier,
+            (gint64) relation_type_identifier,
+            relation_type_code,
             relation_type,
             label,
             justification,
@@ -816,6 +838,7 @@ cleanup:
     g_free(
         relation_type
     );
+    g_free(relation_type_code);
 
     g_free(
         target_entity_identifier
@@ -915,6 +938,36 @@ void relation_dao_free(
     );
 }
 
+static RelationType *relation_dao_resolve_type(
+    RelationDao *relation_dao, const RelationRecord *record, GError **error)
+{
+    RelationTypeDao *type_dao = NULL;
+    RelationType *type = NULL;
+    char *key = NULL;
+    gint64 identifier = relation_record_get_relation_type_identifier(record);
+    type_dao = relation_type_dao_new(relation_dao->database, error);
+    if (type_dao == NULL) return NULL;
+    if (identifier > 0)
+        type = relation_type_dao_find_by_identifier(type_dao, identifier, error);
+    else if (relation_record_get_relation_type_code(record) != NULL)
+        type = relation_type_dao_find_by_code(type_dao,
+            relation_record_get_relation_type_code(record), error);
+    else
+    {
+        key = relation_type_normalize_key(
+            relation_record_get_relation_type(record));
+        if (key != NULL)
+            type = relation_type_dao_find_by_code(type_dao,
+                relation_record_get_relation_type(record), error);
+        if (type == NULL && (error == NULL || *error == NULL))
+            type = relation_type_dao_find_by_normalized_key(type_dao, key, error);
+    }
+    if (type == NULL && error != NULL && *error == NULL)
+        relation_dao_set_error_literal(error, RELATION_DAO_ERROR_CONSTRAINT,
+            "Le type de relation n'existe pas dans le référentiel.");
+    g_free(key); relation_type_dao_free(type_dao); return type;
+}
+
 gboolean relation_dao_insert(
     RelationDao *relation_dao,
     const RelationRecord *relation_record,
@@ -962,6 +1015,9 @@ gboolean relation_dao_insert(
 
     gboolean success =
         FALSE;
+    RelationType *canonical_type = NULL;
+    gint64 canonical_type_identifier = 0;
+    const char *canonical_type_label = NULL;
 
     g_return_val_if_fail(
         error == NULL || *error == NULL,
@@ -1161,16 +1217,24 @@ gboolean relation_dao_insert(
         return FALSE;
     }
 
+    canonical_type = relation_dao_resolve_type(
+        relation_dao, relation_record, error);
+    if (canonical_type == NULL) return FALSE;
+    canonical_type_identifier = relation_type_get_identifier(canonical_type);
+    canonical_type_label = relation_type_get_code(canonical_type) != NULL
+        ? relation_type_get_code(canonical_type)
+        : relation_type_get_label(canonical_type);
+
     if (!relation_dao_duplicate_exists(
             relation_dao,
             source_entity_identifier,
             target_entity_identifier,
-            relation_type,
+            canonical_type_identifier,
             &value_exists,
             error
         ))
     {
-        return FALSE;
+        goto cleanup;
     }
 
     if (value_exists)
@@ -1181,7 +1245,7 @@ gboolean relation_dao_insert(
             "Cette relation orientée existe déjà pour ce type."
         );
 
-        return FALSE;
+        goto cleanup;
     }
 
     statement =
@@ -1220,36 +1284,41 @@ gboolean relation_dao_insert(
         !database_statement_bind_text(
             statement,
             4,
-            relation_type
+            canonical_type_label
         ) ||
-        !relation_dao_bind_optional_text(
+        !database_statement_bind_int64(
             statement,
             5,
-            label
+            canonical_type_identifier
         ) ||
         !relation_dao_bind_optional_text(
             statement,
             6,
+            label
+        ) ||
+        !relation_dao_bind_optional_text(
+            statement,
+            7,
             justification
         ) ||
         !database_statement_bind_int64(
             statement,
-            7,
+            8,
             (int64_t) confidence
         ) ||
         !database_statement_bind_text(
             statement,
-            8,
+            9,
             created_at
         ) ||
         !database_statement_bind_text(
             statement,
-            9,
+            10,
             updated_at
         ) ||
         !database_statement_bind_text(
             statement,
-            10,
+            11,
             status_text
         ))
     {
@@ -1304,6 +1373,7 @@ cleanup:
     database_statement_finalize(
         statement
     );
+    relation_type_free(canonical_type);
 
     return success;
 }
@@ -1314,6 +1384,7 @@ gboolean relation_dao_update(RelationDao *relation_dao,
     DatabaseStatement *statement = NULL;
     const char *status_text = NULL;
     gboolean success = FALSE;
+    RelationType *canonical_type = NULL;
 
     g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
     if (relation_dao == NULL || relation_record == NULL)
@@ -1325,6 +1396,9 @@ gboolean relation_dao_update(RelationDao *relation_dao,
     }
     status_text = relation_dao_status_to_text(
         relation_record_get_status(relation_record));
+    canonical_type = relation_dao_resolve_type(
+        relation_dao, relation_record, error);
+    if (canonical_type == NULL) return FALSE;
     statement = database_statement_prepare(relation_dao->database,
         relation_dao_update_sql);
     if (statement == NULL)
@@ -1332,21 +1406,25 @@ gboolean relation_dao_update(RelationDao *relation_dao,
         relation_dao_set_database_error(relation_dao, error,
             RELATION_DAO_ERROR_PREPARE,
             "Impossible de préparer la modification de la relation");
-        return FALSE;
+        goto cleanup;
     }
     if (!database_statement_bind_text(statement, 1,
-            relation_record_get_relation_type(relation_record)) ||
-        !relation_dao_bind_optional_text(statement, 2,
-            relation_record_get_label(relation_record)) ||
+            relation_type_get_code(canonical_type) != NULL
+                ? relation_type_get_code(canonical_type)
+                : relation_type_get_label(canonical_type)) ||
+        !database_statement_bind_int64(statement, 2,
+            relation_type_get_identifier(canonical_type)) ||
         !relation_dao_bind_optional_text(statement, 3,
+            relation_record_get_label(relation_record)) ||
+        !relation_dao_bind_optional_text(statement, 4,
             relation_record_get_justification(relation_record)) ||
-        !database_statement_bind_int64(statement, 4,
+        !database_statement_bind_int64(statement, 5,
             relation_record_get_confidence(relation_record)) ||
-        !database_statement_bind_text(statement, 5,
+        !database_statement_bind_text(statement, 6,
             relation_record_get_updated_at(relation_record)) ||
         status_text == NULL ||
-        !database_statement_bind_text(statement, 6, status_text) ||
-        !database_statement_bind_text(statement, 7,
+        !database_statement_bind_text(statement, 7, status_text) ||
+        !database_statement_bind_text(statement, 8,
             relation_record_get_identifier(relation_record)))
     {
         relation_dao_set_database_error(relation_dao, error,
@@ -1364,6 +1442,7 @@ gboolean relation_dao_update(RelationDao *relation_dao,
     success = TRUE;
 cleanup:
     database_statement_finalize(statement);
+    relation_type_free(canonical_type);
     return success;
 }
 

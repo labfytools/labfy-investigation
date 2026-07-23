@@ -2,6 +2,10 @@
 
 ### Added
 
+- Référentiel persistant et normalisé des types de relations, avec codes
+  système stables, types personnalisés, renommage et fusion transactionnelle.
+- Sélecteur canonique dans les formulaires de création et de modification des
+  relations.
 - Glisser-déposer confirmé des extractions texte vers le graphe, avec
   persistance de leur association à une entité.
 - Ouverture de l’aperçu des pièces jointes et preuves depuis les fiches

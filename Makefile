@@ -23,7 +23,8 @@ TEST_CFLAGS = -std=c17 \
               -Iinclude \
               $(shell $(PKG_CONFIG) --cflags glib-2.0 gio-2.0)
 
-TEST_LDFLAGS = $(shell $(PKG_CONFIG) --libs glib-2.0 gio-2.0)
+TEST_LDFLAGS = src/core/relation_type_normalizer.c \
+               $(shell $(PKG_CONFIG) --libs glib-2.0 gio-2.0)
 
 EVIDENCE_RECORD_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 EVIDENCE_TYPE_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
@@ -129,8 +130,28 @@ TEST_IBAN_ANALYZER := tests/test_iban_analyzer
 TEST_EXIFTOOL_METADATA := tests/test_exiftool_metadata
 TEST_PDF_PASSWORD_RECOVERY := tests/test_pdf_password_recovery
 TEST_EXTRACTION_DROP_SERVICE := tests/test_extraction_drop_service
+TEST_RELATION_TYPE_NORMALIZER := tests/test_relation_type_normalizer
+TEST_RELATION_TYPE_SERVICE := tests/test_relation_type_service
 
 all: $(TARGET)
+
+$(TEST_RELATION_TYPE_NORMALIZER): \
+	tests/test_relation_type_normalizer.c \
+	src/core/relation_type_normalizer.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ \
+		$(shell $(PKG_CONFIG) --libs glib-2.0)
+
+$(TEST_RELATION_TYPE_SERVICE): \
+	tests/test_relation_type_service.c \
+	src/core/relation_type_service.c \
+	src/dao/relation_type_dao.c \
+	src/models/relation_type.c \
+	src/database/database.c \
+	src/database/schema.c \
+	src/database/statement.c \
+	src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
 $(TARGET): $(OBJ)
 	$(CC) $(OBJ) -o $@ $(LDFLAGS)
@@ -480,6 +501,8 @@ $(TEST_RELATION_RECORD): \
 $(TEST_RELATION_DAO): \
 	tests/test_relation_dao.c \
 	src/dao/relation_dao.c \
+	src/dao/relation_type_dao.c \
+	src/models/relation_type.c \
 	src/dao/entity_dao.c \
 	src/models/relation_record.c \
 	src/models/entity_record.c \
@@ -494,6 +517,8 @@ $(TEST_RELATION_EVIDENCE_DAO): \
 	tests/test_relation_evidence_dao.c \
 	src/dao/relation_evidence_dao.c \
 	src/dao/relation_dao.c \
+	src/dao/relation_type_dao.c \
+	src/models/relation_type.c \
 	src/dao/evidence_dao.c \
 	src/dao/entity_dao.c \
 	src/models/relation_record.c \
@@ -510,6 +535,8 @@ $(TEST_RELATION_SERVICE): \
 	tests/test_relation_service.c \
 	src/core/relation_service.c \
 	src/dao/relation_dao.c \
+	src/dao/relation_type_dao.c \
+	src/models/relation_type.c \
 	src/dao/relation_evidence_dao.c \
 	src/dao/evidence_dao.c \
 	src/dao/entity_dao.c \
@@ -537,6 +564,8 @@ $(TEST_INVESTIGATION_GRAPH_LOADER): \
 	src/core/investigation_graph_loader.c \
 	src/dao/entity_dao.c \
 	src/dao/relation_dao.c \
+	src/dao/relation_type_dao.c \
+	src/models/relation_type.c \
 	src/models/investigation_graph_model.c \
 	src/models/entity_record.c \
 	src/models/relation_record.c \
@@ -596,6 +625,8 @@ $(TEST_OSINT_DNS_INTEGRATION): \
 	src/models/osint_execution_record.c \
 	src/dao/entity_dao.c \
 	src/dao/relation_dao.c \
+	src/dao/relation_type_dao.c \
+	src/models/relation_type.c \
 	src/dao/osint_execution_dao.c \
 	src/database/database.c \
 	src/database/schema.c \
@@ -691,6 +722,8 @@ $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	src/models/graph_node_position.c \
 	src/dao/graph_node_position_dao.c \
 	src/dao/relation_dao.c \
+	src/dao/relation_type_dao.c \
+	src/models/relation_type.c \
 	src/models/investigation_graph_model.c \
 	src/models/entity_record.c \
 	src/models/relation_record.c \
@@ -764,7 +797,9 @@ test: \
 	$(TEST_IBAN_ANALYZER) \
 	$(TEST_EXIFTOOL_METADATA) \
 	$(TEST_PDF_PASSWORD_RECOVERY) \
-	$(TEST_EXTRACTION_DROP_SERVICE)
+	$(TEST_EXTRACTION_DROP_SERVICE) \
+	$(TEST_RELATION_TYPE_NORMALIZER) \
+	$(TEST_RELATION_TYPE_SERVICE)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -828,6 +863,8 @@ test: \
 	@$(TEST_EXIFTOOL_METADATA)
 	@$(TEST_PDF_PASSWORD_RECOVERY)
 	@$(TEST_EXTRACTION_DROP_SERVICE)
+	@$(TEST_RELATION_TYPE_NORMALIZER)
+	@$(TEST_RELATION_TYPE_SERVICE)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -894,7 +931,9 @@ clean:
 		$(TEST_SOCIAL_PLATFORM) \
 		$(TEST_PERSON_ENTITY_SERVICE) \
 		$(TEST_EML_ANALYZER) \
-		$(TEST_EXTRACTION_DROP_SERVICE)
+		$(TEST_EXTRACTION_DROP_SERVICE) \
+		$(TEST_RELATION_TYPE_NORMALIZER) \
+		$(TEST_RELATION_TYPE_SERVICE)
 
 -include $(DEP)
 

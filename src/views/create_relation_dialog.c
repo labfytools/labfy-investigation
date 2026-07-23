@@ -8,6 +8,8 @@
 #include "models/entity_record.h"
 #include "models/evidence_record.h"
 #include "models/relation_record.h"
+#include "models/relation_type.h"
+#include "core/relation_type_normalizer.h"
 
 #include <glib.h>
 
@@ -20,6 +22,8 @@ struct CreateRelationDialogResult
     char *source_entity_identifier;
     char *target_entity_identifier;
     char *relation_type;
+    char *relation_type_code;
+    gint64 relation_type_identifier;
     char *label;
     char *justification;
     GPtrArray *evidence_identifiers;
@@ -56,7 +60,10 @@ typedef struct
     GtkWindow *window;
 
     GtkDropDown *target_drop_down;
-    GtkEntry *relation_type_entry;
+    GtkDropDown *relation_type_drop_down;
+    GtkStringList *relation_type_string_list;
+    GtkEntry *new_relation_type_entry;
+    GtkWidget *relation_type_control;
     GtkEntry *label_entry;
     GtkTextView *justification_text_view;
     GtkSpinButton *confidence_spin_button;
@@ -64,6 +71,9 @@ typedef struct
 
     char *source_entity_identifier;
     GPtrArray *target_identifiers;
+    GArray *relation_type_identifiers;
+    GPtrArray *relation_type_codes;
+    GPtrArray *relation_type_labels;
     GPtrArray *evidence_options;
     GPtrArray *evidence_check_buttons;
     GtkWidget *evidence_preview_stack;
@@ -77,6 +87,51 @@ typedef struct
 
     gboolean completed;
 } CreateRelationDialogState;
+
+static void create_relation_dialog_show_error(
+    CreateRelationDialogState *state, const char *message);
+
+static void create_relation_dialog_on_new_type_clicked(
+    GtkButton *button, gpointer user_data)
+{
+    CreateRelationDialogState *state = user_data;
+    const char *label = NULL;
+    char *key = NULL;
+    (void) button;
+    if (state == NULL) return;
+    label = gtk_editable_get_text(GTK_EDITABLE(state->new_relation_type_entry));
+    key = relation_type_normalize_key(label);
+    if (key == NULL)
+    {
+        create_relation_dialog_show_error(state,
+            "Saisissez le libellé du nouveau type.");
+        return;
+    }
+    for (guint index = 0U; index < state->relation_type_labels->len; index++)
+    {
+        char *existing_key = relation_type_normalize_key(
+            g_ptr_array_index(state->relation_type_labels, index));
+        gboolean duplicate = g_strcmp0(key, existing_key) == 0;
+        g_free(existing_key);
+        if (duplicate)
+        {
+            create_relation_dialog_show_error(state,
+                "Un type de relation équivalent existe déjà.");
+            gtk_drop_down_set_selected(state->relation_type_drop_down, index);
+            g_free(key);
+            return;
+        }
+    }
+    gint64 identifier = 0;
+    gtk_string_list_append(state->relation_type_string_list, label);
+    g_array_append_val(state->relation_type_identifiers, identifier);
+    g_ptr_array_add(state->relation_type_codes, NULL);
+    g_ptr_array_add(state->relation_type_labels, g_strdup(label));
+    gtk_drop_down_set_selected(state->relation_type_drop_down,
+        state->relation_type_labels->len - 1U);
+    gtk_editable_set_text(GTK_EDITABLE(state->new_relation_type_entry), "");
+    g_free(key);
+}
 
 /**
  * @brief Retourne une copie nettoyée ou NULL pour une valeur vide.
@@ -381,6 +436,10 @@ static void create_relation_dialog_state_free(
         &state->target_identifiers,
         g_ptr_array_unref
     );
+    g_clear_pointer(&state->relation_type_identifiers, g_array_unref);
+    g_clear_pointer(&state->relation_type_codes, g_ptr_array_unref);
+    g_clear_pointer(&state->relation_type_labels, g_ptr_array_unref);
+    g_clear_object(&state->relation_type_string_list);
     create_relation_dialog_clear_preview(state);
     g_clear_pointer(&state->evidence_options, g_ptr_array_unref);
     g_clear_pointer(&state->evidence_check_buttons, g_ptr_array_unref);
@@ -533,12 +592,17 @@ static void create_relation_dialog_on_create_clicked(
             selected_index
         );
 
-    relation_type =
-        gtk_editable_get_text(
-            GTK_EDITABLE(
-                state->relation_type_entry
-            )
-        );
+    guint relation_type_index =
+        gtk_drop_down_get_selected(state->relation_type_drop_down);
+    if (relation_type_index == GTK_INVALID_LIST_POSITION ||
+        relation_type_index >= state->relation_type_labels->len)
+    {
+        create_relation_dialog_show_error(
+            state, "Sélectionnez un type de relation canonique.");
+        return;
+    }
+    relation_type = g_ptr_array_index(
+        state->relation_type_labels, relation_type_index);
 
     label =
         gtk_editable_get_text(
@@ -617,6 +681,10 @@ static void create_relation_dialog_on_create_clicked(
         create_relation_dialog_duplicate_required_text(
             relation_type
         );
+    result->relation_type_identifier = g_array_index(
+        state->relation_type_identifiers, gint64, relation_type_index);
+    result->relation_type_code = g_strdup(g_ptr_array_index(
+        state->relation_type_codes, relation_type_index));
 
     result->label =
         create_relation_dialog_duplicate_optional_text(
@@ -810,6 +878,7 @@ static gboolean create_relation_dialog_present_internal(
     const char *source_entity_identifier,
     const RelationRecord *existing_relation,
     const GPtrArray *entities,
+    const GPtrArray *relation_types,
     const GPtrArray *evidence_records,
     const GPtrArray *selected_evidence_identifiers,
     const char *investigation_root_path,
@@ -823,6 +892,7 @@ static gboolean create_relation_dialog_present_internal(
 
     GtkStringList *target_labels =
         NULL;
+    GtkStringList *relation_type_labels = NULL;
 
     GtkWidget *root_box =
         NULL;
@@ -1381,15 +1451,48 @@ static gboolean create_relation_dialog_present_internal(
         TRUE
     );
 
-    state->relation_type_entry =
-        GTK_ENTRY(
-            gtk_entry_new()
-        );
-
-    gtk_entry_set_placeholder_text(
-        state->relation_type_entry,
-        "Ex. : utilise, contrôle, appartient à"
-    );
+    relation_type_labels = gtk_string_list_new(NULL);
+    state->relation_type_string_list = g_object_ref(relation_type_labels);
+    state->relation_type_identifiers =
+        g_array_new(FALSE, FALSE, sizeof(gint64));
+    state->relation_type_codes = g_ptr_array_new_with_free_func(g_free);
+    state->relation_type_labels = g_ptr_array_new_with_free_func(g_free);
+    guint selected_relation_type_index = 0U;
+    for (guint type_index = 0U;
+         relation_types != NULL && type_index < relation_types->len;
+         type_index++)
+    {
+        const RelationType *type = g_ptr_array_index(relation_types, type_index);
+        gint64 type_identifier = relation_type_get_identifier(type);
+        gtk_string_list_append(relation_type_labels,
+            relation_type_get_label(type));
+        g_array_append_val(state->relation_type_identifiers, type_identifier);
+        g_ptr_array_add(state->relation_type_codes,
+            g_strdup(relation_type_get_code(type)));
+        g_ptr_array_add(state->relation_type_labels,
+            g_strdup(relation_type_get_label(type)));
+        if (existing_relation != NULL &&
+            type_identifier ==
+                relation_record_get_relation_type_identifier(existing_relation))
+            selected_relation_type_index = type_index;
+    }
+    state->relation_type_drop_down = GTK_DROP_DOWN(
+        gtk_drop_down_new(G_LIST_MODEL(relation_type_labels), NULL));
+    gtk_drop_down_set_selected(state->relation_type_drop_down,
+        selected_relation_type_index);
+    state->new_relation_type_entry = GTK_ENTRY(gtk_entry_new());
+    gtk_entry_set_placeholder_text(state->new_relation_type_entry,
+        "Nouveau type…");
+    GtkWidget *new_type_button = gtk_button_new_with_label("Ajouter");
+    state->relation_type_control = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_hexpand(GTK_WIDGET(state->relation_type_drop_down), TRUE);
+    gtk_box_append(GTK_BOX(state->relation_type_control),
+        GTK_WIDGET(state->relation_type_drop_down));
+    gtk_box_append(GTK_BOX(state->relation_type_control),
+        GTK_WIDGET(state->new_relation_type_entry));
+    gtk_box_append(GTK_BOX(state->relation_type_control), new_type_button);
+    g_signal_connect(new_type_button, "clicked",
+        G_CALLBACK(create_relation_dialog_on_new_type_clicked), state);
 
     state->label_entry =
         GTK_ENTRY(
@@ -1424,13 +1527,9 @@ static gboolean create_relation_dialog_present_internal(
 
     if (existing_relation != NULL)
     {
-        const char *relation_type = relation_record_get_relation_type(
-            existing_relation);
         const char *label = relation_record_get_label(existing_relation);
         const char *justification = relation_record_get_justification(
             existing_relation);
-        gtk_editable_set_text(GTK_EDITABLE(state->relation_type_entry),
-            relation_type != NULL ? relation_type : "");
         gtk_editable_set_text(GTK_EDITABLE(state->label_entry),
             label != NULL ? label : "");
         gtk_text_buffer_set_text(gtk_text_view_get_buffer(
@@ -1568,7 +1667,7 @@ static gboolean create_relation_dialog_present_internal(
             grid
         ),
         GTK_WIDGET(
-            state->relation_type_entry
+            state->relation_type_control
         ),
         1,
         1,
@@ -1809,7 +1908,7 @@ static gboolean create_relation_dialog_present_internal(
 
     gtk_widget_grab_focus(
         GTK_WIDGET(
-            state->relation_type_entry
+            state->relation_type_drop_down
         )
     );
 
@@ -1822,16 +1921,19 @@ static gboolean create_relation_dialog_present_internal(
 
 gboolean create_relation_dialog_present(GtkWindow *parent,
     const char *source_entity_identifier, const GPtrArray *entities,
+    const GPtrArray *relation_types,
     const GPtrArray *evidence_records, const char *investigation_root_path,
     CreateRelationDialogCallback callback, gpointer user_data, GError **error)
 {
     return create_relation_dialog_present_internal(parent,
-        source_entity_identifier, NULL, entities, evidence_records, NULL,
+        source_entity_identifier, NULL, entities, relation_types,
+        evidence_records, NULL,
         investigation_root_path, callback, user_data, error);
 }
 
 gboolean edit_relation_dialog_present(GtkWindow *parent,
     const RelationRecord *relation_record, const GPtrArray *entities,
+    const GPtrArray *relation_types,
     const GPtrArray *evidence_records,
     const GPtrArray *selected_evidence_identifiers,
     const char *investigation_root_path,
@@ -1846,7 +1948,7 @@ gboolean edit_relation_dialog_present(GtkWindow *parent,
     }
     return create_relation_dialog_present_internal(parent,
         relation_record_get_source_entity_identifier(relation_record),
-        relation_record, entities, evidence_records,
+        relation_record, entities, relation_types, evidence_records,
         selected_evidence_identifiers, investigation_root_path,
         callback, user_data, error);
 }
@@ -1867,6 +1969,7 @@ void create_relation_dialog_result_free(
     g_free(
         result->label
     );
+    g_free(result->relation_type_code);
 
     g_free(
         result->relation_type
@@ -1918,6 +2021,18 @@ const char *create_relation_dialog_result_get_relation_type(
     return result != NULL
         ? result->relation_type
         : NULL;
+}
+
+gint64 create_relation_dialog_result_get_relation_type_identifier(
+    const CreateRelationDialogResult *result)
+{
+    return result != NULL ? result->relation_type_identifier : 0;
+}
+
+const char *create_relation_dialog_result_get_relation_type_code(
+    const CreateRelationDialogResult *result)
+{
+    return result != NULL ? result->relation_type_code : NULL;
 }
 
 const char *create_relation_dialog_result_get_label(
