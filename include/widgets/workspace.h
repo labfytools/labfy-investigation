@@ -141,6 +141,9 @@ typedef void (*WorkspaceAnalyzeRibCallback)(const char *evidence_identifier,
 /** @brief Callback appelé pour extraire les métadonnées d'une preuve. */
 typedef void (*WorkspaceExtractMetadataCallback)(const char *evidence_identifier,
     gpointer user_data);
+/** @brief Callback appelé pour récupérer le mot de passe d'un PDF. */
+typedef void (*WorkspaceRecoverPdfPasswordCallback)(
+    const char *evidence_identifier, gpointer user_data);
 
 /**
  * @brief Crée une nouvelle zone de travail.
@@ -280,6 +283,9 @@ void workspace_set_analyze_rib_callback(Workspace *workspace,
 /** @brief Définit le callback d'extraction locale des métadonnées. */
 void workspace_set_extract_metadata_callback(Workspace *workspace,
     WorkspaceExtractMetadataCallback callback, gpointer user_data);
+/** @brief Définit le callback de récupération d'un mot de passe PDF. */
+void workspace_set_recover_pdf_password_callback(Workspace *workspace,
+    WorkspaceRecoverPdfPasswordCallback callback, gpointer user_data);
 
 /**
  * @brief Définit le callback de vérification de la preuve affichée.

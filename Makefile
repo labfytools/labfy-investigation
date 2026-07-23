@@ -127,6 +127,7 @@ TEST_PERSON_ENTITY_SERVICE := tests/test_person_entity_service
 TEST_EML_ANALYZER := tests/test_eml_analyzer
 TEST_IBAN_ANALYZER := tests/test_iban_analyzer
 TEST_EXIFTOOL_METADATA := tests/test_exiftool_metadata
+TEST_PDF_PASSWORD_RECOVERY := tests/test_pdf_password_recovery
 
 all: $(TARGET)
 
@@ -656,6 +657,13 @@ $(TEST_EXIFTOOL_METADATA): tests/test_exiftool_metadata.c \
 	src/core/exiftool_metadata.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_PDF_PASSWORD_RECOVERY): tests/test_pdf_password_recovery.c \
+	src/core/pdf_password_recovery.c \
+	src/core/tool_process.c \
+	src/core/background_task.c \
+	src/core/task_manager.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	tests/test_investigation_graph_load_task.c \
 	src/core/investigation_graph_load_task.c \
@@ -737,7 +745,8 @@ test: \
 	$(TEST_PERSON_ENTITY_SERVICE) \
 	$(TEST_EML_ANALYZER) \
 	$(TEST_IBAN_ANALYZER) \
-	$(TEST_EXIFTOOL_METADATA)
+	$(TEST_EXIFTOOL_METADATA) \
+	$(TEST_PDF_PASSWORD_RECOVERY)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -799,6 +808,7 @@ test: \
 	@$(TEST_EML_ANALYZER)
 	@$(TEST_IBAN_ANALYZER)
 	@$(TEST_EXIFTOOL_METADATA)
+	@$(TEST_PDF_PASSWORD_RECOVERY)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c

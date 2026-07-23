@@ -94,6 +94,7 @@ struct Workspace
     GtkWidget *analyze_eml_button;
     GtkWidget *analyze_rib_button;
     GtkWidget *extract_metadata_button;
+    GtkWidget *recover_pdf_password_button;
     GtkWidget *evidence_preview_stack;
     GtkWidget *evidence_preview_status;
     GtkWidget *evidence_preview_picture;
@@ -118,6 +119,8 @@ struct Workspace
     gpointer analyze_rib_user_data;
     WorkspaceExtractMetadataCallback extract_metadata_callback;
     gpointer extract_metadata_user_data;
+    WorkspaceRecoverPdfPasswordCallback recover_pdf_password_callback;
+    gpointer recover_pdf_password_user_data;
 
     WorkspaceGraphNodeMovedCallback
         graph_node_moved_callback;
@@ -1108,6 +1111,19 @@ static void workspace_on_extract_metadata_clicked(GtkButton *button,
             workspace->extract_metadata_user_data);
 }
 
+/** @brief Transmet la demande de récupération du mot de passe PDF. */
+static void workspace_on_recover_pdf_password_clicked(GtkButton *button,
+    gpointer data)
+{
+    Workspace *workspace = data;
+    (void) button;
+    if (workspace != NULL && workspace->recover_pdf_password_callback != NULL &&
+        workspace->selected_evidence_identifier != NULL)
+        workspace->recover_pdf_password_callback(
+            workspace->selected_evidence_identifier,
+            workspace->recover_pdf_password_user_data);
+}
+
 Workspace *workspace_new(void)
 {
     GtkWidget *evidence_content = NULL;
@@ -1494,6 +1510,15 @@ Workspace *workspace_new(void)
         G_CALLBACK(workspace_on_extract_metadata_clicked), workspace);
     gtk_box_append(GTK_BOX(evidence_content),
         workspace->extract_metadata_button);
+    workspace->recover_pdf_password_button = gtk_button_new_with_label(
+        "Récupérer le mot de passe PDF");
+    gtk_widget_set_halign(workspace->recover_pdf_password_button,
+        GTK_ALIGN_START);
+    gtk_widget_set_sensitive(workspace->recover_pdf_password_button, FALSE);
+    g_signal_connect(workspace->recover_pdf_password_button, "clicked",
+        G_CALLBACK(workspace_on_recover_pdf_password_clicked), workspace);
+    gtk_box_append(GTK_BOX(evidence_content),
+        workspace->recover_pdf_password_button);
 
     evidence_separator =
         gtk_separator_new(
@@ -2482,6 +2507,8 @@ void workspace_set_selected_node(
         gtk_widget_set_sensitive(workspace->analyze_rib_button, FALSE);
     if (workspace->extract_metadata_button != NULL)
         gtk_widget_set_sensitive(workspace->extract_metadata_button, FALSE);
+    if (workspace->recover_pdf_password_button != NULL)
+        gtk_widget_set_sensitive(workspace->recover_pdf_password_button, FALSE);
 
     if (node == NULL)
     {
@@ -2657,6 +2684,8 @@ void workspace_set_selected_evidence(
             g_str_has_suffix(lower, ".mov") ||
             g_str_has_suffix(lower, ".mp4") ||
             g_str_has_suffix(lower, ".pdf")));
+        gtk_widget_set_sensitive(workspace->recover_pdf_password_button,
+            lower != NULL && g_str_has_suffix(lower, ".pdf"));
         g_free(lower);
     }
 
@@ -3298,6 +3327,13 @@ void workspace_set_extract_metadata_callback(Workspace *workspace,
     if (workspace == NULL) return;
     workspace->extract_metadata_callback = callback;
     workspace->extract_metadata_user_data = user_data;
+}
+void workspace_set_recover_pdf_password_callback(Workspace *workspace,
+    WorkspaceRecoverPdfPasswordCallback callback, gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->recover_pdf_password_callback = callback;
+    workspace->recover_pdf_password_user_data = user_data;
 }
 
 void workspace_set_graph_node_moved_callback(

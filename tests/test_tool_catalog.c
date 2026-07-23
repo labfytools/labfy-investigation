@@ -68,6 +68,24 @@ static const ExpectedToolCatalogEntry expected_catalog_entries[] =
         .display_name = "ExifTool",
         .executable_name = "exiftool",
         .version_argument = "-ver"
+    },
+    {
+        .identifier = "password.john",
+        .display_name = "John the Ripper",
+        .executable_name = "john",
+        .version_argument = "--list=build-info"
+    },
+    {
+        .identifier = "password.pdf2john",
+        .display_name = "pdf2john",
+        .executable_name = "pdf2john",
+        .version_argument = "--help"
+    },
+    {
+        .identifier = "pdf.qpdf",
+        .display_name = "qpdf",
+        .executable_name = "qpdf",
+        .version_argument = "--version"
     }
 };
 

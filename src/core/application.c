@@ -65,9 +65,13 @@
 #include "core/iban_analyzer.h"
 #include "core/exiftool_metadata.h"
 #include "views/metadata_analysis_dialog.h"
+#include "core/pdf_password_recovery.h"
+#include "views/pdf_password_dialog.h"
 
 #include <gtk/gtk.h>
+#include <glib/gstdio.h>
 #include <errno.h>
+#include <unistd.h>
 
 /**
  * @brief Identifiant unique utilisé par GLib pour l'application.
@@ -3622,6 +3626,253 @@ cleanup:
     g_free(version);
     evidence_record_free(record);
     evidence_dao_free(dao);
+}
+
+/** @brief Contexte conservé pendant la tâche de récupération PDF. */
+typedef struct
+{
+    Application *application;
+    char *copy_path;
+    char *output_directory;
+    char *evidence_identifier;
+} ApplicationPdfRecoveryContext;
+
+/** @brief Libère le contexte d'une récupération PDF. */
+static void application_pdf_recovery_context_free(gpointer data)
+{
+    ApplicationPdfRecoveryContext *context = data;
+    if (context == NULL) return;
+    g_free(context->copy_path);
+    g_free(context->output_directory);
+    g_free(context->evidence_identifier);
+    g_free(context);
+}
+
+/** @brief Contexte secret utilisé pour créer la copie PDF déverrouillée. */
+typedef struct
+{
+    Application *application;
+    char *password;
+    char *copy_path;
+    char *unlocked_path;
+} ApplicationPdfDecryptContext;
+
+/** @brief Efface le mot de passe puis libère le contexte de déchiffrement. */
+static void application_pdf_decrypt_context_free(gpointer data)
+{
+    ApplicationPdfDecryptContext *context = data;
+    if (context == NULL) return;
+    if (context->password != NULL)
+        memset(context->password, 0, strlen(context->password));
+    g_free(context->password);
+    g_free(context->copy_path);
+    g_free(context->unlocked_path);
+    g_free(context);
+}
+
+/** @brief Crée avec qpdf la copie déverrouillée demandée explicitement. */
+static void application_on_pdf_decrypt_requested(gpointer user_data)
+{
+    ApplicationPdfDecryptContext *context = user_data;
+    GSubprocess *process = NULL;
+    char *password_path = NULL;
+    char *password_argument = NULL;
+    char *stderr_text = NULL;
+    int descriptor = -1;
+    GError *error = NULL;
+    const char *arguments[6] = { "qpdf", NULL, "--decrypt", NULL, NULL, NULL };
+    gssize password_length = 0;
+
+    if (context == NULL || context->application == NULL) return;
+    descriptor = g_file_open_tmp("labfy-qpdf-password-XXXXXX",
+        &password_path, &error);
+    password_length = context->password != NULL ?
+        (gssize) strlen(context->password) : 0;
+    if (descriptor < 0 || password_length == 0 ||
+        write(descriptor, context->password, (size_t) password_length) !=
+            password_length)
+        goto failure;
+    close(descriptor);
+    descriptor = -1;
+    password_argument = g_strdup_printf("--password-file=%s", password_path);
+    arguments[1] = password_argument;
+    arguments[3] = context->copy_path;
+    arguments[4] = context->unlocked_path;
+    process = g_subprocess_newv(arguments,
+        G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_PIPE,
+        &error);
+    if (process == NULL || !g_subprocess_communicate_utf8(process, NULL, NULL,
+            NULL, &stderr_text, &error) || !g_subprocess_get_successful(process))
+    {
+        if (error == NULL)
+            g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "qpdf a échoué : %s", stderr_text != NULL ? stderr_text :
+                "aucun détail disponible");
+        goto failure;
+    }
+    application_message_dialog_present(
+        main_window_get_window(context->application->main_window),
+        APPLICATION_MESSAGE_DIALOG_INFORMATION, "PDF déverrouillé",
+        "La copie déverrouillée a été créée dans les preuves traitées.");
+    main_window_set_status(context->application->main_window,
+        "Copie PDF déverrouillée créée.");
+    goto cleanup;
+failure:
+    application_present_error(context->application,
+        "Déverrouillage impossible", error != NULL ? error->message :
+        "qpdf n'a pas pu créer la copie déverrouillée.");
+cleanup:
+    if (descriptor >= 0) close(descriptor);
+    if (password_path != NULL) g_unlink(password_path);
+    g_clear_error(&error);
+    g_clear_object(&process);
+    g_free(password_path);
+    g_free(password_argument);
+    g_free(stderr_text);
+}
+
+/** @brief Présente le résultat final d'une récupération PDF. */
+static void application_on_pdf_recovery_completed(BackgroundTask *task,
+    gpointer user_data)
+{
+    ApplicationPdfRecoveryContext *context = user_data;
+    const PdfPasswordRecoveryResult *result = NULL;
+    const char *password = NULL;
+    ApplicationPdfDecryptContext *decrypt_context = NULL;
+    char *details = NULL;
+    char *unlocked_name = NULL;
+    GError *error = NULL;
+
+    if (context == NULL || context->application == NULL) return;
+    if (background_task_get_state(task) == BACKGROUND_TASK_STATE_CANCELLED)
+    {
+        main_window_set_status(context->application->main_window,
+            "Récupération du mot de passe PDF annulée.");
+        return;
+    }
+    if (background_task_get_state(task) != BACKGROUND_TASK_STATE_COMPLETED)
+    {
+        error = background_task_dup_error(task);
+        application_present_error(context->application,
+            "Récupération PDF impossible", error != NULL ? error->message :
+            "John the Ripper a échoué.");
+        g_clear_error(&error);
+        return;
+    }
+    result = pdf_password_recovery_get_result(task);
+    if (!pdf_password_recovery_result_is_recovered(result))
+    {
+        application_message_dialog_present(
+            main_window_get_window(context->application->main_window),
+            APPLICATION_MESSAGE_DIALOG_WARNING, "Mot de passe non trouvé",
+            "Aucun candidat n'a correspondu. Essayez un dictionnaire enrichi "
+            "ou un masque plus précis.");
+        return;
+    }
+    password = pdf_password_recovery_result_get_password(result);
+    decrypt_context = g_new0(ApplicationPdfDecryptContext, 1);
+    decrypt_context->application = context->application;
+    decrypt_context->password = g_strdup(password);
+    decrypt_context->copy_path = g_strdup(context->copy_path);
+    unlocked_name = g_strdup_printf("%s-unlocked.pdf",
+        context->evidence_identifier);
+    decrypt_context->unlocked_path = g_build_filename(
+        context->output_directory, unlocked_name, NULL);
+    details = g_strdup_printf("Mot de passe retrouvé : %s\n\n"
+        "Il est uniquement conservé en mémoire. Utilisez l'action ci-dessous "
+        "pour créer une copie déverrouillée.", password);
+    application_message_dialog_present_details_action(
+        main_window_get_window(context->application->main_window),
+        APPLICATION_MESSAGE_DIALOG_INFORMATION, "Mot de passe PDF retrouvé",
+        "La recherche locale a réussi.", details,
+        "Créer la copie déverrouillée", application_on_pdf_decrypt_requested,
+        decrypt_context, application_pdf_decrypt_context_free);
+    g_free(details);
+    g_free(unlocked_name);
+}
+
+/** @brief Prépare la copie PDF puis démarre la tâche choisie. */
+static void application_on_pdf_recovery_configured(
+    PdfPasswordRecoveryMethod method, const char *parameter,
+    gpointer user_data)
+{
+    Application *application = user_data;
+    const InvestigationProject *project = NULL;
+    EvidenceDao *dao = NULL;
+    EvidenceRecord *record = NULL;
+    ApplicationPdfRecoveryContext *context = NULL;
+    char *root = NULL;
+    char *candidate = NULL;
+    char *source_path = NULL;
+    char *copy_name = NULL;
+    GFile *source_file = NULL;
+    GFile *copy_file = NULL;
+    GError *error = NULL;
+
+    if (application == NULL || application->session == NULL ||
+        application->selected_evidence_identifier == NULL) return;
+    dao = evidence_dao_new(
+        investigation_session_get_database(application->session), &error);
+    if (dao != NULL)
+        record = evidence_dao_find_by_identifier(dao,
+            application->selected_evidence_identifier, &error);
+    project = investigation_session_get_project(application->session);
+    if (record == NULL || project == NULL) goto failure;
+    root = g_canonicalize_filename(investigation_project_get_root_path(project),
+        NULL);
+    candidate = g_build_filename(root,
+        evidence_record_get_relative_path(record), NULL);
+    source_path = g_canonicalize_filename(candidate, NULL);
+    if (source_path == NULL || !g_str_has_prefix(source_path, root) ||
+        (source_path[strlen(root)] != G_DIR_SEPARATOR &&
+         source_path[strlen(root)] != '\0')) goto failure;
+    context = g_new0(ApplicationPdfRecoveryContext, 1);
+    context->application = application;
+    context->evidence_identifier = g_strdup(
+        application->selected_evidence_identifier);
+    context->output_directory = g_build_filename(root,
+        "02_Preuves_Traitees", "Extractions", "PDF", NULL);
+    if (g_mkdir_with_parents(context->output_directory, 0750) != 0) goto failure;
+    copy_name = g_strdup_printf("%s-locked.pdf", context->evidence_identifier);
+    context->copy_path = g_build_filename(context->output_directory,
+        copy_name, NULL);
+    source_file = g_file_new_for_path(source_path);
+    copy_file = g_file_new_for_path(context->copy_path);
+    if (!g_file_copy(source_file, copy_file, G_FILE_COPY_OVERWRITE,
+            NULL, NULL, NULL, &error)) goto failure;
+    if (pdf_password_recovery_start(application->task_manager,
+            context->copy_path, context->output_directory,
+            context->evidence_identifier, method, parameter,
+            application_on_pdf_recovery_completed, context,
+            application_pdf_recovery_context_free, &error) == NULL)
+        goto failure;
+    context = NULL;
+    main_window_set_status(application->main_window,
+        "Récupération PDF lancée ; progression disponible dans les tâches.");
+    goto cleanup;
+failure:
+    application_pdf_recovery_context_free(context);
+    application_present_error(application, "Récupération PDF impossible",
+        error != NULL ? error->message :
+        "La copie de travail n'a pas pu être préparée.");
+cleanup:
+    g_clear_error(&error); g_clear_object(&source_file);
+    g_clear_object(&copy_file); g_free(root); g_free(candidate);
+    g_free(source_path); g_free(copy_name); evidence_record_free(record);
+    evidence_dao_free(dao);
+}
+
+/** @brief Ouvre la configuration de récupération pour le PDF sélectionné. */
+static void application_on_recover_pdf_password_requested(
+    const char *evidence_identifier, gpointer user_data)
+{
+    Application *application = user_data;
+    if (application == NULL || evidence_identifier == NULL) return;
+    g_free(application->selected_evidence_identifier);
+    application->selected_evidence_identifier = g_strdup(evidence_identifier);
+    pdf_password_dialog_present(
+        main_window_get_window(application->main_window),
+        application_on_pdf_recovery_configured, application);
 }
 
 /**
@@ -7197,6 +7448,8 @@ static void application_on_activate(
         application_on_analyze_rib_requested, application);
     main_window_set_extract_metadata_callback(application->main_window,
         application_on_extract_metadata_requested, application);
+    main_window_set_recover_pdf_password_callback(application->main_window,
+        application_on_recover_pdf_password_requested, application);
 
     main_window_set_graph_node_moved_callback(
         application->main_window,

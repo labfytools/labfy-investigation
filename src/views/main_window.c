@@ -114,6 +114,8 @@ struct MainWindow
     gpointer analyze_rib_user_data;
     MainWindowExtractMetadataCallback extract_metadata_callback;
     gpointer extract_metadata_user_data;
+    MainWindowRecoverPdfPasswordCallback recover_pdf_password_callback;
+    gpointer recover_pdf_password_user_data;
 
     MainWindowGraphNodeMovedCallback
         graph_node_moved_callback;
@@ -222,6 +224,15 @@ static void main_window_on_extract_metadata_requested(const char *identifier,
     if (window != NULL && window->extract_metadata_callback != NULL)
         window->extract_metadata_callback(identifier,
             window->extract_metadata_user_data);
+}
+/** @brief Relaie la demande de récupération du mot de passe PDF. */
+static void main_window_on_recover_pdf_password_requested(
+    const char *identifier, gpointer data)
+{
+    MainWindow *window = data;
+    if (window != NULL && window->recover_pdf_password_callback != NULL)
+        window->recover_pdf_password_callback(identifier,
+            window->recover_pdf_password_user_data);
 }
 
 /**
@@ -988,6 +999,8 @@ MainWindow *main_window_new(
         main_window_on_analyze_rib_requested, main_window);
     workspace_set_extract_metadata_callback(main_window->workspace,
         main_window_on_extract_metadata_requested, main_window);
+    workspace_set_recover_pdf_password_callback(main_window->workspace,
+        main_window_on_recover_pdf_password_requested, main_window);
 
     workspace_widget = workspace_get_widget(
         main_window->workspace
@@ -1549,6 +1562,13 @@ void main_window_set_extract_metadata_callback(MainWindow *main_window,
     if (main_window == NULL) return;
     main_window->extract_metadata_callback = callback;
     main_window->extract_metadata_user_data = user_data;
+}
+void main_window_set_recover_pdf_password_callback(MainWindow *main_window,
+    MainWindowRecoverPdfPasswordCallback callback, gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->recover_pdf_password_callback = callback;
+    main_window->recover_pdf_password_user_data = user_data;
 }
 
 void main_window_set_tree_selection_callback(

@@ -69,6 +69,21 @@ static const char *const tool_catalog_exiftool_version_arguments[] =
     "-ver",
     NULL
 };
+static const char *const tool_catalog_john_version_arguments[] =
+{
+    "--list=build-info",
+    NULL
+};
+static const char *const tool_catalog_pdf2john_version_arguments[] =
+{
+    "--help",
+    NULL
+};
+static const char *const tool_catalog_qpdf_version_arguments[] =
+{
+    "--version",
+    NULL
+};
 
 /**
  * @brief Catalogue statique initial.
@@ -134,6 +149,30 @@ static const ToolCatalogEntry tool_catalog_entries[] =
         .executable_name = "exiftool",
         .requirement = TOOL_REQUIREMENT_OPTIONAL,
         .version_arguments = tool_catalog_exiftool_version_arguments,
+        .version_argument_count = 1
+    },
+    {
+        .identifier = "password.john",
+        .display_name = "John the Ripper",
+        .executable_name = "john",
+        .requirement = TOOL_REQUIREMENT_OPTIONAL,
+        .version_arguments = tool_catalog_john_version_arguments,
+        .version_argument_count = 1
+    },
+    {
+        .identifier = "password.pdf2john",
+        .display_name = "pdf2john",
+        .executable_name = "pdf2john",
+        .requirement = TOOL_REQUIREMENT_OPTIONAL,
+        .version_arguments = tool_catalog_pdf2john_version_arguments,
+        .version_argument_count = 1
+    },
+    {
+        .identifier = "pdf.qpdf",
+        .display_name = "qpdf",
+        .executable_name = "qpdf",
+        .requirement = TOOL_REQUIREMENT_OPTIONAL,
+        .version_arguments = tool_catalog_qpdf_version_arguments,
         .version_argument_count = 1
     }
 };

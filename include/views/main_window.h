@@ -107,6 +107,9 @@ typedef void (*MainWindowAnalyzeRibCallback)(const char *evidence_identifier,
 /** @brief Callback appelé pour extraire les métadonnées d'une preuve. */
 typedef void (*MainWindowExtractMetadataCallback)(const char *evidence_identifier,
     gpointer user_data);
+/** @brief Callback appelé pour récupérer le mot de passe d'un PDF. */
+typedef void (*MainWindowRecoverPdfPasswordCallback)(
+    const char *evidence_identifier, gpointer user_data);
 
 /**
  * @brief Callback appelé après le déplacement effectif d'un nœud.
@@ -224,6 +227,9 @@ void main_window_set_analyze_rib_callback(MainWindow *main_window,
 /** @brief Définit le callback d'extraction locale des métadonnées. */
 void main_window_set_extract_metadata_callback(MainWindow *main_window,
     MainWindowExtractMetadataCallback callback, gpointer user_data);
+/** @brief Définit le callback de récupération d'un mot de passe PDF. */
+void main_window_set_recover_pdf_password_callback(MainWindow *main_window,
+    MainWindowRecoverPdfPasswordCallback callback, gpointer user_data);
 
 /**
  * @brief Définit le callback de fin de déplacement d'un nœud.
