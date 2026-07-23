@@ -158,6 +158,8 @@ struct Workspace
     gpointer person_name_user_data;
     WorkspacePersonEvidenceCallback person_evidence_callback;
     gpointer person_evidence_user_data;
+    WorkspaceEvidenceActivatedCallback evidence_activated_callback;
+    gpointer evidence_activated_user_data;
     WorkspaceEntitySelectedCallback entity_selected_callback;
     gpointer entity_selected_user_data;
 
@@ -965,6 +967,15 @@ static void workspace_on_person_evidence_requested(const char *identifier,
     if (workspace != NULL && workspace->person_evidence_callback != NULL)
         workspace->person_evidence_callback(identifier,
             workspace->person_evidence_user_data);
+}
+
+static void workspace_on_evidence_activated(const char *identifier,
+    gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    if (workspace != NULL && workspace->evidence_activated_callback != NULL)
+        workspace->evidence_activated_callback(identifier,
+            workspace->evidence_activated_user_data);
 }
 
 static void workspace_on_extraction_dropped(const char *file_path,
@@ -1982,6 +1993,9 @@ Workspace *workspace_new(void)
     entity_details_panel_set_person_evidence_callback(
         workspace->entity_details_panel,
         workspace_on_person_evidence_requested, workspace);
+    entity_details_panel_set_evidence_activated_callback(
+        workspace->entity_details_panel, workspace_on_evidence_activated,
+        workspace);
     entity_details_panel_set_osint_callback(workspace->entity_details_panel,
         workspace_on_entity_osint_requested, workspace);
 
@@ -3567,6 +3581,15 @@ void workspace_set_person_evidence_callback(Workspace *workspace,
     if (workspace == NULL) return;
     workspace->person_evidence_callback = callback;
     workspace->person_evidence_user_data = user_data;
+}
+void workspace_set_evidence_activated_callback(
+    Workspace *workspace,
+    WorkspaceEvidenceActivatedCallback callback,
+    gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->evidence_activated_callback = callback;
+    workspace->evidence_activated_user_data = user_data;
 }
 void workspace_set_entity_selected_callback(Workspace *workspace,
     WorkspaceEntitySelectedCallback callback, gpointer user_data)

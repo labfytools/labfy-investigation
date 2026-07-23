@@ -129,6 +129,8 @@ typedef void (*WorkspacePersonNameCallback)(const char *entity_identifier,
 /** @brief Callback appelé pour gérer les preuves d'une personne. */
 typedef void (*WorkspacePersonEvidenceCallback)(
     const char *entity_identifier, gpointer user_data);
+typedef void (*WorkspaceEvidenceActivatedCallback)(
+    const char *evidence_identifier, gpointer user_data);
 /** @brief Callback appelé quand une entité devient sélectionnée. */
 typedef void (*WorkspaceEntitySelectedCallback)(
     const char *entity_identifier, gpointer user_data);
@@ -416,6 +418,10 @@ void workspace_set_person_name_callback(Workspace *workspace,
 /** @brief Définit le callback de gestion des preuves d'une personne. */
 void workspace_set_person_evidence_callback(Workspace *workspace,
     WorkspacePersonEvidenceCallback callback, gpointer user_data);
+void workspace_set_evidence_activated_callback(
+    Workspace *workspace,
+    WorkspaceEvidenceActivatedCallback callback,
+    gpointer user_data);
 /** @brief Définit le callback de sélection d'une entité. */
 void workspace_set_entity_selected_callback(Workspace *workspace,
     WorkspaceEntitySelectedCallback callback, gpointer user_data);

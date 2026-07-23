@@ -40,6 +40,7 @@ struct EntityDetailsPanel
     GtkWidget *person_evidence_button;
     GtkWidget *person_evidence_summary_label;
     GtkWidget *entity_evidence_box;
+    GtkWidget *evidence_buttons_box;
 
     char *selected_entity_identifier;
     char *selected_entity_type;
@@ -62,6 +63,8 @@ struct EntityDetailsPanel
     gpointer person_name_user_data;
     EntityDetailsPanelPersonEvidenceCallback person_evidence_callback;
     gpointer person_evidence_user_data;
+    EntityDetailsPanelEvidenceActivatedCallback evidence_activated_callback;
+    gpointer evidence_activated_user_data;
     EntityDetailsPanelOsintCallback osint_callback;
     gpointer osint_user_data;
 };
@@ -97,6 +100,18 @@ static void entity_details_panel_on_person_evidence_clicked(GtkButton *button,
         panel->selected_entity_identifier != NULL)
         panel->person_evidence_callback(panel->selected_entity_identifier,
             panel->person_evidence_user_data);
+}
+
+static void entity_details_panel_on_evidence_activated(GtkButton *button,
+    gpointer user_data)
+{
+    EntityDetailsPanel *panel = user_data;
+    const char *identifier = g_object_get_data(G_OBJECT(button),
+        "evidence-identifier");
+    if (panel != NULL && panel->evidence_activated_callback != NULL &&
+        identifier != NULL)
+        panel->evidence_activated_callback(identifier,
+            panel->evidence_activated_user_data);
 }
 
 /** @brief Relaie le nouveau nom affiché explicitement enregistré. */
@@ -853,6 +868,8 @@ EntityDetailsPanel *entity_details_panel_new(void)
         "Gérer les pièces jointes");
     details_panel->person_evidence_summary_label = gtk_label_new(
         "Pièces jointes : chargement…");
+    details_panel->evidence_buttons_box = gtk_box_new(
+        GTK_ORIENTATION_VERTICAL, 4);
     gtk_label_set_xalign(GTK_LABEL(
         details_panel->person_evidence_summary_label), 0.0F);
     gtk_label_set_wrap(GTK_LABEL(
@@ -863,6 +880,8 @@ EntityDetailsPanel *entity_details_panel_new(void)
         gtk_label_new("Preuves associées à cette entité"));
     gtk_box_append(GTK_BOX(details_panel->entity_evidence_box),
         details_panel->person_evidence_summary_label);
+    gtk_box_append(GTK_BOX(details_panel->entity_evidence_box),
+        details_panel->evidence_buttons_box);
     gtk_box_append(GTK_BOX(details_panel->entity_evidence_box),
         details_panel->person_evidence_button);
     gtk_box_append(GTK_BOX(details_box), details_panel->person_role_box);
@@ -1299,6 +1318,15 @@ void entity_details_panel_set_person_evidence_callback(
     details_panel->person_evidence_callback = callback;
     details_panel->person_evidence_user_data = user_data;
 }
+void entity_details_panel_set_evidence_activated_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelEvidenceActivatedCallback callback,
+    gpointer user_data)
+{
+    if (details_panel == NULL) return;
+    details_panel->evidence_activated_callback = callback;
+    details_panel->evidence_activated_user_data = user_data;
+}
 void entity_details_panel_set_osint_callback(EntityDetailsPanel *details_panel,
     EntityDetailsPanelOsintCallback callback, gpointer user_data)
 {
@@ -1314,24 +1342,52 @@ void entity_details_panel_set_osint_callback(EntityDetailsPanel *details_panel,
 void entity_details_panel_set_person_evidences(EntityDetailsPanel *panel,
     const GPtrArray *records)
 {
-    GString *text = NULL;
+    GtkWidget *child = NULL;
     if (panel == NULL || panel->person_evidence_summary_label == NULL) return;
-    text = g_string_new(NULL);
+    while (panel->evidence_buttons_box != NULL &&
+           (child = gtk_widget_get_first_child(
+                panel->evidence_buttons_box)) != NULL)
+        gtk_box_remove(GTK_BOX(panel->evidence_buttons_box), child);
     if (records == NULL || records->len == 0)
-        g_string_append(text, "Aucune pièce jointe");
+        gtk_label_set_text(GTK_LABEL(panel->person_evidence_summary_label),
+            "Aucune pièce jointe");
     else
+    {
+        char *summary = g_strdup_printf("%u pièce%s jointe%s",
+            records->len, records->len > 1U ? "s" : "",
+            records->len > 1U ? "s" : "");
+        gtk_label_set_text(GTK_LABEL(panel->person_evidence_summary_label),
+            summary);
+        g_free(summary);
         for (guint index = 0; index < records->len; index++)
         {
             const EvidenceRecord *record = g_ptr_array_index(records, index);
+            GtkWidget *button = NULL;
+            char *label = NULL;
             if (record == NULL) continue;
-            if (text->len > 0) g_string_append_c(text, '\n');
-            g_string_append_printf(text, "• %s — %s",
+            label = g_strdup_printf("%s — %s",
                 evidence_record_get_original_name(record),
                 evidence_record_get_type_identifier(record));
+            button = gtk_button_new_with_label(label);
+            gtk_widget_set_halign(button, GTK_ALIGN_FILL);
+            gtk_widget_set_tooltip_text(button, label);
+            gtk_widget_add_css_class(button, "flat");
+            if (GTK_IS_LABEL(gtk_button_get_child(GTK_BUTTON(button))))
+            {
+                GtkLabel *button_label = GTK_LABEL(
+                    gtk_button_get_child(GTK_BUTTON(button)));
+                gtk_label_set_xalign(button_label, 0.0F);
+                gtk_label_set_ellipsize(button_label, PANGO_ELLIPSIZE_END);
+                gtk_label_set_max_width_chars(button_label, 28);
+            }
+            g_object_set_data_full(G_OBJECT(button), "evidence-identifier",
+                g_strdup(evidence_record_get_identifier(record)), g_free);
+            g_signal_connect(button, "clicked",
+                G_CALLBACK(entity_details_panel_on_evidence_activated), panel);
+            gtk_box_append(GTK_BOX(panel->evidence_buttons_box), button);
+            g_free(label);
         }
-    gtk_label_set_text(GTK_LABEL(panel->person_evidence_summary_label),
-        text->str);
-    g_string_free(text, TRUE);
+    }
 }
 
 gboolean entity_details_panel_is_open(

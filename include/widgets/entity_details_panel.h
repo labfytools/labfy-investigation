@@ -69,6 +69,9 @@ typedef void (*EntityDetailsPanelPersonNameCallback)(
 /** @brief Callback appelé pour gérer les preuves d'une personne. */
 typedef void (*EntityDetailsPanelPersonEvidenceCallback)(
     const char *entity_identifier, gpointer user_data);
+/** @brief Callback appelé lorsqu'une preuve associée est activée. */
+typedef void (*EntityDetailsPanelEvidenceActivatedCallback)(
+    const char *evidence_identifier, gpointer user_data);
 /** @brief Callback appelé pour ouvrir les recherches OSINT compatibles. */
 typedef void (*EntityDetailsPanelOsintCallback)(
     const char *entity_identifier, gpointer user_data);
@@ -178,6 +181,10 @@ void entity_details_panel_set_person_name_callback(
 void entity_details_panel_set_person_evidence_callback(
     EntityDetailsPanel *details_panel,
     EntityDetailsPanelPersonEvidenceCallback callback, gpointer user_data);
+void entity_details_panel_set_evidence_activated_callback(
+    EntityDetailsPanel *details_panel,
+    EntityDetailsPanelEvidenceActivatedCallback callback,
+    gpointer user_data);
 /** @brief Définit le callback du bouton de recherche OSINT. */
 void entity_details_panel_set_osint_callback(EntityDetailsPanel *details_panel,
     EntityDetailsPanelOsintCallback callback, gpointer user_data);

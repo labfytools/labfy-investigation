@@ -106,6 +106,9 @@ struct MainWindow
     gpointer
         verify_evidence_user_data;
 
+    MainWindowEvidenceSelectionCallback evidence_selection_callback;
+    gpointer evidence_selection_user_data;
+
     MainWindowEditEvidenceCallback edit_evidence_callback;
     gpointer edit_evidence_user_data;
     MainWindowAnalyzeEmlCallback analyze_eml_callback;
@@ -631,6 +634,15 @@ static void main_window_on_person_evidence_requested(const char *identifier,
         window->person_evidence_callback(identifier,
             window->person_evidence_user_data);
 }
+
+static void main_window_on_evidence_activated(const char *identifier,
+    gpointer user_data)
+{
+    MainWindow *window = user_data;
+    if (window != NULL && window->evidence_selection_callback != NULL)
+        window->evidence_selection_callback(identifier,
+            window->evidence_selection_user_data);
+}
 /** @brief Relaie la sélection d'une entité vers le contrôleur. */
 static void main_window_on_entity_selected(const char *identifier,
     gpointer user_data)
@@ -993,6 +1005,8 @@ MainWindow *main_window_new(
         main_window_on_person_name_changed, main_window);
     workspace_set_person_evidence_callback(main_window->workspace,
         main_window_on_person_evidence_requested, main_window);
+    workspace_set_evidence_activated_callback(main_window->workspace,
+        main_window_on_evidence_activated, main_window);
     workspace_set_entity_selected_callback(main_window->workspace,
         main_window_on_entity_selected, main_window);
 
@@ -1613,6 +1627,9 @@ void main_window_set_evidence_selection_callback(
     {
         return;
     }
+
+    main_window->evidence_selection_callback = callback;
+    main_window->evidence_selection_user_data = user_data;
 
     sidebar_set_evidence_selection_callback(
         main_window->sidebar,
