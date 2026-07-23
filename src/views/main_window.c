@@ -29,7 +29,7 @@
 /**
  * @brief Position initiale de la séparation verticale.
  */
-#define MAIN_WINDOW_TASK_PANEL_POSITION 430
+#define MAIN_WINDOW_TASK_PANEL_POSITION 390
 
 /**
  * @brief Titre par défaut de la fenêtre.

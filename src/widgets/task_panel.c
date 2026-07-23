@@ -32,6 +32,7 @@ typedef struct
     GtkWidget *progress_bar;
     GtkWidget *detail_label;
     GtkWidget *cancel_button;
+    GtkWidget *remove_button;
 } TaskPanelRow;
 
 /**
@@ -186,6 +187,19 @@ static void task_panel_on_clear_clicked(
     task_manager_remove_finished(
         task_panel->task_manager
     );
+}
+
+/** @brief Retire uniquement la tâche terminée de cette ligne. */
+static void task_panel_on_remove_clicked(GtkButton *button, gpointer user_data)
+{
+    TaskPanel *task_panel = user_data;
+    BackgroundTask *task = NULL;
+    if (task_panel == NULL || task_panel->task_manager == NULL) return;
+    task = g_object_get_data(G_OBJECT(button), "labfy-background-task");
+    if (task != NULL && background_task_get_state(task) !=
+        BACKGROUND_TASK_STATE_RUNNING && background_task_get_state(task) !=
+        BACKGROUND_TASK_STATE_PENDING)
+        task_manager_remove(task_panel->task_manager, task);
 }
 
 /**
@@ -437,6 +451,9 @@ static void task_panel_row_update(
         task_row->cancel_button,
         state == BACKGROUND_TASK_STATE_RUNNING
     );
+    gtk_widget_set_visible(task_row->remove_button,
+        state != BACKGROUND_TASK_STATE_RUNNING &&
+        state != BACKGROUND_TASK_STATE_PENDING);
 
     g_clear_error(
         &error
@@ -564,6 +581,7 @@ static TaskPanelRow *task_panel_create_task_row(
         gtk_button_new_with_label(
             "Annuler"
         );
+    task_row->remove_button = gtk_button_new_with_label("Nettoyer");
 
     gtk_widget_set_halign(
         task_row->cancel_button,
@@ -593,6 +611,10 @@ static TaskPanelRow *task_panel_create_task_row(
         ),
         task_panel
     );
+    g_object_set_data(G_OBJECT(task_row->remove_button),
+        "labfy-background-task", task_row->task);
+    g_signal_connect(task_row->remove_button, "clicked",
+        G_CALLBACK(task_panel_on_remove_clicked), task_panel);
 
     gtk_box_append(
         GTK_BOX(header_box),
@@ -608,6 +630,7 @@ static TaskPanelRow *task_panel_create_task_row(
         GTK_BOX(header_box),
         task_row->cancel_button
     );
+    gtk_box_append(GTK_BOX(header_box), task_row->remove_button);
 
     task_row->progress_bar =
         gtk_progress_bar_new();

@@ -97,6 +97,7 @@ struct Workspace
     GtkWidget *recover_pdf_password_button;
     GtkWidget *evidence_preview_stack;
     GtkWidget *evidence_preview_status;
+    GtkWidget *evidence_preview_text;
     GtkWidget *evidence_preview_picture;
     GtkWidget *evidence_preview_video;
     GtkWidget *evidence_preview_expand_button;
@@ -1425,6 +1426,12 @@ Workspace *workspace_new(void)
     gtk_video_set_autoplay(GTK_VIDEO(workspace->evidence_preview_video), FALSE);
     gtk_stack_add_named(GTK_STACK(workspace->evidence_preview_stack),
         workspace->evidence_preview_status, "status");
+    workspace->evidence_preview_text = gtk_text_view_new();
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(workspace->evidence_preview_text), FALSE);
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(workspace->evidence_preview_text), GTK_WRAP_WORD_CHAR);
+    gtk_widget_set_vexpand(workspace->evidence_preview_text, TRUE);
+    gtk_stack_add_named(GTK_STACK(workspace->evidence_preview_stack),
+        workspace->evidence_preview_text, "text");
     gtk_stack_add_named(GTK_STACK(workspace->evidence_preview_stack),
         workspace->evidence_preview_picture, "image");
     gtk_stack_add_named(GTK_STACK(workspace->evidence_preview_stack),
@@ -2880,7 +2887,25 @@ void workspace_set_evidence_preview(Workspace *workspace,
     }
     else
     {
-        char *message = g_strdup_printf(
+        char *message = NULL;
+        if (mime_type != NULL && g_strcmp0(mime_type, "text/plain") == 0)
+        {
+            char *contents = NULL;
+            gsize length = 0;
+            if (g_file_get_contents(file_path, &contents, &length, NULL))
+            {
+                GtkTextBuffer *buffer = gtk_text_view_get_buffer(
+                    GTK_TEXT_VIEW(workspace->evidence_preview_text));
+                gtk_text_buffer_set_text(buffer, contents, (gint) MIN(length, 200000));
+                gtk_stack_set_visible_child_name(GTK_STACK(
+                    workspace->evidence_preview_stack), "text");
+                workspace->evidence_preview_is_video = FALSE;
+                g_free(contents);
+                goto text_preview_ready;
+            }
+            g_free(contents);
+        }
+        message = g_strdup_printf(
             "Aperçu indisponible pour %s%s%s.",
             display_name != NULL ? display_name : "ce fichier",
             error != NULL ? " : " : "",
@@ -2892,6 +2917,7 @@ void workspace_set_evidence_preview(Workspace *workspace,
         g_free(message);
         goto cleanup;
     }
+text_preview_ready:
     workspace->evidence_preview_path = g_strdup(file_path);
     gtk_widget_set_sensitive(workspace->evidence_preview_expand_button,
         workspace->evidence_preview_path != NULL);
