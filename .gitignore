@@ -16,3 +16,4 @@ labfy-investigation
 # Neovim / LSP
 .cache/
 compile_commands.json
+/AGENTS.md

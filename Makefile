@@ -132,8 +132,35 @@ TEST_PDF_PASSWORD_RECOVERY := tests/test_pdf_password_recovery
 TEST_EXTRACTION_DROP_SERVICE := tests/test_extraction_drop_service
 TEST_RELATION_TYPE_NORMALIZER := tests/test_relation_type_normalizer
 TEST_RELATION_TYPE_SERVICE := tests/test_relation_type_service
+TEST_CONTROLLED_VOCAB := tests/test_controlled_vocab
+TEST_BANK_PROPOSAL := tests/test_bank_proposal
+TEST_EML_PIPELINE_TASK := tests/test_eml_pipeline_task
 
 all: $(TARGET)
+
+$(TEST_BANK_PROPOSAL): \
+	tests/test_bank_proposal.c \
+	src/core/bank_proposal.c \
+	src/core/controlled_vocab.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ \
+		$(shell $(PKG_CONFIG) --libs glib-2.0)
+
+$(TEST_CONTROLLED_VOCAB): \
+	tests/test_controlled_vocab.c \
+	src/core/controlled_vocab.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ \
+		$(shell $(PKG_CONFIG) --libs glib-2.0)
+
+$(TEST_EML_PIPELINE_TASK): \
+	tests/test_eml_pipeline_task.c \
+	src/core/eml_pipeline_task.c src/core/eml_mime_extractor.c \
+	src/core/eml_analyzer.c src/core/bank_proposal.c \
+	src/core/controlled_vocab.c src/core/iban_analyzer.c \
+	src/core/rib_ocr.c src/core/file_hash.c src/core/background_task.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ \
+		$(TEST_LDFLAGS) -lsqlite3
+
+
 
 $(TEST_RELATION_TYPE_NORMALIZER): \
 	tests/test_relation_type_normalizer.c \
@@ -799,7 +826,10 @@ test: \
 	$(TEST_PDF_PASSWORD_RECOVERY) \
 	$(TEST_EXTRACTION_DROP_SERVICE) \
 	$(TEST_RELATION_TYPE_NORMALIZER) \
-	$(TEST_RELATION_TYPE_SERVICE)
+	$(TEST_RELATION_TYPE_SERVICE) \
+	$(TEST_CONTROLLED_VOCAB) \
+	$(TEST_BANK_PROPOSAL) \
+	$(TEST_EML_PIPELINE_TASK)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -865,6 +895,9 @@ test: \
 	@$(TEST_EXTRACTION_DROP_SERVICE)
 	@$(TEST_RELATION_TYPE_NORMALIZER)
 	@$(TEST_RELATION_TYPE_SERVICE)
+	@$(TEST_CONTROLLED_VOCAB)
+	@$(TEST_BANK_PROPOSAL)
+	@$(TEST_EML_PIPELINE_TASK)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -933,7 +966,12 @@ clean:
 		$(TEST_EML_ANALYZER) \
 		$(TEST_EXTRACTION_DROP_SERVICE) \
 		$(TEST_RELATION_TYPE_NORMALIZER) \
-		$(TEST_RELATION_TYPE_SERVICE)
+		$(TEST_RELATION_TYPE_SERVICE) \
+		$(TEST_CONTROLLED_VOCAB) \
+		$(TEST_BANK_PROPOSAL) \
+		$(TEST_EML_PIPELINE_TASK)
+
+
 
 -include $(DEP)
 

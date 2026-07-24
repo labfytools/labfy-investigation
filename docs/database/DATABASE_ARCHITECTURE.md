@@ -2392,6 +2392,19 @@ maintenable et pérenne.
 
 ---
 
+## Pivot e-mail et comptes bancaires
+
+La version V10 ajoute `bank_account_entities`, qui conserve les composants
+IBAN/RIB ainsi que leur statut de vérification et leur provenance. Une valeur
+extraite par OCR reste une proposition (`proposed`) ; une dérivation locale
+est marquée `derived` et ne devient jamais automatiquement une donnée
+confirmée. Les fichiers EML dérivés restent reliés à leur preuve source par
+les tables d’association existantes.
+
+Les codes de statuts, de provenance, de rôles d’adresse et de type de valeur
+sont fournis par `controlled_vocab` : les codes techniques sont stables et
+les libellés affichés sont séparés.
+
 ## Références
 
 Documents associés :

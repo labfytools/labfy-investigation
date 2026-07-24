@@ -347,6 +347,12 @@ bool schema_install_v9(Database *database)
         schema_v9_migrate_relation_types(database);
 }
 
+bool schema_install_v10(Database *database)
+{
+    return schema_execute_file(database, "database/schema_v10.sql",
+        "la migration SQLite V10");
+}
+
 bool schema_ensure_current(
     Database *database
 )

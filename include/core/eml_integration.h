@@ -8,10 +8,18 @@
 #include <glib.h>
 G_BEGIN_DECLS
 /** @brief Proposition d'entité explicitement sélectionnable. */
-typedef struct { char *type_identifier; char *value; } EmlEntityProposal;
+typedef struct {
+    char *type_identifier;
+    char *value;
+    char *verification_status;
+    char *provenance_kind;
+} EmlEntityProposal;
 /** @brief Crée une proposition possédée. */
 EmlEntityProposal *eml_entity_proposal_new(const char *type_identifier,
     const char *value);
+EmlEntityProposal *eml_entity_proposal_new_with_metadata(
+    const char *type_identifier, const char *value,
+    const char *verification_status, const char *provenance_kind);
 /** @brief Libère une proposition. */
 void eml_entity_proposal_free(EmlEntityProposal *proposal);
 /**

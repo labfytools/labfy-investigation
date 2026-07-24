@@ -3,6 +3,7 @@
  * @brief Présentation en lecture seule d'une analyse EML.
  ******************************************************************************/
 #include "views/eml_analysis_dialog.h"
+#include "widgets/controlled_vocab_dropdown.h"
 typedef struct { GtkWindow *window; GtkWidget *proposals_box;
     EmlAnalysisDialogCallback callback; gpointer user_data; gboolean completed;
 } EmlAnalysisDialogState;
@@ -29,11 +30,20 @@ static void eml_analysis_dialog_on_integrate(GtkButton *button, gpointer data)
     for (GtkWidget *child = gtk_widget_get_first_child(state->proposals_box);
          child != NULL; child = gtk_widget_get_next_sibling(child))
     {
-        const char *type = g_object_get_data(G_OBJECT(child), "eml-type");
-        const char *value = g_object_get_data(G_OBJECT(child), "eml-value");
-        if (GTK_IS_CHECK_BUTTON(child) && gtk_check_button_get_active(
-                GTK_CHECK_BUTTON(child)))
-            g_ptr_array_add(selected, eml_entity_proposal_new(type, value));
+        GtkWidget *check = GTK_IS_BOX(child) ? gtk_widget_get_first_child(child) : NULL;
+        if (check != NULL && GTK_IS_CHECK_BUTTON(check) &&
+            gtk_check_button_get_active(GTK_CHECK_BUTTON(check)))
+        {
+            const char *type = g_object_get_data(G_OBJECT(child), "eml-type");
+            const char *value = g_object_get_data(G_OBJECT(child), "eml-value");
+            GtkWidget *status = g_object_get_data(G_OBJECT(child), "eml-status");
+            GtkWidget *provenance = g_object_get_data(G_OBJECT(child),
+                "eml-provenance");
+            g_ptr_array_add(selected, eml_entity_proposal_new_with_metadata(
+                type, value,
+                controlled_vocab_dropdown_get_selected_code(status),
+                controlled_vocab_dropdown_get_selected_code(provenance)));
+        }
     }
     if (selected->len == 0)
     { g_ptr_array_unref(selected); return; }
@@ -50,10 +60,22 @@ static void eml_analysis_dialog_add_proposals(GtkWidget *box,
     {
         const char *value = g_ptr_array_index((GPtrArray *) values, i);
         char *text = g_strdup_printf("%s : %s", label, value);
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
         GtkWidget *check = gtk_check_button_new_with_label(text);
-        g_object_set_data_full(G_OBJECT(check), "eml-type", g_strdup(type), g_free);
-        g_object_set_data_full(G_OBJECT(check), "eml-value", g_strdup(value), g_free);
-        gtk_box_append(GTK_BOX(box), check); g_free(text);
+        GtkWidget *status = controlled_vocab_dropdown_new(
+            CONTROLLED_VOCAB_VERIFICATION_STATUS, "proposed");
+        GtkWidget *provenance = controlled_vocab_dropdown_new(
+            CONTROLLED_VOCAB_PROVENANCE_KIND,
+            g_strcmp0(type, "ip_address") == 0 ? "header" : "header");
+        g_object_set_data_full(G_OBJECT(row), "eml-type", g_strdup(type), g_free);
+        g_object_set_data_full(G_OBJECT(row), "eml-value", g_strdup(value), g_free);
+        g_object_set_data(G_OBJECT(row), "eml-status", status);
+        g_object_set_data(G_OBJECT(row), "eml-provenance", provenance);
+        gtk_widget_set_hexpand(check, TRUE);
+        gtk_box_append(GTK_BOX(row), check);
+        gtk_box_append(GTK_BOX(row), status);
+        gtk_box_append(GTK_BOX(row), provenance);
+        gtk_box_append(GTK_BOX(box), row); g_free(text);
     }
 }
 /** @brief Ajoute une ligne de métadonnée sélectionnable. */

@@ -2,6 +2,9 @@
 
 ### Added
 
+- Préparation du pivot e-mail : pipeline EML asynchrone, extraction MIME
+  sécurisée, propositions bancaires IBAN/BIC et vocabulaire contrôlé.
+
 - Référentiel persistant et normalisé des types de relations, avec codes
   système stables, types personnalisés, renommage et fusion transactionnelle.
 - Sélecteur canonique dans les formulaires de création et de modification des

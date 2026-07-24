@@ -35,6 +35,10 @@ Labfy Investigation doit permettre de :
 - exécuter des traitements longs en arrière-plan ;
 - intégrer progressivement des outils OSINT externes ;
 - conserver les sorties brutes, les versions et les paramètres d’exécution ;
+- analyser localement des messages EML et inventorier leurs pièces jointes
+  sans modifier la preuve originale ;
+- conserver les propositions IBAN/BIC avec leur provenance et leur statut de
+  vérification ;
 - distinguer les faits observés, les résultats d’outils, les corrélations et les hypothèses ;
 - produire des rapports compréhensibles et traçables.
 

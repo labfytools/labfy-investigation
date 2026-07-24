@@ -3,6 +3,7 @@
  * @brief Intégration transactionnelle de propositions issues d'un EML.
  ******************************************************************************/
 #include "core/eml_integration.h"
+#include "core/controlled_vocab.h"
 #include "dao/entity_dao.h"
 #include "dao/evidence_entity_dao.h"
 #include "database/transaction.h"
@@ -10,18 +11,32 @@
 
 EmlEntityProposal *eml_entity_proposal_new(const char *type, const char *value)
 {
+    return eml_entity_proposal_new_with_metadata(type, value, "proposed",
+        "header");
+}
+EmlEntityProposal *eml_entity_proposal_new_with_metadata(const char *type,
+    const char *value, const char *verification_status,
+    const char *provenance_kind)
+{
     EmlEntityProposal *proposal = NULL;
     if (type == NULL || type[0] == '\0' || value == NULL || value[0] == '\0') return NULL;
     proposal = g_new0(EmlEntityProposal, 1);
     proposal->type_identifier = g_strdup(type); proposal->value = g_strdup(value);
-    if (proposal->type_identifier == NULL || proposal->value == NULL)
+    proposal->verification_status = g_strdup(verification_status != NULL
+        ? verification_status : "proposed");
+    proposal->provenance_kind = g_strdup(provenance_kind != NULL
+        ? provenance_kind : "header");
+    if (proposal->type_identifier == NULL || proposal->value == NULL ||
+        proposal->verification_status == NULL || proposal->provenance_kind == NULL)
     { eml_entity_proposal_free(proposal); return NULL; }
     return proposal;
 }
 void eml_entity_proposal_free(EmlEntityProposal *proposal)
 {
     if (proposal == NULL) return;
-    g_free(proposal->type_identifier); g_free(proposal->value); g_free(proposal);
+    g_free(proposal->type_identifier); g_free(proposal->value);
+    g_free(proposal->verification_status); g_free(proposal->provenance_kind);
+    g_free(proposal);
 }
 /** @brief Recherche une entité existante avec le même type et la même valeur. */
 static const EntityRecord *eml_integration_find_existing(const GPtrArray *entities,
@@ -63,6 +78,30 @@ gboolean eml_integration_apply(Database *database, const char *evidence_identifi
             g_quark_from_static_string("eml-integration-error"), 1,
             "Sélectionnez au moins une proposition EML.");
         return FALSE;
+    }
+    for (guint i = 0; i < proposals->len; i++)
+    {
+        const EmlEntityProposal *proposal = g_ptr_array_index(
+            (GPtrArray *) proposals, i);
+        if (proposal == NULL ||
+            !controlled_vocab_is_valid_verification_status(
+                proposal->verification_status) ||
+            !controlled_vocab_is_valid_provenance_kind(
+                proposal->provenance_kind))
+        {
+            g_set_error_literal(error,
+                g_quark_from_static_string("eml-integration-error"), 2,
+                "Le statut ou la provenance d’une proposition est invalide.");
+            return FALSE;
+        }
+        if (g_strcmp0(proposal->verification_status, "rejected") == 0 ||
+            g_strcmp0(proposal->verification_status, "invalid") == 0)
+        {
+            g_set_error_literal(error,
+                g_quark_from_static_string("eml-integration-error"), 3,
+                "Une proposition rejetée ou invalide ne peut pas être intégrée.");
+            return FALSE;
+        }
     }
     if (!database_transaction_begin(database))
         return FALSE;
