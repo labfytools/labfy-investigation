@@ -1,722 +1,568 @@
-# Développement
+# Guide de développement
 
-Version : 1.0
-
-Dernière mise à jour : 2026-07-06
-
-Auteur : fy59
-
-# Sommaire
-
-1. Objet
-2. Objectif
-3. Technologies
-4. Outils
-5. Commandes
-6. Revue de code
-7. Philosophie
-8. Architecture
-9. Règles de codage
-10. Documentation
-11. Organisation des fichiers
-12. Gestion mémoire
-13. Base de données
-14. Git
-15. Développement
-16. Tests
-17. Gestion des erreurs
-18. Convention de nommage
-   - Fichiers
-   - Fonctions
-   - Variables
-   - Types
-   - Constantes
-   - Énumérations
-19. Principes de conception
-   - Simplicité
-   - Lisibilité
-   - Responsabilité unique
-   - Zéro surprise
-   - Style de code
-   - Le compilateur est notre premier relecteur
-   - Documentation
-   - Boy Scout Rule
-   - Robustesse avant optimisation
-   - Une fonctionnalité = un commit
-20. Décisions techniques
-21. Branche principale
-22. Dépendances
----
-
-## Objet
-
-Ce document définit les règles de développement du projet **Labfy Investigation**.
-
-L'objectif est de garantir un code :
-
-- lisible ;
-- maintenable ;
-- documenté ;
-- portable ;
-- simple à faire évoluer.
-
-Ces règles s'appliquent à l'ensemble du projet.
+> **Version :** 2.0  
+> **Dernière mise à jour :** 2026-07-24  
+> **Projet :** Labfy Investigation
 
 ---
 
-# Objectif
+## 1. Objet
 
-L'objectif du projet est de produire un logiciel libre, robuste et documenté destiné à faciliter la gestion d'enquêtes OSINT, tout en constituant un support d'apprentissage du langage C, de GTK4, de SQLite et des bonnes pratiques de développement logiciel.
+Ce document décrit l'environnement et le workflow de développement.
 
+Les règles d'architecture se trouvent dans :
 
+```text
+docs/ARCHITECTURE.md
+docs/CONVENTIONS.md
+docs/database/DATABASE_ARCHITECTURE.md
+```
 
----
+Forgejo est la source de vérité des tickets :
 
-# Technologies
-
-Le projet repose sur les technologies suivantes :
-
-| Technologie | Version |
-|-------------|----------|
-| Langage | C17 |
-| Interface graphique | GTK 4.10+ |
-| Base de données | SQLite 3.45+ |
-| Compilateur | GCC 15+ |
-| Build | Make |
-| Documentation | Doxygen |
-| Gestion de version | Git |
+```text
+https://git.labfytools.com/fy59/labfy-investigation/issues
+```
 
 ---
 
-# Outils
+## 2. Environnements
 
-Les outils suivants sont utilisés pendant le développement :
+### 2.1 Environnement principal
 
-- gcc
-- clang
-- clang-format
-- clang-tidy
-- cppcheck
-- valgrind
-- doxygen
-- graphviz
-- make
-- Git
+Le développement courant est réalisé sous Arch Linux.
+
+### 2.2 Cible de distribution
+
+Ubuntu est la cible principale de distribution, notamment pour un futur
+déploiement dans des environnements institutionnels.
+
+Le code ne doit pas dépendre d'un paquet AUR.
+
+Les dépendances optionnelles doivent se désactiver proprement lorsqu'elles sont
+absentes.
+
+### 2.3 Interface graphique
+
+Le projet utilise GTK4 et doit rester compatible avec Wayland et X11 lorsque
+GTK le permet.
+
+Aucune hypothèse ne doit dépendre de la présence d'une barre de titre fournie
+par le gestionnaire de fenêtres.
 
 ---
 
-# Commandes
+## 3. Dépendances de compilation
 
-Compilation :
+Le Makefile utilise `pkg-config` pour GTK4 et SQLite.
 
+### Arch Linux
+
+```sh
+sudo pacman -S --needed \
+    base-devel \
+    pkgconf \
+    gtk4 \
+    glib2 \
+    sqlite
+```
+
+### Ubuntu
+
+```sh
+sudo apt update
+sudo apt install \
+    build-essential \
+    pkg-config \
+    libgtk-4-dev \
+    libglib2.0-dev \
+    libsqlite3-dev
+```
+
+Les versions minimales exactes doivent correspondre aux API réellement utilisées
+dans le code. Elles ne doivent pas être inventées dans la documentation si le
+système de build ne les impose pas.
+
+Les outils OSINT, OCR, métadonnées ou PDF sont documentés séparément et restent
+optionnels sauf décision explicite.
+
+---
+
+## 4. Récupération du dépôt
+
+```sh
+git clone https://git.labfytools.com/fy59/labfy-investigation.git
+cd labfy-investigation
+```
+
+Avant de commencer :
+
+```sh
+git status
+git pull --ff-only
+```
+
+Ne pas écraser un travail local non validé.
+
+---
+
+## 5. Compilation
+
+### 5.1 Compilation recommandée
+
+```sh
+make -j8
+```
+
+Le projet utilise globalement :
+
+```text
+-std=c17
+-Wall
+-Wextra
+-Werror
+```
+
+Plusieurs cibles de tests ajoutent `-Wpedantic`.
+
+### 5.2 Compilation séquentielle
+
+Utiliser une compilation séquentielle seulement lorsque l'exécution parallèle
+provoque un échec réel et identifié :
+
+```sh
 make
+```
 
-Exécution :
+Une erreur de code ne doit pas être masquée en supprimant simplement `-j8`.
 
-make run
+### 5.3 Nettoyage
 
-Nettoyage :
-
+```sh
 make clean
+```
 
-Documentation :
+### 5.4 Lancement
 
-make docs
+```sh
+make run
+```
 
-Tests :
+ou :
 
+```sh
+./labfy-investigation
+```
+
+### 5.5 Documentation générée
+
+Le Makefile courant ne fournit pas de cible `make docs`.
+
+Ne pas documenter ou utiliser cette commande tant qu'une cible réelle n'a pas
+été ajoutée et testée.
+
+---
+
+## 6. Tests
+
+### 6.1 Suite complète
+
+```sh
+make -j8 test
+```
+
+En cas de problème réellement causé par la parallélisation :
+
+```sh
 make test
-
----
-
-# Revue de code
-
-Avant chaque commit important, le code doit être vérifié selon les critères suivants :
-
-- respecte les conventions de nommage ;
-- compile sans warning ;
-- est documenté ;
-- respecte l'architecture MVC ;
-- ne duplique pas de code ;
-- gère correctement les erreurs ;
-- libère correctement les ressources.
-
----
-
-# Philosophie
-
-Labfy Investigation est développé comme un logiciel professionnel.
-
-Les priorités sont les suivantes :
-
-1. Simplicité.
-2. Lisibilité.
-3. Robustesse.
-4. Documentation.
-5. Évolutivité.
-
-Un code plus simple est toujours préféré à un code plus complexe.
-
----
-
-# Architecture
-
-Le projet suit une architecture de type MVC.
-
-```
-Vue (GTK)
-        │
-        ▼
-Contrôleur
-        │
-        ▼
-DAO
-        │
-        ▼
-SQLite
 ```
 
-Les responsabilités sont clairement séparées.
+### 6.2 Test ciblé
 
-Une couche ne doit jamais accéder directement à une couche qui ne lui appartient pas.
+Les tests sont des exécutables dans `tests/`.
 
----
+Exemple :
 
-# Règles de codage
-
-Le projet est développé en **C17**.
-
-Les options de compilation sont :
-
-- `-std=c17`
-- `-Wall`
-- `-Wextra`
-- `-Wpedantic`
-- `-Werror`
-
-Aucun warning n'est accepté.
-
-Le projet doit compiler sans erreur ni avertissement.
-
----
-
-# Documentation
-
-Chaque fichier possède un en-tête.
-
-Chaque fonction publique est documentée avec Doxygen.
-
-Les commentaires expliquent :
-
-- pourquoi un choix a été fait ;
-- les contraintes techniques ;
-- les hypothèses.
-
-Les commentaires ne doivent jamais simplement répéter le code.
-
----
-
-# Organisation des fichiers
-
-Chaque fichier possède une responsabilité unique.
-
-Une fonction ne doit réaliser qu'une seule tâche.
-
-Lorsque cela devient nécessaire, le code est découpé en plusieurs modules.
-
----
-
-# Gestion mémoire
-
-Toute allocation mémoire possède une fonction de libération correspondante.
-
-Les fuites mémoire sont considérées comme des bugs.
-
-Les vérifications sont réalisées régulièrement avec Valgrind.
-
----
-
-# Base de données
-
-Toutes les opérations sur SQLite passent par la couche DAO.
-
-Le reste de l'application ne manipule jamais directement SQLite.
-
----
-
-# Git
-
-Le dépôt Git contient uniquement :
-
-- le code source ;
-- la documentation ;
-- les modèles ;
-- les scripts.
-
-Les enquêtes réelles ne sont jamais versionnées.
-
-Chaque commit :
-
-- compile ;
-- fonctionne ;
-- correspond à une seule fonctionnalité.
-
-Les messages de commit suivent la convention :
-
+```sh
+make tests/test_database
+./tests/test_database
 ```
+
+Autre exemple :
+
+```sh
+make tests/test_eml_pipeline_task
+./tests/test_eml_pipeline_task
+```
+
+Le nom exact d'une cible doit être vérifié dans le Makefile.
+
+### 6.3 Validation avant intégration
+
+```sh
+make clean
+make -j8
+make -j8 test
+git diff --check
+```
+
+Vérifier également :
+
+```sh
+git status --short
+```
+
+Aucun fichier de preuve réel, base réelle ou artefact temporaire ne doit
+apparaître.
+
+---
+
+## 7. Workflow d'un ticket
+
+### 7.1 Avant de coder
+
+1. lire le ticket Forgejo ;
+2. vérifier l'état de la branche `main` ;
+3. identifier les modules concernés ;
+4. lire les tests existants ;
+5. vérifier les migrations si SQLite est concerné ;
+6. distinguer clairement ce qui est déjà implémenté de ce qui est seulement
+   demandé ;
+7. préparer uniquement des données synthétiques.
+
+### 7.2 Pendant le développement
+
+1. limiter le changement à un objectif cohérent ;
+2. compiler régulièrement ;
+3. ajouter les tests au fur et à mesure ;
+4. conserver une API claire ;
+5. respecter les propriétaires mémoire ;
+6. éviter toute logique métier dans GTK ;
+7. ne pas créer une seconde architecture concurrente ;
+8. ne pas toucher aux données réelles d'enquête.
+
+### 7.3 Avant le commit
+
+1. lancer la validation complète ;
+2. relire le diff ;
+3. vérifier les erreurs et chemins de rollback ;
+4. vérifier la documentation ;
+5. vérifier l'absence de données sensibles ;
+6. demander la validation manuelle prévue par le workflow.
+
+Aucun commit n'est effectué tant que la fonction ne marche pas.
+
+---
+
+## 8. Organisation des modules
+
+```text
+include/core/       interfaces du cœur et des services
+include/dao/        interfaces des DAO
+include/database/   interfaces SQLite
+include/models/     interfaces des modèles
+include/views/      interfaces des vues GTK
+include/widgets/    interfaces des widgets
+
+src/core/           services, tâches et orchestration
+src/dao/            accès métier à SQLite
+src/database/       connexion, schéma, statements, transactions
+src/models/         modèles métier
+src/views/          fenêtres et dialogues GTK
+src/widgets/        widgets réutilisables
+```
+
+### Ajouter un modèle
+
+Un modèle doit généralement fournir :
+
+- un header dans `include/models/` ;
+- une implémentation dans `src/models/` ;
+- des constructeurs et destructeurs clairs ;
+- des validations ;
+- un test dans `tests/`.
+
+Il ne dépend pas de GTK ni de SQLite.
+
+### Ajouter un DAO
+
+Un DAO doit généralement fournir :
+
+- une interface dans `include/dao/` ;
+- une implémentation dans `src/dao/` ;
+- des statements préparés ;
+- une transformation explicite ligne ↔ modèle ;
+- des tests sur une base temporaire ;
+- des erreurs structurées.
+
+Il ne contient pas de logique GTK ni d'exécution d'outil.
+
+### Ajouter un service
+
+Un service est approprié lorsqu'une opération combine :
+
+- plusieurs DAO ;
+- une transaction ;
+- le système de fichiers ;
+- une validation métier ;
+- un résultat composé.
+
+Le service définit la frontière transactionnelle.
+
+### Ajouter une tâche
+
+Une tâche est appropriée lorsque l'opération peut bloquer l'interface.
+
+Elle doit définir :
+
+- ses entrées copiées ou référencées clairement ;
+- son annulation ;
+- son résultat ;
+- son erreur ;
+- son nettoyage ;
+- la remise du résultat au thread principal.
+
+### Ajouter une vue ou un widget
+
+Une vue GTK :
+
+- collecte l'intention de l'utilisateur ;
+- appelle un contrôleur ou un service ;
+- présente le résultat ;
+- ne manipule pas directement SQLite ;
+- ne lance pas de processus ;
+- ne déplace pas directement les preuves.
+
+---
+
+## 9. Développement SQLite
+
+### 9.1 Avant toute modification
+
+Lire :
+
+```text
+docs/database/DATABASE_ARCHITECTURE.md
+docs/database/SCHEMA_AUDIT_CURRENT.md
+database/schema_current.sql
+database/schema_v10.sql
+src/database/database.c
+src/database/schema.c
+tests/test_database.c
+```
+
+### 9.2 Nouvelle version de schéma
+
+Pour créer V11, par exemple :
+
+1. ajouter `database/schema_v11.sql` ;
+2. déclarer et implémenter `schema_install_v11()` ;
+3. ajouter `database_migrate_v10_to_v11()` ;
+4. raccorder la migration dans la boucle vers la version courante ;
+5. mettre à jour les constantes de version ;
+6. installer V11 lors de la création d'une base neuve ;
+7. adapter `schema_current.sql` si nécessaire ;
+8. ajouter une fixture V10 vers V11 ;
+9. tester une base neuve ;
+10. tester le rollback ;
+11. vérifier l'intégrité et les clés étrangères ;
+12. mettre à jour l'audit courant ;
+13. créer l'audit versionné de V11.
+
+Ne pas réécrire une ancienne migration publiée pour changer sa signification.
+
+### 9.3 Vérifications SQLite
+
+Sur une base synthétique :
+
+```sql
+PRAGMA integrity_check;
+PRAGMA foreign_key_check;
+SELECT value
+FROM metadata
+WHERE key = 'schema_version';
+```
+
+### 9.4 Transactions et fichiers
+
+Lorsqu'une opération combine SQLite et le système de fichiers :
+
+- préparer les fichiers temporaires ;
+- vérifier les empreintes ;
+- ouvrir la transaction au moment approprié ;
+- ne valider qu'après toutes les étapes critiques ;
+- nettoyer ou restaurer les fichiers en cas d'échec ;
+- tester explicitement le rollback.
+
+---
+
+## 10. Outils externes
+
+Avant d'intégrer un outil :
+
+1. vérifier sa licence ;
+2. vérifier son usage légal ;
+3. vérifier sa disponibilité Arch et Ubuntu ;
+4. documenter son caractère obligatoire ou optionnel ;
+5. ajouter sa détection au registre si nécessaire ;
+6. utiliser `GSubprocess` ;
+7. transmettre les arguments séparément ;
+8. définir un délai maximal ;
+9. gérer l'annulation ;
+10. limiter la taille des sorties ;
+11. conserver la provenance ;
+12. tester son absence.
+
+Interdit :
+
+```c
+system(command);
+```
+
+Interdit également de construire une chaîne puis de l'exécuter via un shell.
+
+Une dépendance absente doit produire un statut clair, pas un plantage.
+
+---
+
+## 11. GTK4
+
+### 11.1 Thread principal
+
+Seul le thread GTK principal modifie les widgets.
+
+Les résultats d'une tâche sont transférés vers ce thread par les mécanismes
+GLib adaptés.
+
+### 11.2 Dialogues
+
+Un dialogue :
+
+- valide ses entrées ;
+- ne conserve pas de pointeur vers une session détruite ;
+- permet l'annulation ;
+- ne réalise pas une opération longue directement ;
+- présente un résumé avant une écriture importante.
+
+### 11.3 Messages utilisateur
+
+Les détails techniques restent dans les journaux.
+
+Le message graphique indique :
+
+- ce qui a échoué ;
+- les conséquences ;
+- ce qui a été conservé ou annulé ;
+- l'action possible.
+
+---
+
+## 12. Mémoire et diagnostic
+
+Compiler avec les avertissements activés est obligatoire.
+
+Pour une erreur mémoire, utiliser les outils disponibles localement sans
+modifier durablement les options du dépôt.
+
+Exemple avec Valgrind lorsque l'application et l'environnement le permettent :
+
+```sh
+valgrind \
+    --leak-check=full \
+    --show-leak-kinds=all \
+    ./tests/test_cible
+```
+
+Les faux positifs provenant de bibliothèques externes doivent être distingués
+des allocations du projet.
+
+Une tâche annulée, une erreur SQLite et un échec de processus doivent tous
+libérer leurs ressources.
+
+---
+
+## 13. Données de test et sécurité
+
+Le dépôt et les agents de développement utilisent uniquement des fixtures
+synthétiques.
+
+Ne jamais fournir à un agent local ou versionner :
+
+```text
+Enquete.sqlite réelle
+captures réelles
+conversations réelles
+e-mails réels
+RIB ou IBAN réels
+pièces jointes réelles
+documents d'identité réels
+sorties OSINT contenant des données personnelles réelles
+```
+
+Les tests doivent utiliser :
+
+- domaines réservés comme `example.com` ;
+- adresses IP de documentation ;
+- noms fictifs ;
+- IBAN de test explicitement synthétiques ;
+- fichiers générés pendant le test ;
+- bases SQLite temporaires.
+
+Avant chaque commit :
+
+```sh
+git diff --check
+git status --short
+```
+
+Inspecter tout nouveau fichier inhabituel à la racine du dépôt.
+
+---
+
+## 14. Git
+
+Les messages de commit sont en anglais.
+
+Format recommandé :
+
+```text
 type(scope): description
 ```
-
-Exemples :
-
-```
-feat(gui): create main window
-
-feat(database): add evidence dao
-
-fix(core): close sqlite connection
-
-docs: update architecture
-```
-
----
-
-# Développement
-
-Avant toute nouvelle fonctionnalité :
-
-1. Définir le besoin.
-2. Concevoir l'architecture.
-3. Développer.
-4. Tester.
-5. Documenter.
-6. Commit.
-
-Aucune fonctionnalité n'est considérée comme terminée tant que ces six étapes ne sont pas réalisées.
-
----
-
-# Tests
-
-Chaque fonctionnalité doit être testée avant son intégration.
-
-Lorsque cela est possible :
-
-- tests unitaires ;
-- tests fonctionnels ;
-- vérification sous Valgrind ;
-- compilation sans warning.
-
-Un correctif est toujours accompagné d'un test permettant de vérifier que le problème est résolu.
-
----
-
-# Gestion des erreurs
-
-Aucune erreur ne doit être ignorée.
-
-Les valeurs de retour des fonctions sont systématiquement vérifiées.
-
-Les messages d'erreur doivent être explicites et permettre d'identifier rapidement l'origine du problème.
-
-Les ressources ouvertes doivent toujours être libérées, même en cas d'erreur.
-
----
-
-# Convention de nommage
-
-Afin de garantir la cohérence du projet, une convention de nommage stricte est appliquée.
-
-Toute dérogation à cette convention doit être justifiée.
-
----
-
-## Fichiers
-
-Les noms de fichiers sont écrits en **snake_case**.
 
 Exemples :
 
 ```text
-database.c
-database.h
-
-preuve.c
-preuve.h
-
-main_window.c
-main_window.h
-
-types_entite.c
-types_entite.h
+feat(email): add MIME attachment extraction
+fix(database): rollback failed V10 migration
+test(relations): cover canonical type reuse
+docs(architecture): align documentation with V10
 ```
 
-Les noms doivent être explicites et refléter la responsabilité du module.
+Un ticket peut être découpé en plusieurs commits cohérents.
+
+Ne pas ajouter manuellement un numéro dans le titre d'un nouveau ticket :
+Forgejo le fournit.
+
+Ne pas effectuer de commit ou de push avant la validation manuelle prévue par
+le workflow du projet.
 
 ---
 
-## Fonctions
-
-Les fonctions sont toujours préfixées par le nom du module auquel elles appartiennent.
-
-Exemples :
-
-```c
-db_open();
-db_close();
-
-preuve_new();
-preuve_free();
-
-main_window_create();
-main_window_destroy();
-```
-
-Les fonctions génériques telles que :
-
-```c
-create();
-init();
-run();
-```
-
-sont interdites, car elles deviennent rapidement ambiguës lorsque le projet grandit.
-
----
-
-## Variables
-
-Les variables utilisent également la convention **snake_case**.
-
-Exemples :
-
-```c
-preuve_id
-
-type_id
-
-main_window
-
-database
-
-source_id
-
-date_collecte
-```
-
-Les noms doivent décrire clairement le contenu de la variable.
-
-Les noms suivants sont à proscrire :
-
-```c
-x
-
-tmp
-
-toto
-
-test
-```
-
-à l'exception des variables locales très courtes utilisées dans une boucle ou un contexte limité :
-
-```c
-for (size_t i = 0; i < count; ++i)
-```
-
----
-
-## Types
-
-Les structures représentent des objets métiers et utilisent le **PascalCase**.
-
-Exemples :
-
-```c
-typedef struct
-{
-    ...
-} Preuve;
-
-typedef struct
-{
-    ...
-} Entite;
-
-typedef struct
-{
-    ...
-} Personne;
-```
-
----
-
-## Constantes
-
-Les constantes et macros sont écrites en majuscules avec des underscores.
-
-Exemples :
-
-```c
-MAX_PATH_LENGTH
-
-SHA256_LENGTH
-
-DEFAULT_WINDOW_WIDTH
-```
-
----
-
-## Énumérations
-
-Les énumérations utilisent un préfixe correspondant au type.
-
-Exemple :
-
-```c
-typedef enum
-{
-    PREUVE_CAPTURE,
-    PREUVE_EMAIL,
-    PREUVE_VIDEO
-} PreuveType;
-```
-
----
-
-## Objectif
-
-Le nom d'un fichier, d'une fonction ou d'une variable doit permettre de comprendre immédiatement son rôle, sans avoir à consulter son implémentation.
-
-Le code doit être explicite avant d'être concis.
-
----
-
-# Principes de conception
-
-Les principes suivants guident le développement de l'ensemble du projet.
-
-Ils doivent être respectés avant toute considération d'optimisation.
-
----
-
-## Simplicité
-
-La solution la plus simple est privilégiée.
-
-Un code plus court n'est pas forcément un meilleur code.
-
-La lisibilité prime toujours.
-
----
-
-## Lisibilité
-
-Le code doit pouvoir être compris plusieurs mois après son écriture.
-
-Les noms des fichiers, fonctions, variables et structures doivent être explicites.
-
----
-
-## Responsabilité unique
-
-Chaque module possède une responsabilité unique.
-
-Chaque fonction réalise une seule tâche.
-
-Si une fonction devient difficile à expliquer, elle doit probablement être découpée.
-
----
-
-## Zéro surprise
-
-Le comportement d'une fonction doit être prévisible.
-
-Le nom d'une fonction doit permettre de comprendre ce qu'elle réalise sans avoir à lire son implémentation.
-
-Exemple :
-
-```c
-preuve_save();
-```
-
-est préférable à :
-
-```c
-save();
-```
-
----
-
-# Style de code
-
-- Indentation : 4 espaces.
-- Largeur maximale : 100 colonnes.
-- Accolades sur une nouvelle ligne (style Allman).
-- Une déclaration par ligne.
-- Une instruction par ligne.
-
----
-
-## Le compilateur est notre premier relecteur
-
-Les warnings sont considérés comme des erreurs.
-
-Le projet compile toujours avec :
-
-- `-Wall`
-- `-Wextra`
-- `-Wpedantic`
-- `-Werror`
-
----
-
-## Documentation
-
-Le code explique **comment** fonctionne une fonctionnalité.
-
-Les commentaires expliquent **pourquoi** elle existe.
-
-Les commentaires ne doivent jamais simplement répéter le code.
-
----
-
-## Boy Scout Rule
-
-À chaque modification d'un fichier, celui-ci doit être laissé dans un état au moins aussi propre qu'avant la modification.
-
-Cela peut être :
-
-- améliorer un nom de variable ;
-- corriger un commentaire ;
-- supprimer du code mort ;
-- simplifier une fonction.
-
----
-
-## Robustesse avant optimisation
-
-Les optimisations ne sont réalisées que lorsqu'un besoin est identifié et mesuré.
-
-La robustesse et la lisibilité sont prioritaires.
-
----
-
-## Une fonctionnalité = un commit
-
-Chaque commit correspond à une seule fonctionnalité.
-
-Chaque commit :
-
-- compile ;
-- est testé ;
-- est documenté.
-
-Les messages de commit suivent la convention :
-
-```
-type(scope): description
-```
-
-Exemples :
-
-```
-feat(gui): create main window
-feat(database): add evidence dao
-fix(core): close sqlite connection
-docs: update development guide
-```
-
----
-
-# Décisions techniques
-
-Toute décision technique importante doit être documentée.
-
-Le projet privilégie les choix simples, documentés et facilement maintenables.
-
-Lorsque plusieurs solutions existent, la préférence est donnée à celle qui facilite la compréhension du code par un nouveau développeur.
-
----
-
-## Gestion de la mémoire
-
-Le projet applique une règle unique concernant la propriété des ressources.
-
-> Le propriétaire crée.
-> Le propriétaire détruit.
-
-Lorsqu'une ressource est transmise à un objet qui en devient propriétaire, le code appelant ne doit plus la libérer.
-
-Chaque module est responsable uniquement des ressources qu'il possède.
-
-Cette règle s'applique à toutes les structures du projet.
-
----
-
-## Bibliothèques autorisées
-
-Le projet privilégie les bibliothèques éprouvées plutôt que des réimplémentations.
-
-### Couche Core
-
-Autorisé :
-
-- Langage C17
-- GLib
-- SQLite
-
-Interdit :
-
-- GTK
-
-Les structures de données fournies par GLib (GPtrArray, GHashTable, GList, etc.) doivent être privilégiées lorsqu'elles répondent au besoin du projet.
-
----
-
-# Branche principale
-
-La branche `main` est toujours stable.
-
-Le projet doit toujours :
-
-- compiler ;
-- démarrer ;
-- être documenté.
-
----
-
-# Dépendances
-
-Les nouvelles dépendances doivent être justifiées.
-
-Avant d'ajouter une bibliothèque externe, il convient de vérifier :
-
-- si la bibliothèque standard suffit ;
-- si GTK ou GLib proposent déjà la fonctionnalité ;
-- si la nouvelle dépendance apporte un réel bénéfice.
-
-Labfy Investigation est un projet GTK4 natif.
-Aucun nouveau code ne doit utiliser une API dépréciée ou héritée de GTK3.
-Les nouveaux développements utilisent exclusivement les composants modernes de GTK4.
-
----
-
-# Licence
-
-Le projet est distribué sous la licence MIT.
-
-Toute nouvelle contribution est considérée comme publiée sous cette même licence.
-
-Le texte complet de la licence est disponible dans le fichier `LICENSE` situé à la racine du projet.
-
----
-
-# Historique
-
-## Version 1.0
-
-- Création du guide de développement.
-- Définition des conventions de codage.
-- Définition de l'architecture.
-- Définition des règles Git.
+## 15. Revue finale
+
+Avant de considérer une modification terminée :
+
+- [ ] le code respecte C17 ;
+- [ ] les dépendances entre couches sont correctes ;
+- [ ] la propriété mémoire est claire ;
+- [ ] les erreurs sont remontées ;
+- [ ] les opérations longues sont asynchrones ;
+- [ ] les requêtes utilisent des paramètres liés ;
+- [ ] les transactions possèdent un rollback testé ;
+- [ ] les preuves originales restent intactes ;
+- [ ] les valeurs brutes restent intactes ;
+- [ ] les tests utilisent des données synthétiques ;
+- [ ] `make -j8` passe ;
+- [ ] `make -j8 test` passe ;
+- [ ] `git diff --check` passe ;
+- [ ] la documentation est à jour.
