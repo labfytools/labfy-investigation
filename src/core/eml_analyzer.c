@@ -3,6 +3,7 @@
  * @brief Analyse locale et non destructive des en-têtes d'un fichier EML.
  ******************************************************************************/
 #include "core/eml_analyzer.h"
+#include <stdio.h>
 #include <string.h>
 #define EML_ANALYZER_MAX_FILE_SIZE (25U * 1024U * 1024U)
 #define EML_ANALYZER_MAX_HEADER_SIZE (2U * 1024U * 1024U)
@@ -15,7 +16,105 @@ struct EmlAnalysis
     GPtrArray *sender_ips;
     GPtrArray *destination_ips;
     char *raw_headers;
+    char *date_utc;
 };
+
+static gint eml_analyzer_month_number(const char *month)
+{
+    static const char *months[] = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    };
+
+    for (guint index = 0; index < G_N_ELEMENTS(months); index++)
+        if (g_ascii_strcasecmp(month, months[index]) == 0)
+            return (gint) index + 1;
+
+    return 0;
+}
+
+static char *eml_analyzer_normalize_date(const char *raw_date)
+{
+    char month_name[4] = { 0 };
+    char timezone_text[6] = { 0 };
+    const char *date_start = raw_date;
+    gint day = 0;
+    gint year = 0;
+    gint hour = 0;
+    gint minute = 0;
+    gint second = 0;
+    gint month = 0;
+    gint parsed = 0;
+    char timezone_identifier[7] = { 0 };
+    GTimeZone *timezone = NULL;
+    GDateTime *date = NULL;
+    GDateTime *utc_date = NULL;
+    char *result = NULL;
+
+    if (raw_date == NULL)
+        return NULL;
+
+    const char *comma = strchr(raw_date, ',');
+    if (comma != NULL)
+        date_start = comma + 1;
+
+    parsed = sscanf(
+        date_start,
+        " %d %3s %d %d:%d:%d %5s",
+        &day,
+        month_name,
+        &year,
+        &hour,
+        &minute,
+        &second,
+        timezone_text
+    );
+    if (parsed != 7 ||
+        strlen(timezone_text) != 5 ||
+        (timezone_text[0] != '+' && timezone_text[0] != '-') ||
+        !g_ascii_isdigit(timezone_text[1]) ||
+        !g_ascii_isdigit(timezone_text[2]) ||
+        !g_ascii_isdigit(timezone_text[3]) ||
+        !g_ascii_isdigit(timezone_text[4]))
+        return NULL;
+
+    month = eml_analyzer_month_number(month_name);
+    if (month == 0)
+        return NULL;
+
+    g_snprintf(
+        timezone_identifier,
+        sizeof(timezone_identifier),
+        "%c%c%c:%c%c",
+        timezone_text[0],
+        timezone_text[1],
+        timezone_text[2],
+        timezone_text[3],
+        timezone_text[4]
+    );
+    timezone = g_time_zone_new_identifier(timezone_identifier);
+    if (timezone == NULL)
+        return NULL;
+
+    date = g_date_time_new(
+        timezone,
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        (gdouble) second
+    );
+    g_time_zone_unref(timezone);
+    if (date == NULL)
+        return NULL;
+
+    utc_date = g_date_time_to_utc(date);
+    result = g_date_time_format(utc_date, "%Y-%m-%dT%H:%M:%SZ");
+    g_date_time_unref(utc_date);
+    g_date_time_unref(date);
+    return result;
+}
 /** @brief Libère un tableau de valeurs d'en-tête. */
 static void eml_analyzer_values_free(gpointer data)
 {
@@ -164,6 +263,9 @@ EmlAnalysis *eml_analyzer_analyze_file(const char *file_path, GError **error)
         eml_analyzer_extract_received_part(received_by_regex, ip_regex,
             received, analysis->destination_ips);
     }
+    analysis->date_utc = eml_analyzer_normalize_date(
+        eml_analysis_get_first_header(analysis, "date")
+    );
 cleanup:
     g_clear_pointer(&email_regex, g_regex_unref); g_clear_pointer(&domain_regex, g_regex_unref);
     g_clear_pointer(&ip_regex, g_regex_unref); g_clear_pointer(&current_name, g_free);
@@ -180,7 +282,7 @@ void eml_analysis_free(EmlAnalysis *analysis)
     g_ptr_array_unref(analysis->domains); g_ptr_array_unref(analysis->ips);
     g_ptr_array_unref(analysis->sender_ips);
     g_ptr_array_unref(analysis->destination_ips);
-    g_free(analysis->raw_headers); g_free(analysis);
+    g_free(analysis->raw_headers); g_free(analysis->date_utc); g_free(analysis);
 }
 const GPtrArray *eml_analysis_get_header_values(const EmlAnalysis *analysis,
     const char *name)
@@ -202,3 +304,4 @@ const GPtrArray *eml_analysis_get_ip_addresses(const EmlAnalysis *a) { return a 
 const GPtrArray *eml_analysis_get_sender_ip_addresses(const EmlAnalysis *a) { return a != NULL ? a->sender_ips : NULL; }
 const GPtrArray *eml_analysis_get_destination_ip_addresses(const EmlAnalysis *a) { return a != NULL ? a->destination_ips : NULL; }
 const char *eml_analysis_get_raw_headers(const EmlAnalysis *a) { return a != NULL ? a->raw_headers : NULL; }
+const char *eml_analysis_get_date_utc(const EmlAnalysis *a) { return a != NULL ? a->date_utc : NULL; }

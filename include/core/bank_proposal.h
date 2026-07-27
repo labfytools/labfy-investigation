@@ -16,6 +16,7 @@ typedef struct BankProposal
     char *id;                   /**< UUID de la proposition */
     char *raw_iban;             /**< Graphie IBAN brute lue/OCR */
     char *normalized_iban;      /**< IBAN nettoyé et majuscule */
+    char *raw_bic;              /**< Graphie BIC brute observée */
     char *bic;                  /**< BIC / SWIFT (8 ou 11 car) */
     char *holder_name;          /**< Titulaire du compte */
     char *bank_name;            /**< Nom de la banque */
@@ -26,6 +27,7 @@ typedef struct BankProposal
     char *account_number;       /**< Numéro de compte (11 car) */
     char *rib_key;              /**< Clé RIB (2 ch) */
     gboolean is_iban_valid;     /**< VRAI si MOD-97 et format valides */
+    char *iban_validation;      /**< Résultat : valid, invalid ou indeterminate */
     gboolean is_derived_bban;   /**< VRAI si composants dérivés de l'IBAN */
     char *suggested_ocr_fix;    /**< Proposition de correction OCR (ex: "O->0") */
     char *verification_status;  /**< Code contrôlé: proposed, confirmed, rejected, etc. */

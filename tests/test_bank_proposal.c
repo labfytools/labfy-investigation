@@ -47,6 +47,33 @@ static void test_french_rib_derivation(void)
     bank_proposal_free(proposal);
 }
 
+static void test_structured_values(void)
+{
+    static const char text[] =
+        "IBAN : FR48 3000 2005 5000 0000 0000 052\n"
+        "BIC : bnpafrppxxx\n"
+        "Titulaire : Élodie   Exemple\n"
+        "Banque : Banque Synthétique\n"
+        "Adresse de la banque : 1 rue des Tests\n";
+    BankProposal *proposal = bank_proposal_analyze_text(
+        text,
+        "synthetic-evidence"
+    );
+
+    g_assert_nonnull(proposal);
+    g_assert_cmpstr(proposal->raw_iban, ==,
+        "FR48 3000 2005 5000 0000 0000 052");
+    g_assert_cmpstr(proposal->normalized_iban, ==,
+        "FR4830002005500000000000052");
+    g_assert_cmpstr(proposal->raw_bic, ==, "bnpafrppxxx");
+    g_assert_cmpstr(proposal->bic, ==, "BNPAFRPPXXX");
+    g_assert_cmpstr(proposal->holder_name, ==, "Élodie Exemple");
+    g_assert_cmpstr(proposal->bank_name, ==, "Banque Synthétique");
+    g_assert_cmpstr(proposal->bank_address, ==, "1 rue des Tests");
+    g_assert_cmpstr(proposal->iban_validation, ==, "valid");
+    bank_proposal_free(proposal);
+}
+
 
 int main(int argc, char **argv)
 {
@@ -54,5 +81,6 @@ int main(int argc, char **argv)
     g_test_add_func("/bank-proposal/iban-validation", test_iban_validation);
     g_test_add_func("/bank-proposal/bic-validation", test_bic_validation);
     g_test_add_func("/bank-proposal/french-rib-derivation", test_french_rib_derivation);
+    g_test_add_func("/bank-proposal/structured-values", test_structured_values);
     return g_test_run();
 }

@@ -16,6 +16,7 @@ static void test_eml_analyzer_headers(void)
         "Reply-To: replies@reply.test\r\n"
         "To: victim@example.net\r\n"
         "Subject: Synthetic fixture\r\n"
+        "Date: Wed, 22 Jul 2026 12:00:00 +0200\r\n"
         "Message-ID: <id-123@example.test>\r\n"
         "Received: from mail.example.test (mail.example.test [192.0.2.10])\r\n"
         " by mx.example.net ([198.51.100.20]) with ESMTP; Wed, 22 Jul 2026 10:00:00 +0000\r\n"
@@ -35,6 +36,8 @@ static void test_eml_analyzer_headers(void)
     assert(analysis != NULL && error == NULL);
     assert(strcmp(eml_analysis_get_first_header(analysis, "from"),
         "Example Sender <sender@example.test>") == 0);
+    assert(strcmp(eml_analysis_get_date_utc(analysis),
+        "2026-07-22T10:00:00Z") == 0);
     received = eml_analysis_get_header_values(analysis, "Received");
     assert(received != NULL && received->len == 2);
     assert(strstr(g_ptr_array_index((GPtrArray *) received, 0), " by mx.example.net") != NULL);

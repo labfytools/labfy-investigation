@@ -68,9 +68,9 @@ static void test_eml_pipeline_basic(void)
     EmlAttachment *att = g_ptr_array_index(result->mime_result->attachments, 0);
     g_assert_cmpstr(att->sanitized_filename, ==, "___rib_suspect.txt");
     att = g_ptr_array_index(result->mime_result->attachments, 1);
-    g_assert_cmpstr(att->sanitized_filename, ==, "___rib_suspect.txt");
+    g_assert_cmpstr(att->sanitized_filename, ==, "___rib_suspect-2.txt");
     g_assert_true(g_str_has_suffix(att->extracted_path,
-        "/1____rib_suspect.txt"));
+        "/___rib_suspect-2.txt"));
     g_assert_cmpuint(att->decoded_size, >, 0U);
 
     /* Vérification de la détection de la proposition bancaire dans la pièce jointe */

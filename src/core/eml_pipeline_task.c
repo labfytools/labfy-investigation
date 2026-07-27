@@ -77,12 +77,24 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
         return FALSE;
     }
 
-    EmlMimeResult *mime_res = eml_mime_extract_attachments(data->eml_path, target_dir, error);
+    EmlMimeResult *mime_res = eml_mime_extract_attachments_cancellable(
+        data->eml_path,
+        target_dir,
+        cancellable,
+        error
+    );
     g_free(target_dir);
 
     if (mime_res == NULL)
     {
+        if (g_cancellable_is_cancelled(cancellable))
+        {
+            eml_analysis_free(analysis);
+            return FALSE;
+        }
+
         /* Si l'extraction MIME échoue, on conserve quand même l'analyse des en-têtes (résultat partiel) */
+        g_clear_error(error);
         mime_res = g_new0(EmlMimeResult, 1);
         mime_res->attachments = g_ptr_array_new_with_free_func((GDestroyNotify) eml_attachment_free);
         mime_res->warnings = g_ptr_array_new_with_free_func(g_free);
@@ -94,6 +106,20 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
 
     for (guint i = 0; mime_res->attachments != NULL && i < mime_res->attachments->len; i++)
     {
+        if (g_cancellable_is_cancelled(cancellable))
+        {
+            eml_analysis_free(analysis);
+            eml_mime_result_free(mime_res);
+            g_ptr_array_unref(bank_proposals);
+            g_set_error_literal(
+                error,
+                G_IO_ERROR,
+                G_IO_ERROR_CANCELLED,
+                "L'analyse EML a été annulée."
+            );
+            return FALSE;
+        }
+
         EmlAttachment *att = g_ptr_array_index(mime_res->attachments, i);
         if (att->extracted_path == NULL)
             continue;

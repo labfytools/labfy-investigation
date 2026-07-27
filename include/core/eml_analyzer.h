@@ -37,5 +37,11 @@ const GPtrArray *eml_analysis_get_destination_ip_addresses(
     const EmlAnalysis *analysis);
 /** @brief Retourne une copie UTF-8 des en-têtes bruts. */
 const char *eml_analysis_get_raw_headers(const EmlAnalysis *analysis);
+/**
+ * @brief Retourne la date du message normalisée en UTC, ou NULL.
+ *
+ * La valeur brute reste disponible via l'en-tête `Date`.
+ */
+const char *eml_analysis_get_date_utc(const EmlAnalysis *analysis);
 G_END_DECLS
 #endif

@@ -3,6 +3,7 @@
  * @brief Détection, normalisation et modèle de proposition bancaire (IBAN, RIB, BIC).
  ******************************************************************************/
 #include "core/bank_proposal.h"
+#include "core/iban_analyzer.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,7 @@ void bank_proposal_free(BankProposal *p)
     g_free(p->id);
     g_free(p->raw_iban);
     g_free(p->normalized_iban);
+    g_free(p->raw_bic);
     g_free(p->bic);
     g_free(p->holder_name);
     g_free(p->bank_name);
@@ -24,6 +26,7 @@ void bank_proposal_free(BankProposal *p)
     g_free(p->branch_code);
     g_free(p->account_number);
     g_free(p->rib_key);
+    g_free(p->iban_validation);
     g_free(p->suggested_ocr_fix);
     g_free(p->verification_status);
     g_free(p->provenance_kind);
@@ -34,22 +37,143 @@ void bank_proposal_free(BankProposal *p)
     g_free(p);
 }
 
+static char *bank_proposal_collapse_spaces(const char *value)
+{
+    GString *result = NULL;
+    gboolean previous_was_space = FALSE;
+
+    if (value == NULL)
+        return NULL;
+
+    result = g_string_new(NULL);
+    for (const char *cursor = value; *cursor != '\0'; cursor++)
+    {
+        if (g_ascii_isspace(*cursor))
+        {
+            if (!previous_was_space)
+                g_string_append_c(result, ' ');
+            previous_was_space = TRUE;
+        }
+        else
+        {
+            g_string_append_c(result, *cursor);
+            previous_was_space = FALSE;
+        }
+    }
+    g_strstrip(result->str);
+    return g_string_free(result, FALSE);
+}
+
+static char *bank_proposal_extract_label(
+    const char *text,
+    const char *labels_pattern
+)
+{
+    char *pattern = g_strdup_printf(
+        "(?im)^(?:%s)[ \\t]*:[ \\t]*(.+)$",
+        labels_pattern
+    );
+    GRegex *regex = g_regex_new(pattern, G_REGEX_OPTIMIZE, 0, NULL);
+    GMatchInfo *match = NULL;
+    char *raw_value = NULL;
+    char *value = NULL;
+
+    g_free(pattern);
+    g_regex_match(regex, text, 0, &match);
+    if (g_match_info_matches(match))
+        raw_value = g_match_info_fetch(match, 1);
+    value = bank_proposal_collapse_spaces(raw_value);
+    g_free(raw_value);
+    g_match_info_free(match);
+    g_regex_unref(regex);
+    return value;
+}
+
+static void bank_proposal_extract_bic(
+    BankProposal *proposal,
+    const char *text
+)
+{
+    GRegex *regex = g_regex_new(
+        "(?i)\\b[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\\b",
+        G_REGEX_OPTIMIZE,
+        0,
+        NULL
+    );
+    GMatchInfo *match = NULL;
+
+    g_regex_match(regex, text, 0, &match);
+    while (g_match_info_matches(match))
+    {
+        char *candidate = g_match_info_fetch(match, 0);
+        char *normalized = g_ascii_strup(candidate, -1);
+
+        if (bank_proposal_validate_bic(normalized))
+        {
+            proposal->raw_bic = candidate;
+            proposal->bic = normalized;
+            break;
+        }
+        g_free(candidate);
+        g_free(normalized);
+        if (!g_match_info_next(match, NULL))
+            break;
+    }
+    g_match_info_free(match);
+    g_regex_unref(regex);
+}
+
 gboolean bank_proposal_validate_iban(const char *iban)
 {
-    if (iban == NULL)
+    static const struct
+    {
+        const char *country_code;
+        gsize length;
+    } national_lengths[] = {
+        { "BE", 16 }, { "DE", 22 }, { "ES", 24 }, { "FR", 27 },
+        { "GB", 22 }, { "IT", 27 }, { "LU", 20 }, { "NL", 18 },
+        { "PT", 25 }
+    };
+    char *normalized = iban_analyzer_normalize(iban);
+
+    if (normalized == NULL)
         return FALSE;
 
-    gsize len = strlen(iban);
+    gsize len = strlen(normalized);
     if (len < 15 || len > 34)
+    {
+        g_free(normalized);
         return FALSE;
+    }
 
     /* Vérification des 2 premières lettres (Code pays) */
-    if (!g_ascii_isalpha(iban[0]) || !g_ascii_isalpha(iban[1]))
+    if (!g_ascii_isalpha(normalized[0]) ||
+        !g_ascii_isalpha(normalized[1]) ||
+        !g_ascii_isdigit(normalized[2]) ||
+        !g_ascii_isdigit(normalized[3]))
+    {
+        g_free(normalized);
         return FALSE;
+    }
+
+    for (guint index = 0; index < G_N_ELEMENTS(national_lengths); index++)
+    {
+        if (g_ascii_strncasecmp(
+                normalized,
+                national_lengths[index].country_code,
+                2
+            ) == 0 &&
+            len != national_lengths[index].length)
+        {
+            g_free(normalized);
+            return FALSE;
+        }
+    }
 
     /* Repositionnement des 4 premiers caractères à la fin */
-    GString *rearranged = g_string_new(iban + 4);
-    g_string_append_len(rearranged, iban, 4);
+    GString *rearranged = g_string_new(normalized + 4);
+    g_string_append_len(rearranged, normalized, 4);
+    g_free(normalized);
 
     /* Conversion des lettres en chiffres (A=10, Z=35) */
     GString *numeric = g_string_new(NULL);
@@ -99,12 +223,7 @@ gboolean bank_proposal_validate_bic(const char *bic)
     if (len != 8 && len != 11)
         return FALSE;
 
-    for (gsize i = 0; i < 4; i++)
-    {
-        if (!g_ascii_isalpha(bic[i]))
-            return FALSE;
-    }
-    for (gsize i = 4; i < 6; i++)
+    for (gsize i = 0; i < 6; i++)
     {
         if (!g_ascii_isalpha(bic[i]))
             return FALSE;
@@ -144,43 +263,42 @@ gboolean bank_proposal_derive_french_rib(BankProposal *proposal)
 
 BankProposal *bank_proposal_analyze_text(const char *raw_text, const char *evidence_id)
 {
+    GRegex *iban_regex = NULL;
+    GMatchInfo *iban_match = NULL;
+    char *raw_iban = NULL;
+    char *normalized_iban = NULL;
+
     if (raw_text == NULL || raw_text[0] == '\0')
         return NULL;
 
-    /* Nettoyage des espaces pour recherche d'IBAN */
-    GString *clean = g_string_new(NULL);
-    gsize raw_len = strlen(raw_text);
-    for (gsize i = 0; i < raw_len; i++)
-    {
-        char c = raw_text[i];
-        if (g_ascii_isalnum(c))
-        {
-            g_string_append_c(clean, g_ascii_toupper(c));
-        }
-    }
+    iban_regex = g_regex_new(
+        "(?i)\\b[A-Z]{2}[0-9]{2}(?:[ \\t-]*[A-Z0-9]){11,30}\\b",
+        G_REGEX_OPTIMIZE,
+        0,
+        NULL
+    );
+    g_regex_match(iban_regex, raw_text, 0, &iban_match);
+    if (g_match_info_matches(iban_match))
+        raw_iban = g_match_info_fetch(iban_match, 0);
+    g_match_info_free(iban_match);
+    g_regex_unref(iban_regex);
 
-    /* Recherche de motif IBAN (ex: FR76...) */
-    const char *data = clean->str;
-    const char *iban_start = strstr(data, "FR");
-    if (iban_start == NULL)
+    normalized_iban = iban_analyzer_normalize(raw_iban);
+    if (normalized_iban == NULL)
     {
-        /* Essai avec d'autres codes pays à 2 lettres */
-        if (clean->len >= 15 && g_ascii_isalpha(data[0]) && g_ascii_isalpha(data[1]))
-            iban_start = data;
-    }
-
-    if (iban_start == NULL)
-    {
-        g_string_free(clean, TRUE);
+        g_free(raw_iban);
         return NULL;
     }
 
     BankProposal *p = g_new0(BankProposal, 1);
     p->id = g_uuid_string_random();
-    p->raw_iban = g_strdup(raw_text);
-    p->normalized_iban = g_strndup(iban_start, 27 < strlen(iban_start) ? 27 : strlen(iban_start));
+    p->raw_iban = raw_iban;
+    p->normalized_iban = normalized_iban;
     p->country_code = g_strndup(p->normalized_iban, 2);
     p->is_iban_valid = bank_proposal_validate_iban(p->normalized_iban);
+    p->iban_validation = g_strdup(
+        p->is_iban_valid ? "valid" : "invalid"
+    );
     p->verification_status = g_strdup("proposed");
     p->provenance_kind = g_strdup("ocr");
     p->evidence_id = evidence_id != NULL ? g_strdup(evidence_id) : NULL;
@@ -197,6 +315,37 @@ BankProposal *bank_proposal_analyze_text(const char *raw_text, const char *evide
         bank_proposal_derive_french_rib(p);
     }
 
-    g_string_free(clean, TRUE);
+    bank_proposal_extract_bic(p, raw_text);
+    p->holder_name = bank_proposal_extract_label(
+        raw_text,
+        "Titulaire|Account holder"
+    );
+    p->bank_name = bank_proposal_extract_label(
+        raw_text,
+        "Banque|Bank"
+    );
+    p->bank_address = bank_proposal_extract_label(
+        raw_text,
+        "Adresse(?: de la banque)?|Bank address"
+    );
+
+    if (!p->is_iban_valid &&
+        (strchr(p->normalized_iban, 'O') != NULL ||
+         strchr(p->normalized_iban, 'I') != NULL))
+    {
+        char *suggestion = g_strdup(p->normalized_iban);
+        for (char *cursor = suggestion; *cursor != '\0'; cursor++)
+        {
+            if (*cursor == 'O')
+                *cursor = '0';
+            else if (*cursor == 'I')
+                *cursor = '1';
+        }
+        if (bank_proposal_validate_iban(suggestion))
+            p->suggested_ocr_fix = suggestion;
+        else
+            g_free(suggestion);
+    }
+
     return p;
 }
