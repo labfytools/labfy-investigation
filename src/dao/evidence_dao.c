@@ -1562,6 +1562,38 @@ cleanup:
     return success;
 }
 
+char *evidence_dao_find_identifier_by_sha256(EvidenceDao *evidence_dao,
+    const char *sha256, GError **error)
+{
+    static const char sql[] =
+        "SELECT id FROM preuves WHERE sha256=? ORDER BY imported_at,id LIMIT 1;";
+    DatabaseStatement *statement;
+    char *identifier = NULL;
+    if (evidence_dao == NULL || sha256 == NULL || strlen(sha256) != 64) {
+        evidence_dao_set_error_literal(error,
+            EVIDENCE_DAO_ERROR_INVALID_ARGUMENT,
+            "L’empreinte recherchée est invalide.");
+        return NULL;
+    }
+    statement = database_statement_prepare(evidence_dao->database, sql);
+    if (statement == NULL ||
+        !database_statement_bind_text(statement, 1, sha256)) {
+        evidence_dao_set_database_error(evidence_dao, error,
+            statement == NULL ? EVIDENCE_DAO_ERROR_PREPARE :
+                EVIDENCE_DAO_ERROR_BIND,
+            "Impossible de rechercher le doublon de preuve");
+        database_statement_finalize(statement);
+        return NULL;
+    }
+    if (database_statement_step(statement) == DATABASE_STATEMENT_STEP_ROW &&
+        !database_statement_column_text(statement, 0, &identifier))
+        evidence_dao_set_database_error(evidence_dao, error,
+            EVIDENCE_DAO_ERROR_READ,
+            "Impossible de lire le doublon de preuve");
+    database_statement_finalize(statement);
+    return identifier;
+}
+
 GPtrArray *evidence_dao_list_all(
     EvidenceDao *evidence_dao,
     GError **error

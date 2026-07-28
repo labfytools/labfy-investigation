@@ -191,6 +191,14 @@ Le socle actuel comprend notamment :
   graphe, puis retrait réversible conservant l'observation.
 - propriété persistante V13 des rattachements preuve-entité : un retrait EML
   ne supprime que la source de l'observation concernée.
+- assistant de création d’une personne avec sélection multiple de preuves
+  existantes et import multiple différé : les nouveaux fichiers sont copiés
+  dans un staging temporaire, qualifiés individuellement et ne deviennent
+  définitifs qu’après confirmation globale ;
+- rattachement transactionnel de toutes les preuves retenues, avec rollback
+  SQLite et suppression compensatoire des copies définitives en cas d’échec.
+- aperçu asynchrone contrôlé PNG/JPEG, HEIC/HEIF, MP4/MOV, texte, EML et
+  première page PDF, sans OCR ni écriture SQLite ;
 
 ### Pivot EML
 

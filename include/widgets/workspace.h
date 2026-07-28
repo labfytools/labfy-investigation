@@ -11,6 +11,7 @@
 #include "models/evidence_observation.h"
 #include "models/entity_record.h"
 #include "models/osint_action_catalog.h"
+#include "core/task_manager.h"
 
 #include <gtk/gtk.h>
 
@@ -162,7 +163,7 @@ typedef void (*WorkspaceObservationRemoveCallback)(
  *
  * @return Une nouvelle zone de travail, ou NULL en cas d'échec.
  */
-Workspace *workspace_new(void);
+Workspace *workspace_new(TaskManager *task_manager);
 
 /**
  * @brief Retourne le widget GTK racine de la zone de travail.
@@ -223,6 +224,8 @@ void workspace_set_eml_analysis_available(
  */
 void workspace_set_evidence_preview(Workspace *workspace,
     const char *file_path, const char *display_name);
+void workspace_show_evidence_preview(Workspace *workspace,
+    const char *investigation_root, const EvidenceRecord *record);
 
 /**
  * @brief Sélectionne une entité dans le graphe affiché.

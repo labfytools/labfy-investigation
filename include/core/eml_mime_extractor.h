@@ -49,6 +49,9 @@ typedef struct EmlMimeResult
 {
     GPtrArray *attachments;     /**< Tableau de EmlAttachment* */
     GPtrArray *warnings;        /**< Avertissements d'extraction */
+    char *body_text;            /**< Corps choisi pour un aperçu passif. */
+    gboolean body_from_html;    /**< VRAI si un repli HTML a été utilisé. */
+    gboolean body_truncated;    /**< VRAI si le corps a été borné. */
 } EmlMimeResult;
 
 /**
@@ -94,6 +97,10 @@ EmlMimeResult *eml_mime_extract_attachments_cancellable(
     GCancellable *cancellable,
     GError **error
 );
+
+/** Analyse MIME sans écrire les contenus décodés sur disque. */
+EmlMimeResult *eml_mime_build_preview(const char *eml_path,
+    GCancellable *cancellable, GError **error);
 
 G_END_DECLS
 

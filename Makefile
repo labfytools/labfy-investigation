@@ -1,6 +1,10 @@
 CC = gcc
 
 PKG_CONFIG = pkg-config
+REQUIRED_PACKAGES = gtk4 sqlite3 libheif poppler-glib
+ifeq ($(shell $(PKG_CONFIG) --exists $(REQUIRED_PACKAGES) && echo yes),)
+$(error Dépendances de compilation manquantes : $(REQUIRED_PACKAGES). Voir docs/DEPENDENCE.md)
+endif
 
 .DEFAULT_GOAL := all
 
@@ -12,9 +16,9 @@ CFLAGS = -std=c17 \
           -Iinclude \
           -MMD \
           -MP \
-          $(shell $(PKG_CONFIG) --cflags gtk4 sqlite3)
+          $(shell $(PKG_CONFIG) --cflags gtk4 sqlite3 libheif poppler-glib)
 
-LDFLAGS = $(shell $(PKG_CONFIG) --libs gtk4 sqlite3) -ljpeg
+LDFLAGS = $(shell $(PKG_CONFIG) --libs gtk4 sqlite3 libheif poppler-glib) -ljpeg
 
 TEST_CFLAGS = -std=c17 \
               -Wall \
@@ -126,12 +130,17 @@ TEST_SOCIAL_ACCOUNT_SERVICE := tests/test_social_account_service
 TEST_SOCIAL_PLATFORM := tests/test_social_platform
 TEST_PERSON_ENTITY_SERVICE := tests/test_person_entity_service
 TEST_EVIDENCE_PREVIEW := tests/test_evidence_preview
+TEST_EVIDENCE_VIDEO_PREVIEW_CONTROLLER := tests/test_evidence_video_preview_controller
 TEST_EVIDENCE_SELECTION_MODEL := tests/test_evidence_selection_model
 TEST_PERSON_CREATION_GUARD := tests/test_person_creation_guard
 TEST_PERSON_DIALOG_LIFECYCLE := tests/test_person_dialog_lifecycle
 TEST_CREATE_PERSON_DIALOG_GTK := tests/test_create_person_dialog_gtk
+TEST_EVIDENCE_PREVIEW_WIDGET_GTK := tests/test_evidence_preview_widget_gtk
 TEST_PERSON_CONFIRMATION_SUMMARY := tests/test_person_confirmation_summary
 TEST_PERSON_ROLE_ASSIGNMENT_DAO := tests/test_person_role_assignment_dao
+TEST_PERSON_EVIDENCE_SELECTION := tests/test_person_evidence_selection
+TEST_EVIDENCE_STAGING := tests/test_evidence_staging
+TEST_PERSON_CREATION_COORDINATOR := tests/test_person_creation_coordinator
 TEST_EML_ANALYZER := tests/test_eml_analyzer
 TEST_EML_INTEGRATION := tests/test_eml_integration
 TEST_IBAN_ANALYZER := tests/test_iban_analyzer
@@ -803,8 +812,14 @@ $(TEST_EVIDENCE_PREVIEW): tests/test_evidence_preview.c \
 	src/core/evidence_preview_task.c src/core/background_task.c \
 	src/core/task_manager.c \
 	src/core/evidence_integrity_verifier.c \
-	src/core/file_hash.c src/models/evidence_record.c
+	src/core/file_hash.c src/core/eml_analyzer.c \
+	src/core/eml_mime_extractor.c src/models/evidence_record.c
 	$(CC) $(CFLAGS) -Wpedantic $^ -o $@ $(LDFLAGS) -ljpeg
+
+$(TEST_EVIDENCE_VIDEO_PREVIEW_CONTROLLER): \
+	tests/test_evidence_video_preview_controller.c \
+	src/core/evidence_video_preview_controller.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
 
 $(TEST_EVIDENCE_SELECTION_MODEL): tests/test_evidence_selection_model.c \
 	src/models/evidence_selection_model.c src/models/evidence_record.c
@@ -821,16 +836,32 @@ $(TEST_PERSON_DIALOG_LIFECYCLE): tests/test_person_dialog_lifecycle.c \
 $(TEST_CREATE_PERSON_DIALOG_GTK): tests/test_create_person_dialog_gtk.c \
 	src/views/create_person_dialog.c src/core/person_dialog_lifecycle.c \
 	src/core/person_confirmation_summary.c \
+	src/core/evidence_staging.c src/core/evidence_staging_task.c \
 	src/core/evidence_preview_task.c src/core/evidence_preview.c \
+	src/core/eml_analyzer.c src/core/eml_mime_extractor.c \
+	src/core/evidence_video_preview_controller.c \
+	src/widgets/evidence_preview_widget.c \
 	src/core/evidence_integrity_verifier.c src/core/file_hash.c \
 	src/core/background_task.c src/core/task_manager.c \
 	src/models/evidence_selection_model.c src/models/evidence_record.c \
-	src/models/person_role_assignment.c
+	src/models/person_role_assignment.c \
+	src/models/person_evidence_selection.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+$(TEST_EVIDENCE_PREVIEW_WIDGET_GTK): \
+	tests/test_evidence_preview_widget_gtk.c \
+	src/widgets/evidence_preview_widget.c \
+	src/core/evidence_preview_task.c src/core/evidence_preview.c \
+	src/core/eml_analyzer.c src/core/eml_mime_extractor.c \
+	src/core/evidence_video_preview_controller.c \
+	src/core/evidence_integrity_verifier.c src/core/file_hash.c \
+	src/core/background_task.c src/core/task_manager.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS) -ljpeg
 
 $(TEST_PERSON_CONFIRMATION_SUMMARY): \
 	tests/test_person_confirmation_summary.c \
-	src/core/person_confirmation_summary.c src/models/evidence_record.c
+	src/core/person_confirmation_summary.c src/models/evidence_record.c \
+	src/models/person_evidence_selection.c
 	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
 
 $(TEST_PERSON_ROLE_ASSIGNMENT_DAO): \
@@ -838,6 +869,28 @@ $(TEST_PERSON_ROLE_ASSIGNMENT_DAO): \
 	src/dao/person_role_assignment_dao.c src/models/person_role_assignment.c \
 	src/dao/entity_dao.c src/models/entity_record.c \
 	src/dao/evidence_dao.c src/models/evidence_record.c \
+	src/database/database.c src/database/schema.c src/database/statement.c \
+	src/database/transaction.c src/database/error.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
+$(TEST_PERSON_EVIDENCE_SELECTION): \
+	tests/test_person_evidence_selection.c \
+	src/models/person_evidence_selection.c src/models/evidence_record.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_EVIDENCE_STAGING): tests/test_evidence_staging.c \
+	src/core/evidence_staging.c src/core/file_hash.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_PERSON_CREATION_COORDINATOR): \
+	tests/test_person_creation_coordinator.c \
+	src/core/person_creation_coordinator.c src/core/evidence_staging.c \
+	src/core/file_hash.c \
+	src/models/person_evidence_selection.c src/models/evidence_record.c \
+	src/models/person_role_assignment.c src/models/entity_record.c \
+	src/models/evidence_observation.c \
+	src/dao/entity_dao.c src/dao/evidence_dao.c \
+	src/dao/evidence_entity_dao.c src/dao/person_role_assignment_dao.c \
 	src/database/database.c src/database/schema.c src/database/statement.c \
 	src/database/transaction.c src/database/error.c
 	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
@@ -949,12 +1002,17 @@ test: \
 	$(TEST_SOCIAL_PLATFORM) \
 	$(TEST_PERSON_ENTITY_SERVICE) \
 	$(TEST_EVIDENCE_PREVIEW) \
+	$(TEST_EVIDENCE_VIDEO_PREVIEW_CONTROLLER) \
 	$(TEST_EVIDENCE_SELECTION_MODEL) \
 	$(TEST_PERSON_CREATION_GUARD) \
 	$(TEST_PERSON_DIALOG_LIFECYCLE) \
 	$(TEST_CREATE_PERSON_DIALOG_GTK) \
+	$(TEST_EVIDENCE_PREVIEW_WIDGET_GTK) \
 	$(TEST_PERSON_CONFIRMATION_SUMMARY) \
 	$(TEST_PERSON_ROLE_ASSIGNMENT_DAO) \
+	$(TEST_PERSON_EVIDENCE_SELECTION) \
+	$(TEST_EVIDENCE_STAGING) \
+	$(TEST_PERSON_CREATION_COORDINATOR) \
 	$(TEST_EML_ANALYZER) \
 	$(TEST_EML_INTEGRATION) \
 	$(TEST_IBAN_ANALYZER) \
@@ -1030,12 +1088,17 @@ test: \
 	@$(TEST_SOCIAL_PLATFORM)
 	@$(TEST_PERSON_ENTITY_SERVICE)
 	@$(TEST_EVIDENCE_PREVIEW)
+	@$(TEST_EVIDENCE_VIDEO_PREVIEW_CONTROLLER)
 	@$(TEST_EVIDENCE_SELECTION_MODEL)
 	@$(TEST_PERSON_CREATION_GUARD)
 	@$(TEST_PERSON_DIALOG_LIFECYCLE)
 	@$(TEST_CREATE_PERSON_DIALOG_GTK)
+	@$(TEST_EVIDENCE_PREVIEW_WIDGET_GTK)
 	@$(TEST_PERSON_CONFIRMATION_SUMMARY)
 	@$(TEST_PERSON_ROLE_ASSIGNMENT_DAO)
+	@$(TEST_PERSON_EVIDENCE_SELECTION)
+	@$(TEST_EVIDENCE_STAGING)
+	@$(TEST_PERSON_CREATION_COORDINATOR)
 	@$(TEST_EML_ANALYZER)
 	@$(TEST_EML_INTEGRATION)
 	@$(TEST_IBAN_ANALYZER)
@@ -1118,12 +1181,17 @@ clean:
 		$(TEST_SOCIAL_PLATFORM) \
 		$(TEST_PERSON_ENTITY_SERVICE) \
 		$(TEST_EVIDENCE_PREVIEW) \
+		$(TEST_EVIDENCE_VIDEO_PREVIEW_CONTROLLER) \
 		$(TEST_EVIDENCE_SELECTION_MODEL) \
 		$(TEST_PERSON_CREATION_GUARD) \
 		$(TEST_PERSON_DIALOG_LIFECYCLE) \
 		$(TEST_CREATE_PERSON_DIALOG_GTK) \
+		$(TEST_EVIDENCE_PREVIEW_WIDGET_GTK) \
 		$(TEST_PERSON_CONFIRMATION_SUMMARY) \
 		$(TEST_PERSON_ROLE_ASSIGNMENT_DAO) \
+		$(TEST_PERSON_EVIDENCE_SELECTION) \
+		$(TEST_EVIDENCE_STAGING) \
+		$(TEST_PERSON_CREATION_COORDINATOR) \
 		$(TEST_EML_ANALYZER) \
 		$(TEST_EML_INTEGRATION) \
 		$(TEST_EXTRACTION_DROP_SERVICE) \

@@ -1,5 +1,11 @@
 # Test manuel — ticket #109, tranche 1
 
+> Le parcours « Preuve » est désormais nommé « Preuves » et accepte une
+> sélection multiple ainsi qu’un import différé. Pour le scénario historique
+> de tranche 1, sélectionner une seule preuve existante avec « Ajouter à la
+> sélection ». Le protocole étendu se trouve dans
+> `docs/TEST_MANUEL_TICKET_109_TRANCHE_2.md`.
+
 Utiliser uniquement une enquête de démonstration et des fichiers synthétiques
 marqués `SPECIMEN`.
 

@@ -56,6 +56,8 @@
 #include "core/relation_service.h"
 #include "core/social_account_service.h"
 #include "core/person_entity_service.h"
+#include "core/person_creation_coordinator.h"
+#include "core/person_creation_task.h"
 #include "core/person_creation_guard.h"
 #include "core/eml_processing.h"
 #include "core/eml_integration.h"
@@ -157,12 +159,29 @@ typedef struct
     Application *application;
     PersonCreationGuard *guard;
 } ApplicationPersonDialogContext;
+typedef struct
+{
+    Application *application;
+    guint64 generation;
+    char *root_path;
+    char *database_path;
+    EvidenceStaging *staging;
+} ApplicationPersonCreationTaskContext;
 
 static void application_person_dialog_context_free(
     ApplicationPersonDialogContext *context)
 {
     if (context == NULL) return;
     person_creation_guard_free(context->guard);
+    g_free(context);
+}
+static void application_person_creation_task_context_free(gpointer data)
+{
+    ApplicationPersonCreationTaskContext *context = data;
+    if (context == NULL) return;
+    g_free(context->root_path);
+    g_free(context->database_path);
+    evidence_staging_free(context->staging);
     g_free(context);
 }
 
@@ -2736,6 +2755,7 @@ static gboolean application_install_session(
         application->graph_viewport_save_source_id = 0U;
     }
     application_save_graph_viewport(application);
+    task_manager_cancel_all(application->task_manager);
     investigation_session_close(
         application->session
     );
@@ -5394,6 +5414,32 @@ static void application_on_add_social_account_requested(gpointer user_data)
 }
 
 /** @brief Persiste une personne validée puis recharge le graphe. */
+static void application_on_person_creation_task_completed(
+    BackgroundTask *task, gpointer user_data)
+{
+    ApplicationPersonCreationTaskContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    const InvestigationProject *project = application != NULL &&
+        application->session != NULL
+        ? investigation_session_get_project(application->session) : NULL;
+    gboolean session_matches = project != NULL &&
+        application->session_generation == context->generation &&
+        g_strcmp0(investigation_project_get_root_path(project),
+            context->root_path) == 0 &&
+        g_strcmp0(investigation_project_get_database_path(project),
+            context->database_path) == 0;
+    if (!session_matches) return;
+    if (background_task_get_state(task) != BACKGROUND_TASK_STATE_COMPLETED) {
+        GError *error = background_task_dup_error(task);
+        application_present_error(application, "Personne non créée",
+            error != NULL ? error->message : "L’écriture a échoué.");
+        g_clear_error(&error);
+        return;
+    }
+    main_window_set_status(application->main_window,
+        "Personne et preuves ajoutées. Actualisation du graphe…");
+    application_start_graph_loading(application, context->database_path);
+}
 static void application_on_person_completed(
     CreatePersonDialogResult *result, gpointer user_data)
 {
@@ -5402,7 +5448,9 @@ static void application_on_person_completed(
     const PersonEntityInput *input = NULL;
     const InvestigationProject *project = NULL;
     GError *error = NULL;
-    char *identifier = NULL;
+    PersonCreationTaskRequest *request = NULL;
+    BackgroundTask *task = NULL;
+    ApplicationPersonCreationTaskContext *task_context = NULL;
     const char *active_root = NULL, *active_database = NULL;
     if (result == NULL) {
         return;
@@ -5416,20 +5464,29 @@ static void application_on_person_completed(
     if (!person_creation_guard_matches(context->guard, TRUE,
             application->session_generation, active_root, active_database))
         goto changed_session;
-    if (!person_entity_service_create(
-            investigation_session_get_database(application->session),
-            input, &identifier, &error))
+    request = person_creation_task_request_new(active_database, active_root,
+        input, create_person_dialog_result_get_evidence_selection(result));
+    task_context = g_new0(ApplicationPersonCreationTaskContext, 1);
+    task_context->application = application;
+    task_context->generation = application->session_generation;
+    task_context->root_path = g_strdup(active_root);
+    task_context->database_path = g_strdup(active_database);
+    task_context->staging =
+        create_person_dialog_result_steal_staging(result);
+    task = person_creation_task_start(application->task_manager, request,
+        application_on_person_creation_task_completed, task_context,
+        application_person_creation_task_context_free, &error);
+    if (task == NULL) {
+        application_person_creation_task_context_free(task_context);
         application_present_error(application, "Personne non créée",
             error != NULL ? error->message : "L'écriture a échoué.");
-    else
-    {
-        project = investigation_session_get_project(application->session);
+    } else {
         main_window_set_status(application->main_window,
-            "Personne ajoutée. Actualisation du graphe…");
-        application_start_graph_loading(application,
-            investigation_project_get_database_path(project));
+            "Création et import des preuves en cours…");
+        background_task_unref(task);
     }
-    g_clear_error(&error); g_free(identifier);
+    person_creation_task_request_free(request);
+    g_clear_error(&error);
     create_person_dialog_result_free(result);
     return;
 changed_session:
@@ -5577,10 +5634,6 @@ static void application_on_evidence_selected(
 
     const InvestigationProject *project = NULL;
     const char *investigation_root = NULL;
-    const char *relative_path = NULL;
-    char *canonical_root = NULL;
-    char *candidate_path = NULL;
-    char *canonical_path = NULL;
 
     char *status_message =
         NULL;
@@ -5775,30 +5828,17 @@ static void application_on_evidence_selected(
     project = investigation_session_get_project(application->session);
     investigation_root = project != NULL
         ? investigation_project_get_root_path(project) : NULL;
-    relative_path = evidence_record_get_relative_path(evidence_record);
     gboolean eml_analysis_available = FALSE;
-    if (investigation_root != NULL && relative_path != NULL)
-    {
-        canonical_root = g_canonicalize_filename(investigation_root, NULL);
-        candidate_path = g_build_filename(investigation_root,
-            relative_path, NULL);
-        canonical_path = g_canonicalize_filename(candidate_path, NULL);
-        if (canonical_root != NULL && canonical_path != NULL &&
-            g_str_has_prefix(canonical_path, canonical_root) &&
-            canonical_path[strlen(canonical_root)] == G_DIR_SEPARATOR &&
-            g_file_test(canonical_path, G_FILE_TEST_IS_REGULAR))
-        {
-            const char *selected_name =
-                evidence_record_get_original_name(evidence_record);
-            char *lower_name = selected_name != NULL
-                ? g_ascii_strdown(selected_name, -1) : NULL;
-            eml_analysis_available = lower_name != NULL &&
-                g_str_has_suffix(lower_name, ".eml");
-            g_free(lower_name);
-            main_window_set_evidence_preview(application->main_window,
-                canonical_path,
-                evidence_record_get_original_name(evidence_record));
-        }
+    if (investigation_root != NULL) {
+        const char *selected_name =
+            evidence_record_get_original_name(evidence_record);
+        char *lower_name = selected_name != NULL
+            ? g_ascii_strdown(selected_name, -1) : NULL;
+        eml_analysis_available = lower_name != NULL &&
+            g_str_has_suffix(lower_name, ".eml");
+        g_free(lower_name);
+        main_window_show_evidence_preview(application->main_window,
+            investigation_root, evidence_record);
     }
     main_window_set_eml_analysis_available(
         application->main_window, eml_analysis_available);
@@ -5825,9 +5865,6 @@ static void application_on_evidence_selected(
     g_free(
         status_message
     );
-    g_free(canonical_path);
-    g_free(candidate_path);
-    g_free(canonical_root);
 
     evidence_record_free(
         evidence_record

@@ -76,3 +76,69 @@ char *person_confirmation_summary_build(const char *designation,
     g_free(short_sha);
     return g_string_free(summary, FALSE);
 }
+
+char *person_confirmation_summary_build_multiple(const char *designation,
+    const char *declared_name, const char *pseudonym,
+    const char *identification_status, gint confidence, const char *notes,
+    const GPtrArray *role_labels,
+    const PersonEvidenceSelection *selection)
+{
+    GString *summary = g_string_new(NULL);
+    guint existing_count = 0, staged_count = 0;
+    g_string_append_printf(summary,
+        "PERSONNE\nDésignation : %s\nNom déclaré : %s\nPseudonyme : %s\n"
+        "Statut d’identification : %s\nConfiance : %d %%\n"
+        "Notes factuelles : %s\n\nRÔLES\n",
+        optional(designation, "Non renseignée"),
+        optional(declared_name, "Non renseigné"),
+        optional(pseudonym, "Non renseigné"),
+        optional(identification_status, "Non renseigné"),
+        confidence, optional(notes, "Aucune"));
+    if (role_labels == NULL || role_labels->len == 0)
+        g_string_append(summary, "Aucun rôle sélectionné\n");
+    else
+        for (guint i = 0; i < role_labels->len; i++)
+            g_string_append_printf(summary, "• %s\n",
+                optional(g_ptr_array_index((GPtrArray *) role_labels, i),
+                    "Rôle non renseigné"));
+    g_string_append(summary, "\nPREUVES\n");
+    if (person_evidence_selection_get_count(selection) == 0)
+        g_string_append(summary, "Aucune preuve retenue.\n");
+    for (guint i = 0; i < person_evidence_selection_get_count(selection);
+         i++) {
+        const PersonEvidenceSelectionItem *item =
+            person_evidence_selection_get(selection, i);
+        char *size = g_format_size(
+            person_evidence_selection_item_get_size_bytes(item));
+        char *short_sha = g_strndup(
+            person_evidence_selection_item_get_sha256(item), 12);
+        gboolean staged = person_evidence_selection_item_get_origin(item) ==
+            PERSON_EVIDENCE_ORIGIN_STAGED;
+        if (staged) staged_count++; else existing_count++;
+        g_string_append_printf(summary,
+            "• %s\n  Origine : %s\n  Type métier : %s\n  MIME : %s\n"
+            "  Taille : %s\n  SHA-256 : %s…\n  Intégrité : Valide\n"
+            "  Description : %s\n  Statut : %s\n",
+            optional(person_evidence_selection_item_get_original_name(item),
+                "Non renseigné"),
+            staged ? "Nouvelle" : "Existante",
+            optional(person_evidence_selection_item_get_type_identifier(item),
+                "Non renseigné"),
+            optional(person_evidence_selection_item_get_mime_type(item),
+                "Non renseigné"), size, optional(short_sha, "Non renseigné"),
+            optional(person_evidence_selection_item_get_description(item),
+                "Aucune"),
+            staged ? "Prête à importer" : "Déjà importée");
+        g_free(size);
+        g_free(short_sha);
+    }
+    g_string_append_printf(summary,
+        "\nAVERTISSEMENTS\n"
+        "%u nouvelle(s) preuve(s) à importer.\n"
+        "%u preuve(s) existante(s) à rattacher.\n"
+        "Aucune écriture n’a encore été effectuée.\n"
+        "L’annulation ne réalise aucun import définitif.\n"
+        "Aucun OCR ne sera lancé dans cette tranche.",
+        staged_count, existing_count);
+    return g_string_free(summary, FALSE);
+}

@@ -19,5 +19,9 @@ const EvidenceRecord *evidence_selection_model_get_selected(
     const EvidenceSelectionModel *model);
 GPtrArray *evidence_selection_model_list_type_codes(
     const EvidenceSelectionModel *model);
+const EvidenceRecord *evidence_selection_model_find_by_sha256(
+    const EvidenceSelectionModel *model, const char *sha256);
+const EvidenceRecord *evidence_selection_model_find_by_identifier(
+    const EvidenceSelectionModel *model, const char *identifier);
 G_END_DECLS
 #endif

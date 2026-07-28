@@ -1,5 +1,25 @@
 # Architecture
 
+`EvidencePreviewWidget` est l’adaptateur GTK unique de `EvidencePreview` pour
+`CreatePersonDialog` et la fiche directe. Il encapsule les états, le rendu
+EML/PDF/image/texte/vidéo, l’annulation, la génération, la garde de session et
+l’arrêt du média. Les deux écrans lui transmettent uniquement une source
+interne ou de staging accompagnée du SHA-256 attendu.
+
+## Aperçu contrôlé multi-format
+
+`EvidencePreview` vérifie l’empreinte du fichier interne ou de staging,
+détecte son contenu et produit un résultat borné sans GTK. `BackgroundTask`
+travaille hors du thread principal ; `CreatePersonDialog` y crée ensuite
+textures, buffers et médias, rejette les générations périmées et arrête tout
+média au changement ou à la fermeture. L’aperçu ne persiste rien.
+
+Le mode aperçu de `EmlMimeExtractor` réutilise le parcours récursif et les
+décodages RFC 2047/2231 sans écrire les pièces jointes. Il préfère
+`text/plain`, transforme un éventuel HTML en texte inerte et retourne
+l’inventaire possédé. Le contrôleur vidéo indépendant de GTK orchestre
+pause, retour au début, détachement et libération via des actions injectées.
+
 > **Version :** 3.1
 > **Dernière mise à jour :** 2026-07-28
 > **Schéma SQLite courant :** V14
@@ -405,6 +425,25 @@ leur preuve source.
 ---
 
 ## 10. Tâches asynchrones
+
+### 10.1 Création d’une personne avec preuves
+
+`PersonEvidenceSelection` possède la collection ordonnée des preuves retenues
+et distingue les preuves existantes des copies de staging. Il ne dépend ni de
+GTK ni de SQLite. `EvidenceStaging` refuse les fichiers spéciaux et liens
+symboliques, calcule l’empreinte de la source et de sa copie, détecte le MIME
+et nettoie les temporaires lors d’un retrait ou d’une annulation.
+
+`PersonCreationCoordinator` valide toutes les empreintes avant écriture, crée
+la personne, importe les nouvelles preuves et rattache toute la collection
+dans une transaction SQLite. Les copies définitives réalisées avant un échec
+sont supprimées après rollback. `PersonCreationTask` exécute cette orchestration
+hors du thread GTK. Un changement de session annule les tâches et interdit le
+rafraîchissement d’une autre enquête.
+
+Les aperçus PNG/JPEG utilisent exclusivement le fichier interne d’une preuve
+existante ou sa copie de staging. PDF, vidéo, EML et autres formats ne sont
+pas analysés dans cette tranche.
 
 Les tâches longues utilisent l'infrastructure de tâche d'arrière-plan et le
 gestionnaire de tâches.

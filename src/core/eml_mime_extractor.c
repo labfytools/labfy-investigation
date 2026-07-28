@@ -12,6 +12,7 @@
 
 #define EML_MIME_MAX_COLLISIONS 10000U
 #define EML_MIME_IO_BLOCK_SIZE 65536U
+#define EML_MIME_PREVIEW_BODY_MAX (1024U * 1024U)
 
 typedef struct
 {
@@ -26,6 +27,8 @@ typedef struct
     EmlMimeResult *result;
     guint part_count;
     gsize total_decoded_size;
+    gboolean preview_only;
+    guint body_rank;
 } EmlMimeContext;
 
 static gboolean eml_mime_check_cancelled(
@@ -65,6 +68,7 @@ void eml_mime_result_free(EmlMimeResult *result)
         return;
     g_clear_pointer(&result->attachments, g_ptr_array_unref);
     g_clear_pointer(&result->warnings, g_ptr_array_unref);
+    g_free(result->body_text);
     g_free(result);
 }
 
@@ -1201,7 +1205,10 @@ static gboolean eml_mime_extract_leaf(
         g_ascii_strcasecmp(disposition, "attachment") == 0 ||
         g_ascii_strcasecmp(disposition, "inline") == 0;
 
-    if (!relevant)
+    gboolean body_candidate = !relevant &&
+        (g_str_equal(content_type, "text/plain") ||
+         g_str_equal(content_type, "text/html"));
+    if (!relevant && !body_candidate)
         goto cleanup;
     if (disposition_malformed)
         eml_mime_warn(
@@ -1239,6 +1246,36 @@ static gboolean eml_mime_extract_leaf(
 
     gsize decoded_length = 0;
     gconstpointer decoded_data = g_bytes_get_data(decoded, &decoded_length);
+    if (body_candidate)
+    {
+        guint rank = g_str_equal(content_type, "text/plain") ? 2U : 1U;
+        if (rank >= context->body_rank)
+        {
+            gsize kept = MIN(decoded_length,
+                (gsize) EML_MIME_PREVIEW_BODY_MAX);
+            char *valid = g_utf8_make_valid(decoded_data, (gssize) kept);
+            if (rank == 1U)
+            {
+                GRegex *active = g_regex_new(
+                    "(?is)<(script|style)\\b[^>]*>.*?</\\1\\s*>",
+                    0, 0, NULL);
+                char *without_active = g_regex_replace(active, valid, -1,
+                    0, " ", 0, NULL);
+                GRegex *tags = g_regex_new("(?s)<[^>]+>", 0, 0, NULL);
+                char *plain = g_regex_replace(tags, without_active, -1,
+                    0, " ", 0, NULL);
+                g_regex_unref(active); g_regex_unref(tags);
+                g_free(without_active); g_free(valid); valid = plain;
+            }
+            g_free(context->result->body_text);
+            context->result->body_text = valid;
+            context->result->body_from_html = rank == 1U;
+            context->result->body_truncated =
+                decoded_length > EML_MIME_PREVIEW_BODY_MAX;
+            context->body_rank = rank;
+        }
+        goto cleanup;
+    }
     if (context->total_decoded_size >
         EML_MIME_MAX_TOTAL_DECODED_SIZE - decoded_length)
     {
@@ -1262,6 +1299,34 @@ static gboolean eml_mime_extract_leaf(
         ? raw_filename
         : decoded_name;
     char *sanitized = eml_mime_sanitize_filename(decoded_name);
+    if (context->preview_only)
+    {
+        EmlAttachment *attachment = g_new0(EmlAttachment, 1);
+        attachment->part_index = g_strdup(part_index);
+        attachment->declared_filename = g_strdup(declared);
+        attachment->decoded_filename = g_strdup(decoded_name);
+        attachment->sanitized_filename = g_strdup(sanitized);
+        attachment->content_type = g_strdup(content_type);
+        attachment->detected_mime = g_strdup(content_type);
+        attachment->content_id = g_strdup(content_id);
+        attachment->normalized_content_id =
+            eml_mime_normalize_content_id(content_id);
+        attachment->content_disposition = g_strdup(raw_disposition);
+        attachment->normalized_disposition = disposition[0] != '\0'
+            ? g_ascii_strdown(disposition, -1) : NULL;
+        attachment->transfer_encoding = g_strdup(
+            encoding != NULL ? encoding : "7bit");
+        attachment->is_inline =
+            g_ascii_strcasecmp(disposition, "inline") == 0;
+        attachment->is_attachment =
+            g_ascii_strcasecmp(disposition, "attachment") == 0;
+        attachment->encoded_size = body_length;
+        attachment->decoded_size = decoded_length;
+        context->total_decoded_size += decoded_length;
+        g_ptr_array_add(context->result->attachments, attachment);
+        g_free(sanitized); g_free(synthetic);
+        goto cleanup;
+    }
     char *unique = eml_mime_unique_name(
         context->target_dir,
         sanitized,
@@ -1725,4 +1790,47 @@ EmlMimeResult *eml_mime_extract_attachments(
         NULL,
         error
     );
+}
+
+EmlMimeResult *eml_mime_build_preview(const char *eml_path,
+    GCancellable *cancellable, GError **error)
+{
+    g_return_val_if_fail(error == NULL || *error == NULL, NULL);
+    if (eml_path == NULL || eml_path[0] == '\0')
+    {
+        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+            "Le chemin de l'EML est invalide.");
+        return NULL;
+    }
+    if (eml_mime_check_cancelled(cancellable, error))
+        return NULL;
+    GMappedFile *mapped = g_mapped_file_new(eml_path, FALSE, error);
+    if (mapped == NULL)
+        return NULL;
+    gsize size = g_mapped_file_get_length(mapped);
+    if (size == 0 || size > EML_MIME_MAX_FILE_SIZE)
+    {
+        g_mapped_file_unref(mapped);
+        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+            "Le fichier EML est vide ou dépasse la limite autorisée.");
+        return NULL;
+    }
+    EmlMimeResult *result = g_new0(EmlMimeResult, 1);
+    result->attachments = g_ptr_array_new_with_free_func(
+        (GDestroyNotify) eml_attachment_free);
+    result->warnings = g_ptr_array_new_with_free_func(g_free);
+    EmlMimeContext context = {
+        .cancellable = cancellable,
+        .result = result,
+        .preview_only = TRUE
+    };
+    if (!eml_mime_parse_entity(&context, g_mapped_file_get_contents(mapped),
+            size, "1", 1, error))
+    {
+        g_mapped_file_unref(mapped);
+        eml_mime_result_free(result);
+        return NULL;
+    }
+    g_mapped_file_unref(mapped);
+    return result;
 }

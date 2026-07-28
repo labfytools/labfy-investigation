@@ -186,5 +186,7 @@ gboolean evidence_dao_count(
     guint64 *out_count,
     GError **error
 );
+char *evidence_dao_find_identifier_by_sha256(EvidenceDao *evidence_dao,
+    const char *sha256, GError **error);
 
 #endif

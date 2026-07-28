@@ -1,13 +1,21 @@
 # Roadmap
 
+La tranche 2 partage désormais l’aperçu entre l’assistant personne et la
+fiche directe. La validation manuelle des codecs installés reste nécessaire ;
+elle ne vaut pas achèvement du ticket #109 et n’inclut aucun OCR.
+
+L’aperçu contrôlé du ticket #109 couvre PNG/JPEG, HEIC/HEIF, MP4/MOV, texte,
+EML passif et première page PDF. OCR et analyse avancée restent hors périmètre.
+
 > **Dernière mise à jour :** 2026-07-28
 > **État du projet :** développement actif  
 > **Schéma SQLite courant :** V14
 
-La tranche 1 du ticket #109 couvre les rôles contextuels multiples, la
-sélection d’une preuve existante, la création transactionnelle et la garde de
-session. Import intégré, PDF, vidéo, EML avancé, OCR et documents d’identité
-restent hors périmètre.
+Les tranches 1 et 2 du ticket #109 couvrent les rôles contextuels multiples,
+la sélection de plusieurs preuves existantes, le staging et l’import multiple
+différé, ainsi que la création transactionnelle avec compensation des
+fichiers. OCR, extraction de documents d’identité et analyses documentaires
+avancées restent hors périmètre.
 > **Usage opérationnel :** non prêt pour la production
 
 ---

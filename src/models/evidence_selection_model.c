@@ -136,3 +136,25 @@ GPtrArray *evidence_selection_model_list_type_codes(
     g_ptr_array_sort(types, compare_strings);
     return types;
 }
+const EvidenceRecord *evidence_selection_model_find_by_sha256(
+    const EvidenceSelectionModel *model, const char *sha256)
+{
+    for (guint i = 0; model != NULL && sha256 != NULL &&
+         i < model->records->len; i++) {
+        EvidenceRecord *record = g_ptr_array_index(model->records, i);
+        if (g_strcmp0(evidence_record_get_sha256(record), sha256) == 0)
+            return record;
+    }
+    return NULL;
+}
+const EvidenceRecord *evidence_selection_model_find_by_identifier(
+    const EvidenceSelectionModel *model, const char *identifier)
+{
+    for (guint i = 0; model != NULL && identifier != NULL &&
+         i < model->records->len; i++) {
+        EvidenceRecord *record = g_ptr_array_index(model->records, i);
+        if (g_strcmp0(evidence_record_get_identifier(record), identifier) == 0)
+            return record;
+    }
+    return NULL;
+}

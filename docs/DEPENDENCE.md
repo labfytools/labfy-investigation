@@ -1,8 +1,19 @@
 # Dépendances externes
 
-`libjpeg` est utilisée pour le décodage borné des aperçus JPEG du ticket #109.
-PNG est décodé avec Cairo. Aucun outil documentaire externe n’est lancé par
-l’aperçu et aucun dérivé n’est persisté.
+`libjpeg` décode JPEG, `libheif` HEIC/HEIF et Poppler GLib rend la première
+page PDF du ticket #109. PNG utilise Cairo et la vidéo `GtkMediaFile` avec le
+backend GTK/GStreamer. Aucun outil documentaire n’est lancé et aucun dérivé
+n’est persisté.
+
+| Fonction | Arch Linux | Ubuntu/Debian |
+| --- | --- | --- |
+| HEIC/HEIF | `libheif` | `libheif-dev` |
+| PDF natif | `poppler-glib` | `libpoppler-glib-dev` |
+| Vidéo GTK | `gst-plugins-base`, `gst-plugins-good` | `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good` |
+
+Les codecs vidéo supplémentaires restent optionnels.
+Le Makefile vérifie explicitement GTK4, SQLite, libheif et Poppler GLib avant
+compilation et renvoie vers ce document si une dépendance manque.
 
 Ce fichier recense les outils utilisés par LabFy Investigation et leur
 installation. Il sera complété à chaque intégration d’un nouvel outil.

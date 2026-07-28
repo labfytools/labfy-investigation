@@ -1,5 +1,13 @@
 # Conventions de développement
 
+Toute vue présentant une preuve réutilise `EvidencePreviewWidget` : aucun
+parsing EML/PDF ou cycle média ne doit être dupliqué dans un écran. Les
+callbacks asynchrones utilisent une génération et une référence faible.
+
+Un aperçu utilise seulement la copie contrôlée et vérifiée. La signature et
+le contenu priment sur le MIME historique et l’extension. Son résultat ne
+contient aucun objet GTK et un média ne démarre jamais automatiquement.
+
 > **Version :** 2.1
 > **Dernière mise à jour :** 2026-07-28
 > **Projet :** Labfy Investigation
@@ -265,7 +273,7 @@ présentation graphique.
 La version courante du schéma est :
 
 ```text
-V13
+V14
 ```
 
 Les scripts versionnés sont conservés dans :
@@ -390,6 +398,10 @@ Interdit :
 
 Une entrée externe peut être absolue pendant l'import, mais le chemin enregistré
 dans l'enquête doit respecter le modèle prévu par le schéma.
+
+Un import intégré à un assistant utilise d’abord une copie de staging
+temporaire vérifiée. Le fichier source n’est ni renommé ni modifié et ne doit
+plus être relu pour l’aperçu ou l’import final après préparation.
 
 ### 7.2 Immutabilité des preuves originales
 

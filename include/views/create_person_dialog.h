@@ -5,7 +5,9 @@
 #ifndef LABFY_INVESTIGATION_CREATE_PERSON_DIALOG_H
 #define LABFY_INVESTIGATION_CREATE_PERSON_DIALOG_H
 #include "core/person_entity_service.h"
+#include "core/evidence_staging.h"
 #include "models/evidence_record.h"
+#include "models/person_evidence_selection.h"
 #include "core/task_manager.h"
 #include <gtk/gtk.h>
 G_BEGIN_DECLS
@@ -33,5 +35,9 @@ void create_person_dialog_result_free(CreatePersonDialogResult *result);
 /** @brief Retourne les données empruntées du résultat. */
 const PersonEntityInput *create_person_dialog_result_get_input(
     const CreatePersonDialogResult *result);
+const PersonEvidenceSelection *create_person_dialog_result_get_evidence_selection(
+    const CreatePersonDialogResult *result);
+EvidenceStaging *create_person_dialog_result_steal_staging(
+    CreatePersonDialogResult *result);
 G_END_DECLS
 #endif

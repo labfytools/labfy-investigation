@@ -958,7 +958,7 @@ MainWindow *main_window_new(
         return NULL;
     }
 
-    main_window->workspace = workspace_new();
+    main_window->workspace = workspace_new(task_manager);
 
     if (main_window->workspace == NULL)
     {
@@ -2026,6 +2026,14 @@ void main_window_set_evidence_preview(MainWindow *main_window,
     if (main_window == NULL) return;
     workspace_set_evidence_preview(main_window->workspace, file_path,
         display_name);
+}
+
+void main_window_show_evidence_preview(MainWindow *main_window,
+    const char *investigation_root, const EvidenceRecord *record)
+{
+    if (main_window == NULL) return;
+    workspace_show_evidence_preview(main_window->workspace,
+        investigation_root, record);
 }
 
 void main_window_free(

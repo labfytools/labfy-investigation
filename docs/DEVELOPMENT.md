@@ -1,5 +1,21 @@
 # Guide de développement
 
+La validation ciblée du composant partagé comprend
+`test_evidence_preview_widget_gtk`, `test_evidence_preview`,
+`test_evidence_video_preview_controller` et
+`test_create_person_dialog_gtk`, ce dernier sous
+`G_DEBUG=fatal-criticals`.
+
+Les tests d’aperçu génèrent exclusivement des fixtures `SPECIMEN` temporaires.
+Ils couvrent dispatch, limites, annulation et intégrité, puis le parcours GTK
+réel avec `G_DEBUG=fatal-criticals`. Aucun aperçu ne lance OCR ou SQLite.
+
+La fixture HEIC est une matrice RGB `SPECIMEN` encodée en mémoire par
+libheif/HEVC. Le test HEIF remplace uniquement la marque compatible du
+conteneur synthétique. Les transformations d’orientation libheif restent
+appliquées par le décodage standard ; seule l’image principale est rendue et
+le nombre d’images de premier niveau est exposé.
+
 > **Version :** 2.1
 > **Dernière mise à jour :** 2026-07-28
 > **Projet :** Labfy Investigation
@@ -239,6 +255,21 @@ make -j8 \
 ./tests/test_evidence_entity_dao
 ./tests/test_database
 ```
+
+Tests ciblés de la tranche 2 du ticket #109 :
+
+```sh
+make -j8 \
+    tests/test_person_evidence_selection \
+    tests/test_evidence_staging \
+    tests/test_person_creation_coordinator \
+    tests/test_person_confirmation_summary \
+    tests/test_evidence_preview \
+    tests/test_create_person_dialog_gtk
+```
+
+Ces tests utilisent uniquement des fichiers `SPECIMEN`, des répertoires
+temporaires et des bases SQLite temporaires.
 
 La fixture manuelle est
 `tests/fixtures/eml/manual_smoke_test.eml`. Elle est exclusivement

@@ -509,6 +509,8 @@ void main_window_set_eml_analysis_available(
 /** @brief Transmet au workspace un chemin absolu validé pour l'aperçu. */
 void main_window_set_evidence_preview(MainWindow *main_window,
     const char *file_path, const char *display_name);
+void main_window_show_evidence_preview(MainWindow *main_window,
+    const char *investigation_root, const EvidenceRecord *record);
 
 
 /**
