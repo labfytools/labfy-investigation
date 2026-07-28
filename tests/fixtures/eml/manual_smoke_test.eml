@@ -1,0 +1,38 @@
+From: Expediteur Demo <sender@example.com>
+Sender: Service Demo <service@example.net>
+Reply-To: Reponse Differente <reply@example.org>
+Return-Path: <bounce@example.com>
+To: Destinataire Demo <recipient@example.net>
+Cc: Controle Demo <audit@example.org>
+Subject: Démonstration synthétique du parcours EML
+Date: Tue, 28 Jul 2026 10:30:00 +0200
+Message-ID: <manual-smoke-test-107@example.com>
+Received: from relay2.example.net (relay2.example.net [198.51.100.20]) by mx.example.org with ESMTP id DEMO2
+Received: from relay1.example.com (relay1.example.com [192.0.2.10]) by relay2.example.net with ESMTP id DEMO1
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="LABFY-DEMO-107"
+
+--LABFY-DEMO-107
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Ceci est un message entièrement synthétique destiné au test manuel.
+IBAN DE DÉMONSTRATION VOLONTAIREMENT INVALIDE : FR00 0000 0000 0000 0000 0000 000
+BIC SYNTHÉTIQUE DE FORMAT CONTRÔLABLE : DEMOFRPP
+
+--LABFY-DEMO-107
+Content-Type: text/plain; name="demonstration.txt"
+Content-Disposition: attachment; filename="demonstration.txt"
+Content-Transfer-Encoding: base64
+
+RmljaGllciBzeW50aMOpdGlxdWUgZGUgZMOpbW9uc3RyYXRpb24uIElCQU4gREVNTyBJTlZBTElERTogRlIwMCAwMDAwIDAwMDAgMDAwMCAwMDAwIDAwMDAgMDAwLiBCSUMgREVNT0ZSUFAu
+
+--LABFY-DEMO-107
+Content-Type: image/png; name="pixel_synthetique.png"
+Content-Disposition: inline; filename="pixel_synthetique.png"
+Content-ID: <pixel-demo@example.com>
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=
+
+--LABFY-DEMO-107--

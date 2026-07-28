@@ -113,7 +113,8 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
         g_ptr_array_add(mime_res->warnings, g_strdup("L'extraction MIME a échoué ou ne contient aucune pièce jointe."));
     }
 
-    background_task_report_progress(task, 0.75, "Analyse OCR et détection bancaire...");
+    background_task_report_progress(task, 0.65,
+        "Analyse des pièces jointes avec ExifTool…");
     GPtrArray *bank_proposals = g_ptr_array_new_with_free_func((GDestroyNotify) bank_proposal_free);
     GPtrArray *document_analyses = g_ptr_array_new_with_free_func(
         (GDestroyNotify) document_file_analysis_free);
@@ -162,6 +163,10 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
                  g_strcmp0(att->detected_mime, "application/pdf") == 0 ||
                  g_strcmp0(att->content_type, "application/pdf") == 0)
         {
+            background_task_report_progress(task, 0.78,
+                g_strcmp0(att->detected_mime, "application/pdf") == 0
+                    ? "Extraction du texte PDF ou OCR…"
+                    : "Reconnaissance OCR de la pièce jointe…");
             if (document_analyses->len >= data->document_analysis_limit)
             {
                 skipped_document_analyses++;
@@ -211,7 +216,10 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
         }
     }
 
-    background_task_report_progress(task, 1.0, "Analyse EML terminée avec succès.");
+    background_task_report_progress(task, 0.92,
+        "Détection des données bancaires terminée.");
+    background_task_report_progress(task, 0.98,
+        "Préparation du dialogue de révision…");
 
     EmlPipelineResult *res = g_new0(EmlPipelineResult, 1);
     res->analysis = analysis;
@@ -232,6 +240,8 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
     if (out_result != NULL)
         *out_result = res;
 
+    background_task_report_progress(task, 1.0,
+        "Analyse EML terminée avec succès.");
     return TRUE;
 }
 
@@ -296,6 +306,46 @@ BackgroundTask *eml_pipeline_task_new_with_tools_and_limit(
         else
             eml_pipeline_task_data_free(data);
         g_clear_error(&start_error);
+        return NULL;
+    }
+    return task;
+}
+
+BackgroundTask *eml_pipeline_task_start(
+    const char *eml_path,
+    const char *staging_directory,
+    const char *evidence_id,
+    const DocumentAnalysisTools *tools,
+    BackgroundTaskCompletionCallback completion_callback,
+    gpointer completion_data,
+    GDestroyNotify completion_data_destroy)
+{
+    if (eml_path == NULL || staging_directory == NULL || tools == NULL)
+        return NULL;
+    EmlPipelineTaskData *data = g_new0(EmlPipelineTaskData, 1);
+    data->eml_path = g_strdup(eml_path);
+    data->processed_evidence_dir = g_strdup(staging_directory);
+    data->evidence_id = g_strdup(evidence_id);
+    data->exiftool = g_strdup(tools->exiftool);
+    data->tesseract = g_strdup(tools->tesseract);
+    data->pdfinfo = g_strdup(tools->pdfinfo);
+    data->pdftotext = g_strdup(tools->pdftotext);
+    data->pdftoppm = g_strdup(tools->pdftoppm);
+    data->document_analysis_limit = DOCUMENT_ANALYSIS_MAX_PIPELINE_ITEMS;
+    BackgroundTask *task = background_task_new(
+        "Analyse complète de l’e-mail");
+    GError *error = NULL;
+    if (task == NULL || !background_task_start(task, eml_pipeline_task_worker,
+            data, eml_pipeline_task_data_free,
+            (GDestroyNotify) eml_pipeline_result_free,
+            completion_callback, completion_data, completion_data_destroy,
+            &error))
+    {
+        if (task != NULL)
+            background_task_unref(task);
+        else
+            eml_pipeline_task_data_free(data);
+        g_clear_error(&error);
         return NULL;
     }
     return task;

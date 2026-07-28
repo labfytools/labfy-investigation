@@ -58,6 +58,8 @@
 #include "core/person_entity_service.h"
 #include "core/eml_processing.h"
 #include "core/eml_integration.h"
+#include "core/eml_pipeline_task.h"
+#include "core/file_hash.h"
 #include "database/database.h"
 #include "database/transaction.h"
 #include "views/create_social_account_dialog.h"
@@ -249,7 +251,15 @@ typedef struct
 static char *application_osint_output_to_utf8(GBytes *bytes);
 static char *application_osint_create_timestamp(void);
 /** @brief Contexte possédé pendant la révision d'une analyse EML. */
-typedef struct { Application *application; char *evidence_identifier; }
+typedef struct {
+    Application *application;
+    InvestigationSession *expected_session;
+    char *evidence_identifier;
+    char *evidence_name;
+    char *relative_path;
+    char *source_sha256;
+    char *staging_directory;
+}
     ApplicationEmlReviewContext;
 
 static void application_start_graph_loading(
@@ -3738,7 +3748,48 @@ cleanup:
 
 /** @brief Libère le contexte de révision EML. */
 static void application_eml_review_context_free(ApplicationEmlReviewContext *context)
-{ if (context == NULL) return; g_free(context->evidence_identifier); g_free(context); }
+{
+    if (context == NULL) return;
+    g_free(context->evidence_identifier);
+    g_free(context->evidence_name);
+    g_free(context->relative_path);
+    g_free(context->source_sha256);
+    g_free(context->staging_directory);
+    g_free(context);
+}
+
+/** @brief Supprime récursivement une zone de staging créée par l'application. */
+static void application_remove_staging_directory(const char *path)
+{
+    if (path == NULL) return;
+    GFile *directory = g_file_new_for_path(path);
+    GError *error = NULL;
+    GFileEnumerator *enumerator = g_file_enumerate_children(directory,
+        G_FILE_ATTRIBUTE_STANDARD_NAME "," G_FILE_ATTRIBUTE_STANDARD_TYPE,
+        G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, &error);
+    if (enumerator != NULL)
+    {
+        GFileInfo *info = NULL;
+        while ((info = g_file_enumerator_next_file(
+                    enumerator, NULL, &error)) != NULL)
+        {
+            GFile *child = g_file_get_child(directory,
+                g_file_info_get_name(info));
+            char *child_path = g_file_get_path(child);
+            if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY)
+                application_remove_staging_directory(child_path);
+            else
+                (void) g_file_delete(child, NULL, NULL);
+            g_free(child_path);
+            g_object_unref(child);
+            g_object_unref(info);
+        }
+        g_object_unref(enumerator);
+    }
+    g_clear_error(&error);
+    (void) g_file_delete(directory, NULL, NULL);
+    g_object_unref(directory);
+}
 
 /** @brief Intègre la sélection EML puis actualise le graphe. */
 static void application_on_eml_selection_completed(
@@ -3749,7 +3800,12 @@ static void application_on_eml_selection_completed(
     const InvestigationProject *project = NULL;
     GError *error = NULL; guint created = 0, reused = 0; char *message = NULL;
     if (proposals == NULL)
-    { application_eml_review_context_free(context); return; }
+    {
+        application_remove_staging_directory(context != NULL
+            ? context->staging_directory : NULL);
+        application_eml_review_context_free(context);
+        return;
+    }
     if (application == NULL || application->session == NULL ||
         !eml_integration_apply(investigation_session_get_database(application->session),
             context->evidence_identifier, proposals, &created, &reused, &error))
@@ -3764,12 +3820,66 @@ static void application_on_eml_selection_completed(
         project = investigation_session_get_project(application->session);
         application_start_graph_loading(application,
             investigation_project_get_database_path(project));
+        (void) application_refresh_evidence_models(application, NULL);
     }
     g_free(message); g_clear_error(&error); g_ptr_array_unref(proposals);
+    application_remove_staging_directory(context != NULL
+        ? context->staging_directory : NULL);
     application_eml_review_context_free(context);
 }
 
-/** @brief Prépare une copie vérifiée puis affiche l'analyse EML locale. */
+/** @brief Termine le pipeline EML sur le contexte GTK principal. */
+static void application_on_eml_pipeline_completed(
+    BackgroundTask *task,
+    gpointer user_data)
+{
+    ApplicationEmlReviewContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    BackgroundTaskState state = background_task_get_state(task);
+    if (application == NULL || application->main_window == NULL ||
+        application->session == NULL ||
+        application->session != context->expected_session)
+    {
+        application_remove_staging_directory(context != NULL
+            ? context->staging_directory : NULL);
+        application_eml_review_context_free(context);
+        return;
+    }
+    if (state == BACKGROUND_TASK_STATE_CANCELLED)
+    {
+        main_window_set_status(application->main_window,
+            "Analyse de l’e-mail annulée.");
+        application_remove_staging_directory(context->staging_directory);
+        application_eml_review_context_free(context);
+        return;
+    }
+    if (state != BACKGROUND_TASK_STATE_COMPLETED)
+    {
+        GError *error = background_task_dup_error(task);
+        application_present_error(application, "Analyse EML impossible",
+            error != NULL ? error->message : "Le pipeline EML a échoué.");
+        g_clear_error(&error);
+        application_remove_staging_directory(context->staging_directory);
+        application_eml_review_context_free(context);
+        return;
+    }
+    EmlPipelineResult *result = background_task_get_result(task);
+    if (result == NULL)
+    {
+        application_present_error(application, "Analyse EML impossible",
+            "Le pipeline n’a produit aucun résultat.");
+        application_remove_staging_directory(context->staging_directory);
+        application_eml_review_context_free(context);
+        return;
+    }
+    eml_analysis_dialog_present_pipeline(
+        main_window_get_window(application->main_window),
+        result, context->evidence_name, context->relative_path,
+        context->source_sha256, application_on_eml_selection_completed,
+        context);
+}
+
+/** @brief Vérifie la preuve puis lance le pipeline EML en arrière-plan. */
 static void application_on_analyze_eml_requested(
     const char *evidence_identifier, gpointer user_data)
 {
@@ -3777,8 +3887,14 @@ static void application_on_analyze_eml_requested(
     const InvestigationProject *project = NULL;
     EvidenceDao *dao = NULL;
     EvidenceRecord *record = NULL;
-    EmlProcessingResult *result = NULL;
     ApplicationEmlReviewContext *context = NULL;
+    BackgroundTask *task = NULL;
+    char *root = NULL;
+    char *candidate = NULL;
+    char *source_path = NULL;
+    char *current_sha256 = NULL;
+    guint64 current_size = 0;
+    char *staging = NULL;
     GError *error = NULL;
     if (application == NULL || application->session == NULL ||
         evidence_identifier == NULL) return;
@@ -3787,22 +3903,93 @@ static void application_on_analyze_eml_requested(
     if (dao != NULL) record = evidence_dao_find_by_identifier(
         dao, evidence_identifier, &error);
     project = investigation_session_get_project(application->session);
-    if (record != NULL && project != NULL)
-        result = eml_processing_prepare(
-            investigation_project_get_root_path(project), record, &error);
-    if (result == NULL)
-        application_present_error(application, "Analyse EML impossible",
-            error != NULL ? error->message : "La copie de travail n'a pas pu être analysée.");
-    else
+    if (record == NULL || project == NULL) goto failure;
+    root = g_canonicalize_filename(
+        investigation_project_get_root_path(project), NULL);
+    candidate = g_build_filename(root,
+        evidence_record_get_relative_path(record), NULL);
+    source_path = g_canonicalize_filename(candidate, NULL);
+    const char *name = evidence_record_get_original_name(record);
+    char *lower = name != NULL ? g_ascii_strdown(name, -1) : NULL;
+    gboolean is_eml = lower != NULL && g_str_has_suffix(lower, ".eml");
+    g_free(lower);
+    if (!is_eml || source_path == NULL ||
+        !g_str_has_prefix(source_path, root) ||
+        (source_path[strlen(root)] != G_DIR_SEPARATOR &&
+         source_path[strlen(root)] != '\0') ||
+        !g_file_test(source_path, G_FILE_TEST_IS_REGULAR))
     {
-        context = g_new0(ApplicationEmlReviewContext, 1);
-        context->application = application;
-        context->evidence_identifier = g_strdup(evidence_identifier);
-        eml_analysis_dialog_present(main_window_get_window(application->main_window),
-            result, application_on_eml_selection_completed, context);
+        g_set_error_literal(&error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+            "La preuve sélectionnée n’est pas un fichier EML exploitable.");
+        goto failure;
     }
-    eml_processing_result_free(result); evidence_record_free(record);
-    evidence_dao_free(dao); g_clear_error(&error);
+    if (!file_hash_compute_sha256(source_path, NULL, &current_sha256,
+            &current_size, &error) ||
+        g_strcmp0(current_sha256, evidence_record_get_sha256(record)) != 0)
+    {
+        if (error == NULL)
+            g_set_error_literal(&error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                "L’empreinte SHA-256 de la preuve diverge de "
+                "l’empreinte enregistrée. L’analyse est bloquée.");
+        goto failure;
+    }
+    staging = g_dir_make_tmp("labfy-eml-staging-XXXXXX", &error);
+    if (staging == NULL) goto failure;
+    context = g_new0(ApplicationEmlReviewContext, 1);
+    context->application = application;
+    context->expected_session = application->session;
+    context->evidence_identifier = g_strdup(evidence_identifier);
+    context->evidence_name = g_strdup(name);
+    context->relative_path = g_strdup(
+        evidence_record_get_relative_path(record));
+    context->source_sha256 = g_strdup(current_sha256);
+    context->staging_directory = staging;
+    staging = NULL;
+    DocumentAnalysisTools tools = {
+        .exiftool = "exiftool", .tesseract = "tesseract",
+        .pdfinfo = "pdfinfo", .pdftotext = "pdftotext",
+        .pdftoppm = "pdftoppm"
+    };
+    task = eml_pipeline_task_start(source_path, context->staging_directory,
+        evidence_identifier, &tools, application_on_eml_pipeline_completed,
+        context, NULL);
+    if (task == NULL)
+        goto failure;
+    context = NULL;
+    if (!task_manager_add(application->task_manager, task, &error))
+    {
+        background_task_cancel(task);
+        goto cleanup;
+    }
+    main_window_set_status(application->main_window,
+        "Analyse de l’e-mail lancée en arrière-plan.");
+    background_task_unref(task);
+    task = NULL;
+    goto cleanup;
+
+failure:
+    if (task != NULL)
+        background_task_cancel(task);
+    if (context != NULL)
+        application_remove_staging_directory(context->staging_directory);
+    else
+        application_remove_staging_directory(staging);
+    if (context != NULL)
+        application_eml_review_context_free(context);
+    if (application != NULL)
+        application_present_error(application, "Analyse EML impossible",
+            error != NULL ? error->message :
+            "La preuve n’a pas pu être analysée.");
+cleanup:
+    background_task_unref(task);
+    g_free(staging);
+    g_free(current_sha256);
+    g_free(source_path);
+    g_free(candidate);
+    g_free(root);
+    evidence_record_free(record);
+    evidence_dao_free(dao);
+    g_clear_error(&error);
 }
 
 /** @brief Contexte possédé pendant la révision OCR d'un RIB. */
@@ -5495,6 +5682,7 @@ static void application_on_evidence_selected(
     investigation_root = project != NULL
         ? investigation_project_get_root_path(project) : NULL;
     relative_path = evidence_record_get_relative_path(evidence_record);
+    gboolean eml_analysis_available = FALSE;
     if (investigation_root != NULL && relative_path != NULL)
     {
         canonical_root = g_canonicalize_filename(investigation_root, NULL);
@@ -5506,11 +5694,20 @@ static void application_on_evidence_selected(
             canonical_path[strlen(canonical_root)] == G_DIR_SEPARATOR &&
             g_file_test(canonical_path, G_FILE_TEST_IS_REGULAR))
         {
+            const char *selected_name =
+                evidence_record_get_original_name(evidence_record);
+            char *lower_name = selected_name != NULL
+                ? g_ascii_strdown(selected_name, -1) : NULL;
+            eml_analysis_available = lower_name != NULL &&
+                g_str_has_suffix(lower_name, ".eml");
+            g_free(lower_name);
             main_window_set_evidence_preview(application->main_window,
                 canonical_path,
                 evidence_record_get_original_name(evidence_record));
         }
     }
+    main_window_set_eml_analysis_available(
+        application->main_window, eml_analysis_available);
 
     original_name =
         evidence_record_get_original_name(

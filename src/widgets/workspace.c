@@ -1598,11 +1598,11 @@ Workspace *workspace_new(void)
         G_CALLBACK(workspace_on_edit_evidence_clicked), workspace);
     gtk_box_append(GTK_BOX(evidence_content), workspace->edit_evidence_button);
     workspace->analyze_eml_button = gtk_button_new_with_label(
-        "Analyser les en-têtes EML");
+        "Analyser l’e-mail");
     gtk_widget_set_halign(workspace->analyze_eml_button, GTK_ALIGN_START);
     gtk_widget_set_sensitive(workspace->analyze_eml_button, FALSE);
     gtk_widget_set_tooltip_text(workspace->analyze_eml_button,
-        "Créer une copie vérifiée puis analyser localement ses en-têtes");
+        "Vérifier la preuve puis lancer l’analyse complète en arrière-plan");
     g_signal_connect(workspace->analyze_eml_button, "clicked",
         G_CALLBACK(workspace_on_analyze_eml_clicked), workspace);
     gtk_box_append(GTK_BOX(evidence_content), workspace->analyze_eml_button);
@@ -2948,6 +2948,15 @@ void workspace_set_selected_evidence(
     g_free(
         human_size
     );
+}
+
+void workspace_set_eml_analysis_available(
+    Workspace *workspace,
+    gboolean available)
+{
+    if (workspace != NULL && workspace->analyze_eml_button != NULL)
+        gtk_widget_set_sensitive(
+            workspace->analyze_eml_button, available);
 }
 
 void workspace_set_evidence_preview(Workspace *workspace,

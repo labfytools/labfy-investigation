@@ -54,6 +54,16 @@ BackgroundTask *eml_pipeline_task_new_with_tools_and_limit(
     guint document_analysis_limit
 );
 
+BackgroundTask *eml_pipeline_task_start(
+    const char *eml_path,
+    const char *staging_directory,
+    const char *evidence_id,
+    const DocumentAnalysisTools *tools,
+    BackgroundTaskCompletionCallback completion_callback,
+    gpointer completion_data,
+    GDestroyNotify completion_data_destroy
+);
+
 G_END_DECLS
 
 #endif /* LABFY_INVESTIGATION_EML_PIPELINE_TASK_H */

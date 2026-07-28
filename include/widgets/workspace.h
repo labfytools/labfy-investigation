@@ -203,6 +203,10 @@ void workspace_set_selected_evidence(
     Workspace *workspace,
     const EvidenceRecord *evidence_record
 );
+void workspace_set_eml_analysis_available(
+    Workspace *workspace,
+    gboolean available
+);
 
 /**
  * @brief Affiche l'aperçu local d'un fichier image ou vidéo.

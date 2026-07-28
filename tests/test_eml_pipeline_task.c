@@ -145,6 +145,35 @@ static void wait_for_task(BackgroundTask *task)
         g_main_context_iteration(NULL, TRUE);
 }
 
+static void remove_tree(const char *path)
+{
+    GFile *directory = g_file_new_for_path(path);
+    GFileEnumerator *enumerator = g_file_enumerate_children(directory,
+        G_FILE_ATTRIBUTE_STANDARD_NAME "," G_FILE_ATTRIBUTE_STANDARD_TYPE,
+        G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, NULL);
+    if (enumerator != NULL)
+    {
+        GFileInfo *info = NULL;
+        while ((info = g_file_enumerator_next_file(
+                    enumerator, NULL, NULL)) != NULL)
+        {
+            GFile *child = g_file_get_child(directory,
+                g_file_info_get_name(info));
+            char *child_path = g_file_get_path(child);
+            if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY)
+                remove_tree(child_path);
+            else
+                g_assert_true(g_file_delete(child, NULL, NULL));
+            g_free(child_path);
+            g_object_unref(child);
+            g_object_unref(info);
+        }
+        g_object_unref(enumerator);
+    }
+    g_assert_true(g_file_delete(directory, NULL, NULL));
+    g_object_unref(directory);
+}
+
 static DocumentAnalysisTools synthetic_tools(void)
 {
     DocumentAnalysisTools tools = {
@@ -155,6 +184,67 @@ static DocumentAnalysisTools synthetic_tools(void)
         .pdftoppm = "tests/fake_document_tool"
     };
     return tools;
+}
+
+typedef struct
+{
+    gboolean called;
+    BackgroundTaskState state;
+} PipelineCompletion;
+
+static void pipeline_completed(BackgroundTask *task, gpointer user_data)
+{
+    PipelineCompletion *completion = user_data;
+    completion->called = TRUE;
+    completion->state = background_task_get_state(task);
+}
+
+static void test_manual_fixture_async_start(void)
+{
+    GError *error = NULL;
+    char *source_before = NULL;
+    gsize source_length = 0;
+    g_assert_true(g_file_get_contents(
+        "tests/fixtures/eml/manual_smoke_test.eml",
+        &source_before, &source_length, &error));
+    g_assert_no_error(error);
+    char *staging = g_dir_make_tmp("labfy-eml-manual-XXXXXX", &error);
+    g_assert_no_error(error);
+    DocumentAnalysisTools tools = synthetic_tools();
+    PipelineCompletion completion = { 0 };
+    BackgroundTask *task = eml_pipeline_task_start(
+        "tests/fixtures/eml/manual_smoke_test.eml", staging,
+        "synthetic-evidence", &tools, pipeline_completed,
+        &completion, NULL);
+    g_assert_nonnull(task);
+    wait_for_task(task);
+    while (!completion.called)
+        g_main_context_iteration(NULL, TRUE);
+    g_assert_cmpint(completion.state, ==,
+        BACKGROUND_TASK_STATE_COMPLETED);
+    EmlPipelineResult *result = background_task_get_result(task);
+    g_assert_nonnull(result);
+    g_assert_cmpuint(result->mime_result->attachments->len, ==, 2);
+    g_assert_cmpuint(result->bank_proposals->len, ==, 1);
+    BankProposal *bank = g_ptr_array_index(result->bank_proposals, 0);
+    g_assert_false(bank->is_iban_valid);
+    g_assert_cmpstr(bank->normalized_iban, ==,
+        "FR0000000000000000000000000");
+    g_assert_cmpuint(
+        eml_analysis_get_header_values(result->analysis, "received")->len,
+        ==, 2);
+    char *source_after = NULL;
+    gsize after_length = 0;
+    g_assert_true(g_file_get_contents(
+        "tests/fixtures/eml/manual_smoke_test.eml",
+        &source_after, &after_length, &error));
+    g_assert_no_error(error);
+    g_assert_cmpmem(source_after, after_length, source_before, source_length);
+    g_free(source_after);
+    g_free(source_before);
+    background_task_unref(task);
+    remove_tree(staging);
+    g_free(staging);
 }
 
 static void test_eml_pipeline_pdf_end_to_end_and_limit(void)
@@ -238,5 +328,7 @@ int main(int argc, char **argv)
         test_eml_pipeline_document_analysis);
     g_test_add_func("/eml-pipeline-task/pdf-end-to-end-limit",
         test_eml_pipeline_pdf_end_to_end_and_limit);
+    g_test_add_func("/eml-pipeline-task/manual-fixture-async",
+        test_manual_fixture_async_start);
     return g_test_run();
 }

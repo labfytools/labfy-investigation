@@ -1995,6 +1995,15 @@ void main_window_set_selected_evidence(
     );
 }
 
+void main_window_set_eml_analysis_available(
+    MainWindow *main_window,
+    gboolean available)
+{
+    if (main_window != NULL)
+        workspace_set_eml_analysis_available(
+            main_window->workspace, available);
+}
+
 void main_window_set_evidence_preview(MainWindow *main_window,
     const char *file_path, const char *display_name)
 {

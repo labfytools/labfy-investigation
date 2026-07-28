@@ -206,3 +206,233 @@ void eml_analysis_dialog_present(GtkWindow *parent,
     g_free(received); g_free(emails); g_free(domains);
     g_free(sender_ips); g_free(destination_ips);
 }
+
+static void eml_analysis_dialog_append_attachment_summary(
+    GString *text,
+    const EmlPipelineResult *result)
+{
+    for (guint index = 0; result->mime_result != NULL &&
+         result->mime_result->attachments != NULL &&
+         index < result->mime_result->attachments->len; index++)
+    {
+        EmlAttachment *attachment = g_ptr_array_index(
+            result->mime_result->attachments, index);
+        g_string_append_printf(text,
+            "%s → %s | MIME %s / %s | partie %s | %"
+            G_GSIZE_FORMAT " octets | SHA-256 %s%s\n",
+            attachment->declared_filename != NULL
+                ? attachment->declared_filename : "(sans nom)",
+            attachment->sanitized_filename != NULL
+                ? attachment->sanitized_filename : "(sans nom)",
+            attachment->content_type != NULL
+                ? attachment->content_type : "inconnu",
+            attachment->detected_mime != NULL
+                ? attachment->detected_mime : "inconnu",
+            attachment->part_index != NULL ? attachment->part_index : "?",
+            attachment->decoded_size,
+            attachment->sha256 != NULL ? attachment->sha256 : "indisponible",
+            attachment->is_truncated ? " | TRONQUÉ" : "");
+    }
+}
+
+static void eml_analysis_dialog_append_document_summary(
+    GString *text,
+    GString *metadata,
+    GString *warnings,
+    const EmlPipelineResult *result)
+{
+    for (guint index = 0; result->document_analyses != NULL &&
+         index < result->document_analyses->len; index++)
+    {
+        DocumentFileAnalysis *document = g_ptr_array_index(
+            result->document_analyses, index);
+        if (document->ocr != NULL && document->ocr->text != NULL)
+            g_string_append_printf(text, "\nOCR (%s)%s\n%s\n",
+                document->ocr->requested_languages,
+                document->ocr->execution->stdout_truncated
+                    ? " — texte tronqué/partiel" : "",
+                document->ocr->text);
+        if (document->pdf != NULL)
+            for (guint page_index = 0;
+                 page_index < document->pdf->pages->len; page_index++)
+            {
+                PdfPageAnalysis *page = g_ptr_array_index(
+                    document->pdf->pages, page_index);
+                g_string_append_printf(text,
+                    "\nPDF page %u — méthode %s — état %s\n%s\n",
+                    page->page_number,
+                    page->method == PDF_PAGE_METHOD_NATIVE
+                        ? "texte natif" : "OCR",
+                    document_analysis_state_code(page->state),
+                    page->text != NULL ? page->text : "(aucun texte)");
+            }
+        if (document->metadata != NULL)
+        {
+            DocumentToolExecution *execution =
+                document->metadata->execution;
+            if (execution != NULL &&
+                execution->state == DOCUMENT_ANALYSIS_STATE_UNAVAILABLE)
+                g_string_append(warnings, "ExifTool indisponible.\n");
+            for (guint metadata_index = 0;
+                 metadata_index < document->metadata->metadata->len;
+                 metadata_index++)
+            {
+                DocumentMetadataEntry *entry = g_ptr_array_index(
+                    document->metadata->metadata, metadata_index);
+                g_string_append_printf(metadata,
+                    "%s | %s:%s | %s | %s%s\n",
+                    entry->code, entry->original_group,
+                    entry->original_tag, entry->raw_value,
+                    execution != NULL && execution->version != NULL
+                        ? execution->version : "version inconnue",
+                    entry->sensitive
+                        ? " | SENSIBLE — confirmation explicite requise" : "");
+            }
+        }
+    }
+}
+
+void eml_analysis_dialog_present_pipeline(
+    GtkWindow *parent,
+    const EmlPipelineResult *result,
+    const char *evidence_name,
+    const char *relative_path,
+    const char *source_sha256,
+    EmlAnalysisDialogCallback callback,
+    gpointer user_data)
+{
+    if (parent == NULL || result == NULL || result->analysis == NULL) return;
+    EmlAnalysisDialogState *state = g_new0(EmlAnalysisDialogState, 1);
+    state->callback = callback; state->user_data = user_data;
+    state->window = GTK_WINDOW(gtk_window_new());
+    gtk_window_set_title(state->window, "Révision de l’analyse EML");
+    gtk_window_set_transient_for(state->window, parent);
+    gtk_window_set_modal(state->window, TRUE);
+    gtk_window_set_default_size(state->window, 900, 700);
+    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_margin_start(outer, 14);
+    gtk_widget_set_margin_end(outer, 14);
+    gtk_widget_set_margin_top(outer, 14);
+    gtk_widget_set_margin_bottom(outer, 14);
+    GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 0, "Preuve", evidence_name);
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 1, "Chemin relatif", relative_path);
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 2, "SHA-256", source_sha256);
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 3, "État global",
+        document_analysis_state_code(result->state));
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 4, "From",
+        eml_analysis_get_first_header(result->analysis, "from"));
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 5, "Sender",
+        eml_analysis_get_first_header(result->analysis, "sender"));
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 6, "Reply-To",
+        eml_analysis_get_first_header(result->analysis, "reply-to"));
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 7, "Return-Path",
+        eml_analysis_get_first_header(result->analysis, "return-path"));
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 8, "To",
+        eml_analysis_get_first_header(result->analysis, "to"));
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 9, "Cc",
+        eml_analysis_get_first_header(result->analysis, "cc"));
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 10, "Subject",
+        eml_analysis_get_first_header(result->analysis, "subject"));
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 11, "Date brute",
+        eml_analysis_get_first_header(result->analysis, "date"));
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 12, "Message-ID",
+        eml_analysis_get_first_header(result->analysis, "message-id"));
+    char *received = eml_analysis_dialog_join(
+        eml_analysis_get_header_values(result->analysis, "received"));
+    eml_analysis_dialog_add_field(GTK_GRID(grid), 13,
+        "Received (ordre original)", received);
+    gtk_box_append(GTK_BOX(content), grid);
+
+    GString *attachments = g_string_new(NULL);
+    GString *texts = g_string_new(NULL);
+    GString *metadata = g_string_new(NULL);
+    GString *warnings = g_string_new(NULL);
+    eml_analysis_dialog_append_attachment_summary(attachments, result);
+    eml_analysis_dialog_append_document_summary(
+        texts, metadata, warnings, result);
+    for (guint index = 0; result->warnings != NULL &&
+         index < result->warnings->len; index++)
+        g_string_append_printf(warnings, "%s\n",
+            (char *) g_ptr_array_index(result->warnings, index));
+    for (guint index = 0; result->bank_proposals != NULL &&
+         index < result->bank_proposals->len; index++)
+    {
+        BankProposal *proposal = g_ptr_array_index(
+            result->bank_proposals, index);
+        if (!proposal->is_iban_valid ||
+            proposal->suggested_ocr_fix != NULL)
+            g_string_append_printf(warnings,
+                "Proposition bancaire invalide ou corrigée, "
+                "désélectionnée : %s\n",
+                proposal->raw_iban != NULL ? proposal->raw_iban : "(vide)");
+    }
+    GtkWidget *details = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(details), 6);
+    gtk_grid_set_column_spacing(GTK_GRID(details), 12);
+    eml_analysis_dialog_add_field(GTK_GRID(details), 0,
+        "Pièces jointes", attachments->str);
+    eml_analysis_dialog_add_field(GTK_GRID(details), 1,
+        "Texte PDF et OCR", texts->str);
+    eml_analysis_dialog_add_field(GTK_GRID(details), 2,
+        "Métadonnées", metadata->str);
+    eml_analysis_dialog_add_field(GTK_GRID(details), 3,
+        "Avertissements", warnings->str);
+    gtk_box_append(GTK_BOX(content), details);
+
+    state->proposals_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    eml_analysis_dialog_add_proposals(state->proposals_box, "email_address",
+        "E-mail", eml_analysis_get_email_addresses(result->analysis));
+    eml_analysis_dialog_add_proposals(state->proposals_box, "domain_name",
+        "Domaine", eml_analysis_get_domains(result->analysis));
+    eml_analysis_dialog_add_proposals(state->proposals_box, "ip_address",
+        "IP expéditeur", eml_analysis_get_sender_ip_addresses(result->analysis));
+    GPtrArray *valid_ibans = g_ptr_array_new();
+    for (guint index = 0; result->bank_proposals != NULL &&
+         index < result->bank_proposals->len; index++)
+    {
+        BankProposal *proposal = g_ptr_array_index(
+            result->bank_proposals, index);
+        if (proposal->is_iban_valid && proposal->normalized_iban != NULL &&
+            proposal->suggested_ocr_fix == NULL)
+            g_ptr_array_add(valid_ibans, proposal->normalized_iban);
+    }
+    eml_analysis_dialog_add_proposals(state->proposals_box, "iban",
+        "IBAN valide", valid_ibans);
+    g_ptr_array_unref(valid_ibans);
+    gtk_box_append(GTK_BOX(content), gtk_label_new(
+        "Propositions à intégrer explicitement"));
+    gtk_box_append(GTK_BOX(content), state->proposals_box);
+
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_widget_set_vexpand(scroll, TRUE);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), content);
+    gtk_box_append(GTK_BOX(outer), scroll);
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(actions, GTK_ALIGN_END);
+    GtkWidget *close = gtk_button_new_with_label("Rejeter et fermer");
+    GtkWidget *integrate = gtk_button_new_with_label(
+        "Intégrer les éléments sélectionnés");
+    gtk_widget_add_css_class(integrate, "suggested-action");
+    g_signal_connect(close, "clicked",
+        G_CALLBACK(eml_analysis_dialog_on_close), state);
+    g_signal_connect(integrate, "clicked",
+        G_CALLBACK(eml_analysis_dialog_on_integrate), state);
+    gtk_box_append(GTK_BOX(actions), close);
+    gtk_box_append(GTK_BOX(actions), integrate);
+    gtk_box_append(GTK_BOX(outer), actions);
+    gtk_window_set_child(state->window, outer);
+    g_signal_connect(state->window, "close-request",
+        G_CALLBACK(eml_analysis_dialog_on_window_close), state);
+    g_object_set_data_full(G_OBJECT(state->window), "eml-dialog-state",
+        state, eml_analysis_dialog_state_free);
+    gtk_window_present(state->window);
+    g_free(received);
+    g_string_free(attachments, TRUE);
+    g_string_free(texts, TRUE);
+    g_string_free(metadata, TRUE);
+    g_string_free(warnings, TRUE);
+}

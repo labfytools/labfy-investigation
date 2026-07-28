@@ -497,6 +497,10 @@ void main_window_set_selected_evidence(
     MainWindow *main_window,
     const EvidenceRecord *evidence_record
 );
+void main_window_set_eml_analysis_available(
+    MainWindow *main_window,
+    gboolean available
+);
 
 /** @brief Transmet au workspace un chemin absolu validé pour l'aperçu. */
 void main_window_set_evidence_preview(MainWindow *main_window,
