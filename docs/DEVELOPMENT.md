@@ -1,7 +1,7 @@
 # Guide de développement
 
-> **Version :** 2.0  
-> **Dernière mise à jour :** 2026-07-24  
+> **Version :** 2.1
+> **Dernière mise à jour :** 2026-07-28
 > **Projet :** Labfy Investigation
 
 ---
@@ -85,6 +85,22 @@ système de build ne les impose pas.
 
 Les outils OSINT, OCR, métadonnées ou PDF sont documentés séparément et restent
 optionnels sauf décision explicite.
+
+### 3.1 Dépendances documentaires optionnelles
+
+Le pivot EML appelle directement, lorsqu'ils sont installés :
+
+- `exiftool` pour les métadonnées JSON ;
+- `tesseract` pour l'OCR, avec la demande `fra+eng` dans le pipeline ;
+- `pdfinfo`, `pdftotext` et `pdftoppm` fournis par Poppler pour l'inspection,
+  le texte natif et le rendu des pages PDF.
+
+Sous Debian ou Ubuntu, les paquets usuels déjà identifiés par le projet sont
+`libimage-exiftool-perl`, `tesseract-ocr`, `tesseract-ocr-fra`,
+`tesseract-ocr-eng` et `poppler-utils`. Ils ne sont pas nécessaires à la
+compilation ni au démarrage. Un exécutable absent produit un état
+« indisponible » ou un résultat partiel ; les en-têtes et MIME restent
+consultables. L'application ne les installe jamais automatiquement.
 
 ---
 
@@ -194,6 +210,42 @@ Autre exemple :
 make tests/test_eml_pipeline_task
 ./tests/test_eml_pipeline_task
 ```
+
+Tests ciblés du pivot EML :
+
+```sh
+make -j8 \
+    tests/test_eml_analyzer \
+    tests/test_eml_mime_extractor \
+    tests/test_eml_pipeline_task \
+    tests/test_document_tool_runner \
+    tests/test_exiftool_analysis \
+    tests/test_ocr_analysis \
+    tests/test_pdf_analysis \
+    tests/test_bank_proposal \
+    tests/test_eml_integration \
+    tests/test_evidence_entity_dao \
+    tests/test_database
+
+./tests/test_eml_analyzer
+./tests/test_eml_mime_extractor
+./tests/test_eml_pipeline_task
+./tests/test_document_tool_runner
+./tests/test_exiftool_analysis
+./tests/test_ocr_analysis
+./tests/test_pdf_analysis
+./tests/test_bank_proposal
+./tests/test_eml_integration
+./tests/test_evidence_entity_dao
+./tests/test_database
+```
+
+La fixture manuelle est
+`tests/fixtures/eml/manual_smoke_test.eml`. Elle est exclusivement
+synthétique. Pour la validation GTK, créer une enquête neuve dans un
+répertoire temporaire choisi pour le test, importer cette fixture, puis suivre
+`docs/testing/EML_PIVOT_MANUAL_TEST.md`. Ne jamais réutiliser une base ou une
+preuve réelle.
 
 Le nom exact d'une cible doit être vérifié dans le Makefile.
 
@@ -345,7 +397,7 @@ Lire :
 docs/database/DATABASE_ARCHITECTURE.md
 docs/database/SCHEMA_AUDIT_CURRENT.md
 database/schema_current.sql
-database/schema_v10.sql
+database/schema_v12.sql
 src/database/database.c
 src/database/schema.c
 tests/test_database.c
@@ -353,21 +405,24 @@ tests/test_database.c
 
 ### 9.2 Nouvelle version de schéma
 
-Pour créer V11, par exemple :
+Pour créer une nouvelle version après V13, par exemple V14 :
 
-1. ajouter `database/schema_v11.sql` ;
-2. déclarer et implémenter `schema_install_v11()` ;
-3. ajouter `database_migrate_v10_to_v11()` ;
+1. ajouter `database/schema_v13.sql` ;
+2. déclarer et implémenter `schema_install_v13()` ;
+3. ajouter `database_migrate_v12_to_v13()` ;
 4. raccorder la migration dans la boucle vers la version courante ;
 5. mettre à jour les constantes de version ;
-6. installer V11 lors de la création d'une base neuve ;
+6. installer V13 lors de la création d'une base neuve ;
 7. adapter `schema_current.sql` si nécessaire ;
-8. ajouter une fixture V10 vers V11 ;
+8. ajouter une fixture V13 vers V14 ;
+
+La fixture V12 vers V13 vérifie le backfill `legacy_manual`. Les tests EML
+couvrent aussi le retrait isolé d'une source face à un rattachement manuel.
 9. tester une base neuve ;
 10. tester le rollback ;
 11. vérifier l'intégrité et les clés étrangères ;
 12. mettre à jour l'audit courant ;
-13. créer l'audit versionné de V11.
+13. créer l'audit versionné de V13.
 
 Ne pas réécrire une ancienne migration publiée pour changer sa signification.
 

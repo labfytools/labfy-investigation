@@ -212,3 +212,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_evidence_entity_observations_semantic
     ON evidence_entity_observations(
         evidence_id,entity_type,value_normalized,role,source_header,
         occurrence,provenance_kind,COALESCE(extraction_id,''));
+
+CREATE TABLE IF NOT EXISTS preuve_entite_sources
+(
+    id TEXT PRIMARY KEY,
+    preuve_id TEXT NOT NULL,
+    entite_id TEXT NOT NULL,
+    source_kind TEXT NOT NULL CHECK (
+        source_kind IN ('manual', 'legacy_manual', 'eml_observation')
+    ),
+    source_uuid TEXT,
+    created_at TEXT NOT NULL CHECK (length(created_at) = 20),
+    FOREIGN KEY (preuve_id, entite_id)
+        REFERENCES preuve_entites(preuve_id, entite_id) ON DELETE CASCADE,
+    CHECK (
+        (source_kind = 'eml_observation' AND source_uuid IS NOT NULL) OR
+        (source_kind <> 'eml_observation' AND source_uuid IS NULL)
+    )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_preuve_entite_sources_unique
+    ON preuve_entite_sources(
+        preuve_id, entite_id, source_kind, COALESCE(source_uuid, '')
+    );
+CREATE INDEX IF NOT EXISTS idx_preuve_entite_sources_entity
+    ON preuve_entite_sources(entite_id);
+CREATE INDEX IF NOT EXISTS idx_preuve_entite_sources_source
+    ON preuve_entite_sources(source_kind, source_uuid);

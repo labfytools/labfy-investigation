@@ -1,4 +1,5 @@
 #include "core/eml_integration.h"
+#include "dao/evidence_entity_dao.h"
 #include "database/database.h"
 #include "database/statement.h"
 #include <assert.h>
@@ -32,6 +33,20 @@ static char *read_observation_identifier(Database *database, const char *role)
         "SELECT id FROM evidence_entity_observations WHERE role=?;");
     char *identifier = NULL;
     assert(statement != NULL && database_statement_bind_text(statement, 1, role));
+    assert(database_statement_step(statement) == DATABASE_STATEMENT_STEP_ROW);
+    assert(database_statement_column_text(statement, 0, &identifier));
+    database_statement_finalize(statement);
+    return identifier;
+}
+
+static char *read_observation_entity_identifier(
+    Database *database, const char *observation_identifier)
+{
+    DatabaseStatement *statement = database_statement_prepare(database,
+        "SELECT entity_id FROM evidence_entity_observations WHERE id=?;");
+    char *identifier = NULL;
+    assert(statement != NULL &&
+        database_statement_bind_text(statement, 1, observation_identifier));
     assert(database_statement_step(statement) == DATABASE_STATEMENT_STEP_ROW);
     assert(database_statement_column_text(statement, 0, &identifier));
     database_statement_finalize(statement);
@@ -82,13 +97,25 @@ int main(void)
         &observations, &created, &reused, &error));
     assert(created == 0 && reused == 1 && count_rows(database, "entites") == 1);
     char *from_observation = read_observation_identifier(database, "from");
+    char *from_entity = read_observation_entity_identifier(
+        database, from_observation);
+    EvidenceEntityDao *link_dao = evidence_entity_dao_new(database, &error);
+    assert(link_dao != NULL && error == NULL);
+    /* Vérifie aussi la coexistence des propriétaires manuel et EML. */
+    assert(evidence_entity_dao_link(link_dao, evidence_id, from_entity, &error));
     gboolean deleted = FALSE, shared = FALSE;
     assert(eml_integration_remove_promotion(database, from_observation,
         &deleted, &shared, &error));
-    assert(deleted && !shared);
+    assert(!deleted && shared);
     assert(count_rows(database, "evidence_entity_observations") == 1);
-    assert(count_rows(database, "entites") == 0);
+    assert(count_rows(database, "entites") == 1);
+    assert(count_rows(database, "preuve_entites") == 1);
+    assert(evidence_entity_dao_unlink(link_dao, evidence_id, from_entity,
+        &error));
     assert(count_rows(database, "preuve_entites") == 0);
+    execute_done(database, "DELETE FROM entites;");
+    evidence_entity_dao_free(link_dao);
+    g_free(from_entity);
     assert(eml_integration_apply(database, evidence_id, proposals,
         &observations, &created, &reused, &error));
     assert(created == 1);
@@ -128,6 +155,42 @@ int main(void)
     assert(!deleted && shared);
     assert(count_rows(database, "relations") == 1);
     assert(count_rows(database, "evidence_entity_observations") == 2);
+
+    /* Reproduction exacte : rattachement manuel avant la promotion EML. */
+    execute_done(database,
+        "INSERT INTO entites(id,type_id,valeur,label,description,confiance,"
+        "created_at,updated_at,status) VALUES("
+        "'20000000-0000-4000-8000-000000000107',1,'manual@example.test',"
+        "'manual@example.test',NULL,50,'2026-07-28T08:00:00Z',"
+        "'2026-07-28T08:00:00Z','active');");
+    link_dao = evidence_entity_dao_new(database, &error);
+    assert(link_dao != NULL &&
+        evidence_entity_dao_link(link_dao, evidence_id,
+            "20000000-0000-4000-8000-000000000107", &error));
+    GPtrArray *manual_first = g_ptr_array_new_with_free_func(
+        (GDestroyNotify) eml_entity_proposal_free);
+    EmlEntityProposal *manual_first_proposal =
+        eml_entity_proposal_new_observation("email_address",
+            "manual@example.test", "manual@example.test", "to", "to", 1,
+            "confirmed", "header");
+    manual_first_proposal->promote_to_entity = TRUE;
+    g_ptr_array_add(manual_first, manual_first_proposal);
+    assert(eml_integration_apply(database, evidence_id, manual_first,
+        &observations, &created, &reused, &error));
+    assert(created == 0 && reused == 1);
+    char *manual_first_observation = read_observation_identifier(database, "to");
+    assert(eml_integration_remove_promotion(database, manual_first_observation,
+        &deleted, &shared, &error));
+    gboolean manual_link_exists = FALSE;
+    assert(!deleted && shared &&
+        evidence_entity_dao_exists(link_dao, evidence_id,
+            "20000000-0000-4000-8000-000000000107", &manual_link_exists,
+            &error));
+    assert(manual_link_exists);
+    evidence_entity_dao_free(link_dao);
+    g_free(manual_first_observation);
+    g_ptr_array_unref(manual_first);
+
     g_free(reply_observation);
     g_free(from_observation);
     g_ptr_array_unref(proposals);

@@ -597,7 +597,7 @@ static void test_evidence_entity_dao_link_valid(void)
 }
 
 /**
- * @brief Vérifie le refus d'une association dupliquée.
+ * @brief Vérifie l'idempotence d'une association manuelle.
  */
 static void test_evidence_entity_dao_link_duplicate(void)
 {
@@ -637,7 +637,7 @@ static void test_evidence_entity_dao_link_duplicate(void)
     assert(error == NULL);
 
     assert(
-        !evidence_entity_dao_link(
+        evidence_entity_dao_link(
             fixture.evidence_entity_dao,
             evidence_identifier,
             entity_identifier,
@@ -645,19 +645,12 @@ static void test_evidence_entity_dao_link_duplicate(void)
         )
     );
 
-    test_evidence_entity_dao_assert_error(
-        error,
-        EVIDENCE_ENTITY_DAO_ERROR_CONSTRAINT
-    );
+    assert(error == NULL);
 
     assert(
         test_evidence_entity_dao_count_rows(
             fixture.database
         ) == 1
-    );
-
-    g_clear_error(
-        &error
     );
 
     test_evidence_entity_dao_fixture_clear(

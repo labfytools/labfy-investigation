@@ -3,6 +3,9 @@
 Ce fichier recense les outils utilisés par LabFy Investigation et leur
 installation. Il sera complété à chaque intégration d’un nouvel outil.
 
+La migration SQLite V13 et la gestion des propriétaires de
+`preuve_entites` n'ajoutent aucune dépendance système.
+
 ## Principe d’installation
 
 Les dépendances système sont installées avec le gestionnaire de paquets de la
@@ -27,8 +30,9 @@ export PATH="$HOME/.local/share/labfy-osint/bin:$PATH"
 
 | Fonction | Exécutable | Arch Linux (pacman) | Ubuntu/Debian (apt) |
 | --- | --- | --- | --- |
-| OCR | `tesseract` | `sudo pacman -S tesseract tesseract-data-fra` | `sudo apt install tesseract-ocr tesseract-ocr-fra` |
+| OCR français et anglais | `tesseract` | `sudo pacman -S tesseract tesseract-data-fra tesseract-data-eng` | `sudo apt install tesseract-ocr tesseract-ocr-fra tesseract-ocr-eng` |
 | Métadonnées | `exiftool` | `sudo pacman -S perl-image-exiftool` | `sudo apt install libimage-exiftool-perl` |
+| Inspection, texte et rendu PDF | `pdfinfo`, `pdftotext`, `pdftoppm` | `sudo pacman -S poppler` | `sudo apt install poppler-utils` |
 | Recherche DNS | `dig` | `sudo pacman -S bind` | `sudo apt install dnsutils` |
 | Résolution réseau | `host` | `sudo pacman -S bind` | `sudo apt install bind9-host` |
 | WHOIS | `whois` | `sudo pacman -S whois` | `sudo apt install whois` |
@@ -40,7 +44,7 @@ export PATH="$HOME/.local/share/labfy-osint/bin:$PATH"
 Après installation, vérifier les outils avec :
 
 ```sh
-command -v tesseract exiftool dig host whois curl openssl qpdf john pdf2john
+command -v tesseract exiftool pdfinfo pdftotext pdftoppm dig host whois curl openssl qpdf john pdf2john
 ```
 
 ## Outils OSINT Python
@@ -83,8 +87,9 @@ vérifiée avec `command -v`, puis avec son option de version (`--version` ou
 ## Notes
 
 - Ne pas installer ces outils dans le dépôt Git.
+- ExifTool, Tesseract et Poppler sont optionnels pour le pivot EML. Leur
+  absence laisse disponibles l'analyse des en-têtes et l'extraction MIME.
 - Ne jamais stocker de jetons, mots de passe ou données privées dans ce
   fichier.
 - Les versions peuvent varier selon la distribution ; noter ici toute
   commande particulière nécessaire à Ubuntu des forces de l’ordre.
-

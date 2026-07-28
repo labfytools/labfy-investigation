@@ -525,7 +525,7 @@ static void test_database_initialize_valid_database(void)
         "FROM investigation;"
     );
 
-    assert(strcmp(schema_version, "12") == 0);
+    assert(strcmp(schema_version, "13") == 0);
     test_database_assert_table_exists(database, "bank_account_entities");
     test_database_assert_table_exists(database, "relation_types");
     test_database_assert_table_exists(database, "graph_viewport");
@@ -992,7 +992,7 @@ static void test_database_migrate_v1_to_v2(void)
     assert(
         strcmp(
             schema_version,
-            "12"
+            "13"
         ) == 0
     );
 
@@ -1399,6 +1399,54 @@ static void test_database_migration_rollback(void)
     );
 }
 
+static void test_database_migrate_v12_to_v13_preserves_legacy_link(void)
+{
+    GError *error = NULL;
+    char *directory = g_dir_make_tmp("labfy-v13-test-XXXXXX", &error);
+    char *path = g_build_filename(directory, "Enquete.sqlite", NULL);
+    sqlite3 *sqlite_database = NULL;
+    Database *database = NULL;
+    char *version = NULL;
+    char *legacy_sources = NULL;
+    assert(directory != NULL && error == NULL);
+    assert(database_initialize(path, "Migration V13 synthétique", directory));
+    assert(sqlite3_open(path, &sqlite_database) == SQLITE_OK);
+    test_database_execute_sql(sqlite_database,
+        "DROP TABLE preuve_entite_sources;"
+        "UPDATE metadata SET value='12' WHERE key='schema_version';"
+        "INSERT INTO preuves(id,name,relative_path,type_id,size_bytes,sha256,"
+        "imported_at,updated_at,status,locked,original_name) VALUES("
+        "'10000000-0000-4000-8000-000000000013','legacy.eml','legacy.eml',"
+        "5,1,'0000000000000000000000000000000000000000000000000000000000000000',"
+        "'2026-07-28T08:00:00Z','2026-07-28T08:00:00Z','active',0,'legacy.eml');"
+        "INSERT INTO entites(id,type_id,valeur,label,confiance,created_at,"
+        "updated_at,status) VALUES("
+        "'20000000-0000-4000-8000-000000000013',1,'legacy@example.test',"
+        "'legacy@example.test',50,'2026-07-28T08:00:00Z',"
+        "'2026-07-28T08:00:00Z','active');"
+        "INSERT INTO preuve_entites(preuve_id,entite_id) VALUES("
+        "'10000000-0000-4000-8000-000000000013',"
+        "'20000000-0000-4000-8000-000000000013');");
+    assert(sqlite3_close(sqlite_database) == SQLITE_OK);
+    database = database_open(path);
+    assert(database != NULL && database_migrate_to_latest(database));
+    database_close(database);
+    assert(sqlite3_open(path, &sqlite_database) == SQLITE_OK);
+    version = test_database_read_single_text(sqlite_database,
+        "SELECT value FROM metadata WHERE key='schema_version';");
+    legacy_sources = test_database_read_single_text(sqlite_database,
+        "SELECT COUNT(*) FROM preuve_entite_sources "
+        "WHERE source_kind='legacy_manual';");
+    assert(strcmp(version, "13") == 0);
+    assert(strcmp(legacy_sources, "1") == 0);
+    assert(sqlite3_close(sqlite_database) == SQLITE_OK);
+    assert(g_remove(path) == 0 && g_rmdir(directory) == 0);
+    g_free(legacy_sources);
+    g_free(version);
+    g_free(path);
+    g_free(directory);
+}
+
 int main(void)
 {
     test_database_initialize_valid_database();
@@ -1406,6 +1454,7 @@ int main(void)
 
     test_database_migrate_v1_to_v2();
     test_database_migration_rollback();
+    test_database_migrate_v12_to_v13_preserves_legacy_link();
 
     test_database_initialize_invalid_parameters();
     test_database_initialize_missing_parent();

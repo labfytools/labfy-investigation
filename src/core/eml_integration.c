@@ -164,7 +164,6 @@ gboolean eml_integration_apply(Database *database, const char *evidence_identifi
         const char *identifier = existing != NULL
             ? entity_record_get_identifier(existing) : NULL;
         char *new_identifier = NULL; EntityRecord *new_record = NULL;
-        gboolean linked = FALSE;
         if (existing == NULL)
         {
             new_identifier = g_uuid_string_random(); identifier = new_identifier;
@@ -178,10 +177,9 @@ gboolean eml_integration_apply(Database *database, const char *evidence_identifi
             g_ptr_array_add(entities, new_record); new_record = NULL; created++;
         }
         else reused++;
-        if (!evidence_entity_dao_exists(link_dao, evidence_identifier,
-                identifier, &linked, error) ||
-            (!linked && !evidence_entity_dao_link(link_dao,
-                evidence_identifier, identifier, error)))
+        if (!evidence_entity_dao_add_source(link_dao, evidence_identifier,
+                identifier, "eml_observation", observation_identifier,
+                timestamp, error))
         { g_free(observation_identifier); g_free(new_identifier); goto cleanup; }
         if (!evidence_entity_dao_promote_observation(link_dao,
                 observation_identifier, identifier, timestamp,
@@ -225,15 +223,11 @@ gboolean eml_integration_remove_promotion(Database *database,
     static const char *detach_sql =
         "UPDATE evidence_entity_observations SET entity_id=NULL,"
         "promoted_at=NULL,promotion_kind=NULL WHERE id=? AND entity_id=?;";
-    static const char *same_evidence_sql =
-        "SELECT COUNT(*) FROM evidence_entity_observations "
-        "WHERE evidence_id=?1 AND entity_id=?2;";
-    static const char *unlink_sql =
-        "DELETE FROM preuve_entites WHERE preuve_id=?1 AND entite_id=?2;";
     static const char *dependency_sql =
         "SELECT "
         "(SELECT COUNT(*) FROM evidence_entity_observations WHERE entity_id=?1)+"
         "(SELECT COUNT(*) FROM preuve_entites WHERE entite_id=?1)+"
+        "(SELECT COUNT(*) FROM preuve_entite_sources WHERE entite_id=?1)+"
         "(SELECT COUNT(*) FROM relations WHERE entite_source_id=?1 OR entite_cible_id=?1)+"
         "(SELECT COUNT(*) FROM tag_entites WHERE entite_id=?1)+"
         "(SELECT COUNT(*) FROM recherche_entites WHERE entite_id=?1)+"
@@ -244,6 +238,7 @@ gboolean eml_integration_remove_promotion(Database *database,
         "(SELECT COUNT(*) FROM person_roles WHERE entity_id=?1);";
     static const char *delete_sql = "DELETE FROM entites WHERE id=?;";
     DatabaseStatement *statement = NULL;
+    EvidenceEntityDao *link_dao = NULL;
     char *evidence_identifier = NULL, *entity_identifier = NULL;
     gint64 count = 0; gboolean active = FALSE, success = FALSE;
     g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
@@ -253,6 +248,8 @@ gboolean eml_integration_remove_promotion(Database *database,
         return FALSE;
     if (!database_transaction_begin(database)) return FALSE;
     active = TRUE;
+    link_dao = evidence_entity_dao_new(database, error);
+    if (link_dao == NULL) goto cleanup;
     statement = database_statement_prepare(database, read_sql);
     if (statement == NULL ||
         !database_statement_bind_text(statement, 1, observation_identifier) ||
@@ -275,24 +272,9 @@ gboolean eml_integration_remove_promotion(Database *database,
         database_statement_step(statement) != DATABASE_STATEMENT_STEP_DONE)
         goto cleanup;
     database_statement_finalize(statement); statement = NULL;
-    statement = database_statement_prepare(database, same_evidence_sql);
-    if (statement == NULL ||
-        !database_statement_bind_text(statement, 1, evidence_identifier) ||
-        !database_statement_bind_text(statement, 2, entity_identifier) ||
-        database_statement_step(statement) != DATABASE_STATEMENT_STEP_ROW ||
-        !database_statement_column_int64(statement, 0, &count))
-        goto cleanup;
-    database_statement_finalize(statement); statement = NULL;
-    if (count == 0)
-    {
-        statement = database_statement_prepare(database, unlink_sql);
-        if (statement == NULL ||
-            !database_statement_bind_text(statement, 1, evidence_identifier) ||
-            !database_statement_bind_text(statement, 2, entity_identifier) ||
-            database_statement_step(statement) != DATABASE_STATEMENT_STEP_DONE)
-            goto cleanup;
-        database_statement_finalize(statement); statement = NULL;
-    }
+    if (!evidence_entity_dao_remove_source(link_dao, evidence_identifier,
+            entity_identifier, "eml_observation", observation_identifier,
+            NULL, error)) goto cleanup;
     if (!eml_integration_read_count(database, dependency_sql,
             entity_identifier, &count)) goto cleanup;
     if (count == 0)
@@ -311,6 +293,7 @@ gboolean eml_integration_remove_promotion(Database *database,
 cleanup:
     database_statement_finalize(statement);
     if (!success && active) database_transaction_rollback(database);
+    evidence_entity_dao_free(link_dao);
     g_free(evidence_identifier); g_free(entity_identifier);
     return success;
 }

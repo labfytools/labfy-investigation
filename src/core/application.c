@@ -4069,14 +4069,8 @@ static void application_on_rib_ocr_confirmed(const char *iban,
     }
     link_dao = evidence_entity_dao_new(database, &error);
     if (link_dao == NULL) goto failure;
-    {
-        gboolean exists = FALSE;
-        if (!evidence_entity_dao_exists(link_dao, context->evidence_identifier,
-                entity_identifier, &exists, &error) ||
-            (!exists && !evidence_entity_dao_link(link_dao,
-                context->evidence_identifier, entity_identifier, &error)))
-            goto failure;
-    }
+    if (!evidence_entity_dao_link(link_dao, context->evidence_identifier,
+            entity_identifier, &error)) goto failure;
     if (!database_transaction_commit(database)) goto failure;
     active = FALSE; project = investigation_session_get_project(application->session);
     g_free(application->pending_entity_selection_identifier);
@@ -6416,11 +6410,8 @@ static void application_on_person_evidences_selected(GPtrArray *selected,
     for (guint index = 0; index < selected->len; index++)
     {
         const char *identifier = g_ptr_array_index(selected, index);
-        gboolean exists = FALSE;
-        if (!evidence_entity_dao_exists(dao, identifier,
-                context->entity_identifier, &exists, &error) ||
-            (!exists && !evidence_entity_dao_link(dao, identifier,
-                context->entity_identifier, &error))) goto failure;
+        if (!evidence_entity_dao_link(dao, identifier,
+                context->entity_identifier, &error)) goto failure;
     }
     if (!database_transaction_commit(database)) goto failure;
     active = FALSE;

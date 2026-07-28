@@ -237,7 +237,6 @@ static gboolean extraction_drop_service_attach_in_transaction(
 {
     EvidenceEntityDao *link_dao = NULL;
     char *evidence_identifier = NULL;
-    gboolean exists = FALSE;
     gboolean success = FALSE;
 
     g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
@@ -254,10 +253,8 @@ static gboolean extraction_drop_service_attach_in_transaction(
     if (evidence_identifier == NULL) goto cleanup;
     link_dao = evidence_entity_dao_new(database, error);
     if (link_dao == NULL ||
-        !evidence_entity_dao_exists(link_dao, evidence_identifier,
-            entity_identifier, &exists, error) ||
-        (!exists && !evidence_entity_dao_link(link_dao, evidence_identifier,
-            entity_identifier, error))) goto cleanup;
+        !evidence_entity_dao_link(link_dao, evidence_identifier,
+            entity_identifier, error)) goto cleanup;
     success = TRUE;
 cleanup:
     evidence_entity_dao_free(link_dao);

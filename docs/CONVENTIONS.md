@@ -1,7 +1,7 @@
 # Conventions de développement
 
-> **Version :** 2.0  
-> **Dernière mise à jour :** 2026-07-24  
+> **Version :** 2.1
+> **Dernière mise à jour :** 2026-07-28
 > **Projet :** Labfy Investigation
 
 ---
@@ -265,7 +265,7 @@ présentation graphique.
 La version courante du schéma est :
 
 ```text
-V10
+V13
 ```
 
 Les scripts versionnés sont conservés dans :
@@ -273,7 +273,7 @@ Les scripts versionnés sont conservés dans :
 ```text
 database/schema_v1.sql
 ...
-database/schema_v10.sql
+database/schema_v12.sql
 ```
 
 Le complément idempotent du schéma courant est :
@@ -614,3 +614,35 @@ HISTORIQUE
 
 La priorité reste la qualité, la traçabilité et la compréhension durable du
 projet.
+
+---
+
+## 13. Propositions, observations et entités
+
+Ces objets ne sont pas interchangeables :
+
+- une proposition est temporaire et ne constitue pas un fait persistant ;
+- une observation confirmée décrit ce qui a été relevé dans une preuve ;
+- une entité est un objet canonique du graphe, créé ou réutilisé uniquement
+  après une promotion explicite.
+
+Une conservation normale ne crée jamais automatiquement d'entité, de nœud ou
+de rattachement `preuve_entites`. La promotion est facultative et désactivée
+par défaut.
+
+Une observation conserve obligatoirement une provenance et un rôle
+compréhensible dans son contexte. Les codes issus d'un vocabulaire contrôlé
+sont utilisés à la place de chaînes libres. Valeur brute, valeur normalisée et
+correction utilisateur restent dans des champs distincts ; aucune correction
+ne réécrit silencieusement la valeur observée.
+
+Le retrait d'une promotion conserve l'observation et retire exclusivement la
+source `eml_observation` identifiée par son UUID. Une entité partagée avec
+d'autres observations, preuves ou relations ne doit jamais être supprimée
+aveuglément. Le service doit également préserver tout rattachement indépendant
+de la promotion. Les sources `manual` et `legacy_manual` persistent
+indépendamment et protègent le rattachement matérialisé.
+
+Ces règles s'ajoutent aux interdictions générales : aucune modification d'une
+preuve originale, aucun shell dynamique et aucun accès SQLite direct depuis
+un widget GTK.

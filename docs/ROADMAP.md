@@ -1,8 +1,8 @@
 # Roadmap
 
-> **Dernière mise à jour :** 2026-07-24  
+> **Dernière mise à jour :** 2026-07-28
 > **État du projet :** développement actif  
-> **Schéma SQLite courant :** V10  
+> **Schéma SQLite courant :** V13
 > **Usage opérationnel :** non prêt pour la production
 
 ---
@@ -116,7 +116,7 @@ La branche `main` contient notamment :
 
 - création, validation et ouverture d'enquêtes ;
 - session d'enquête remplaçable proprement ;
-- infrastructure SQLite et migrations jusqu'à V10 ;
+- infrastructure SQLite et migrations jusqu'à V13 ;
 - couche Database, DAO et services métier ;
 - import de preuves avec copie contrôlée et SHA-256 ;
 - vérification d'intégrité et reclassement des preuves ;
@@ -135,7 +135,8 @@ La branche `main` contient notamment :
 - types canoniques de relations ;
 - vocabulaire contrôlé ;
 - table V10 `bank_account_entities` ;
-- premiers composants du pipeline EML.
+- pivot EML raccordé à GTK, observations persistantes indépendantes des
+  entités, promotion facultative et retrait réversible.
 
 Cette liste est une synthèse et non un contrat de stabilité.
 
@@ -145,15 +146,13 @@ Cette liste est une synthèse et non un contrat de stabilité.
 
 ### Ticket #107 — Pivot e-mail forensique
 
-Statut :
+Statut technique :
 
 ```text
-PARTIEL
+IMPLÉMENTÉ — VALIDATION DOCUMENTAIRE ET CORRECTION BLOQUANTE RESTANTES
 ```
 
-Les briques préparatoires existent, mais le flux complet reste à terminer.
-
-Objectif principal :
+Le parcours livré est :
 
 ```text
 preuve EML
@@ -171,30 +170,29 @@ OCR et détection d'indicateurs
 normalisation sans perte de la valeur brute
     ↓
 interface de révision
-    ↓
-confirmation explicite
-    ↓
-intégration transactionnelle
-    ↓
-rafraîchissement des vues et du graphe
+    ↓ conservation explicite
+observation persistante dans la fiche
+    ↓ promotion facultative
+entité créée ou réutilisée dans le graphe
 ```
 
-Priorités immédiates :
+Les tests automatiques EML, MIME, outils documentaires, PDF, OCR, ExifTool,
+banque, intégration et migration sont présents. Le parcours GTK dispose d'une
+fixture et d'un guide manuel ; la couverture visuelle demeure manuelle.
 
-1. terminer l'extraction MIME robuste ;
-2. conserver les pièces jointes comme fichiers dérivés ;
-3. réunir EML, OCR, IBAN et ExifTool dans un pipeline unique ;
-4. terminer l'interface de révision ;
-5. persister uniquement les propositions confirmées ;
-6. réutiliser ou créer les entités correspondantes ;
-7. créer les relations canoniques avec leur provenance ;
-8. garantir un rollback complet en cas d'échec ;
-9. rafraîchir la barre latérale et le graphe ;
-10. compléter les tests de migration et d'intégration ;
-11. mettre à jour la documentation avec l'état réellement livré.
+V13 distingue désormais chaque propriétaire du rattachement
+`preuve_entites`. Un retrait EML enlève sa seule source
+`eml_observation`; les sources manuelles, historiques et celles des autres
+observations restent protégées.
 
-Le ticket reste ouvert tant que son flux complet et ses critères d'acceptation
-ne sont pas validés.
+Améliorations suivantes :
+
+1. proposer la promotion directement depuis la fiche ;
+2. afficher les libellés contrôlés, la valeur brute distincte et l'UUID de
+   l'entité associée ;
+3. persister explicitement les dérivés confirmés du staging ;
+4. ajouter un délai maximal autonome aux outils documentaires ;
+5. automatiser davantage le parcours GTK.
 
 ---
 

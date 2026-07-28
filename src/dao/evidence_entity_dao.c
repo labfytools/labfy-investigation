@@ -52,7 +52,7 @@ static const char *const evidence_entity_dao_association_exists_sql =
  * @brief Requête créant une association.
  */
 static const char *const evidence_entity_dao_link_sql =
-    "INSERT INTO preuve_entites"
+    "INSERT OR IGNORE INTO preuve_entites"
     "("
     "    preuve_id,"
     "    entite_id"
@@ -70,6 +70,36 @@ static const char *const evidence_entity_dao_unlink_sql =
     "DELETE FROM preuve_entites "
     "WHERE preuve_id = ? "
     "AND entite_id = ?;";
+
+static void evidence_entity_dao_set_database_error(
+    EvidenceEntityDao *evidence_entity_dao, GError **error,
+    EvidenceEntityDaoError error_code, const char *context);
+
+static gboolean evidence_entity_dao_execute_source_statement(
+    EvidenceEntityDao *dao, const char *sql, const char *evidence_identifier,
+    const char *entity_identifier, const char *source_kind,
+    const char *source_uuid, const char *created_at, GError **error)
+{
+    DatabaseStatement *statement = database_statement_prepare(dao->database, sql);
+    gboolean success = statement != NULL &&
+        database_statement_bind_text(statement, 1, evidence_identifier) &&
+        database_statement_bind_text(statement, 2, entity_identifier) &&
+        database_statement_bind_text(statement, 3, source_kind);
+    if (success && source_uuid != NULL)
+        success = database_statement_bind_text(statement, 4, source_uuid);
+    if (success && created_at != NULL)
+        success = database_statement_bind_text(statement, 5, created_at);
+    if (success)
+        success = database_statement_step(statement) ==
+            DATABASE_STATEMENT_STEP_DONE;
+    if (!success)
+        evidence_entity_dao_set_database_error(dao, error,
+            statement == NULL ? EVIDENCE_ENTITY_DAO_ERROR_PREPARE :
+                EVIDENCE_ENTITY_DAO_ERROR_EXECUTE,
+            "Impossible de modifier la provenance de l'association");
+    database_statement_finalize(statement);
+    return success;
+}
 
 /**
  * @brief Requête listant les entités liées à une preuve.
@@ -801,8 +831,9 @@ gboolean evidence_entity_dao_link(
     gboolean entity_exists =
         FALSE;
 
-    gboolean association_exists =
-        FALSE;
+    GDateTime *now = NULL;
+    char *created_at = NULL;
+    gboolean success = FALSE;
 
     g_return_val_if_fail(
         error == NULL || *error == NULL,
@@ -865,39 +896,20 @@ gboolean evidence_entity_dao_link(
         return FALSE;
     }
 
-    if (!evidence_entity_dao_query_exists(
-            evidence_entity_dao,
-            evidence_entity_dao_association_exists_sql,
-            evidence_identifier,
-            entity_identifier,
-            &association_exists,
-            error
-        ))
-    {
-        return FALSE;
-    }
-
-    if (association_exists)
-    {
-        evidence_entity_dao_set_error_literal(
-            error,
-            EVIDENCE_ENTITY_DAO_ERROR_CONSTRAINT,
-            "Cette preuve est déjà associée à cette entité."
-        );
-
-        return FALSE;
-    }
-
-    return evidence_entity_dao_execute_pair_statement(
-        evidence_entity_dao,
-        evidence_entity_dao_link_sql,
-        evidence_identifier,
-        entity_identifier,
-        "Impossible de préparer la création de l'association",
-        "Impossible de lier les identifiants de l'association",
-        "Impossible de créer l'association",
-        error
-    );
+    now = g_date_time_new_now_utc();
+    created_at = now != NULL
+        ? g_date_time_format(now, "%Y-%m-%dT%H:%M:%SZ") : NULL;
+    if (created_at == NULL)
+        evidence_entity_dao_set_error_literal(error,
+            EVIDENCE_ENTITY_DAO_ERROR_MEMORY,
+            "Impossible de dater l'association preuve-entité.");
+    else
+        success = evidence_entity_dao_add_source(evidence_entity_dao,
+            evidence_identifier, entity_identifier, "manual", NULL,
+            created_at, error);
+    g_free(created_at);
+    g_clear_pointer(&now, g_date_time_unref);
+    return success;
 }
 
 gboolean evidence_entity_dao_unlink(
@@ -948,16 +960,103 @@ gboolean evidence_entity_dao_unlink(
         return FALSE;
     }
 
-    return evidence_entity_dao_execute_pair_statement(
-        evidence_entity_dao,
-        evidence_entity_dao_unlink_sql,
-        evidence_identifier,
-        entity_identifier,
-        "Impossible de préparer la suppression de l'association",
-        "Impossible de lier les identifiants de l'association",
-        "Impossible de supprimer l'association",
-        error
-    );
+    return evidence_entity_dao_remove_source(evidence_entity_dao,
+        evidence_identifier, entity_identifier, "manual", NULL, NULL, error);
+}
+
+gboolean evidence_entity_dao_add_source(
+    EvidenceEntityDao *dao, const char *evidence_identifier,
+    const char *entity_identifier, const char *source_kind,
+    const char *source_uuid, const char *created_at, GError **error)
+{
+    static const char *insert_sql =
+        "INSERT OR IGNORE INTO preuve_entite_sources"
+        "(id,preuve_id,entite_id,source_kind,source_uuid,created_at)"
+        "VALUES(?,?,?,?,?,?);";
+    char *source_identifier = NULL;
+    DatabaseStatement *statement = NULL;
+    gboolean success = FALSE;
+    if (!evidence_entity_dao_validate_association(dao, evidence_identifier,
+            entity_identifier, error) ||
+        source_kind == NULL || created_at == NULL ||
+        (g_strcmp0(source_kind, "eml_observation") == 0 &&
+         (source_uuid == NULL || !g_uuid_string_is_valid(source_uuid))))
+        return FALSE;
+    if (!evidence_entity_dao_execute_pair_statement(dao,
+            evidence_entity_dao_link_sql, evidence_identifier,
+            entity_identifier, "Impossible de préparer l'association",
+            "Impossible de lier l'association",
+            "Impossible de matérialiser l'association", error))
+        return FALSE;
+    source_identifier = g_uuid_string_random();
+    statement = database_statement_prepare(dao->database, insert_sql);
+    success = statement != NULL &&
+        database_statement_bind_text(statement, 1, source_identifier) &&
+        database_statement_bind_text(statement, 2, evidence_identifier) &&
+        database_statement_bind_text(statement, 3, entity_identifier) &&
+        database_statement_bind_text(statement, 4, source_kind);
+    if (success && source_uuid != NULL)
+        success = database_statement_bind_text(statement, 5, source_uuid);
+    if (success)
+        success = database_statement_bind_text(statement, 6, created_at) &&
+            database_statement_step(statement) == DATABASE_STATEMENT_STEP_DONE;
+    if (!success)
+        evidence_entity_dao_set_database_error(dao, error,
+            statement == NULL ? EVIDENCE_ENTITY_DAO_ERROR_PREPARE :
+                EVIDENCE_ENTITY_DAO_ERROR_EXECUTE,
+            "Impossible d'enregistrer la provenance de l'association");
+    database_statement_finalize(statement);
+    g_free(source_identifier);
+    return success;
+}
+
+gboolean evidence_entity_dao_remove_source(
+    EvidenceEntityDao *dao, const char *evidence_identifier,
+    const char *entity_identifier, const char *source_kind,
+    const char *source_uuid, gboolean *out_link_removed, GError **error)
+{
+    static const char *delete_source_sql =
+        "DELETE FROM preuve_entite_sources WHERE preuve_id=?1 AND entite_id=?2 "
+        "AND source_kind=?3 AND COALESCE(source_uuid,'')=COALESCE(?4,'');";
+    static const char *count_sql =
+        "SELECT COUNT(*) FROM preuve_entite_sources "
+        "WHERE preuve_id=?1 AND entite_id=?2;";
+    DatabaseStatement *statement = NULL;
+    gint64 count = 0;
+    gboolean success = FALSE;
+    if (out_link_removed != NULL) *out_link_removed = FALSE;
+    if (!evidence_entity_dao_validate_association(dao, evidence_identifier,
+            entity_identifier, error) || source_kind == NULL)
+        return FALSE;
+    if (!evidence_entity_dao_execute_source_statement(dao, delete_source_sql,
+            evidence_identifier, entity_identifier, source_kind, source_uuid,
+            NULL, error))
+        return FALSE;
+    statement = database_statement_prepare(dao->database, count_sql);
+    success = statement != NULL &&
+        database_statement_bind_text(statement, 1, evidence_identifier) &&
+        database_statement_bind_text(statement, 2, entity_identifier) &&
+        database_statement_step(statement) == DATABASE_STATEMENT_STEP_ROW &&
+        database_statement_column_int64(statement, 0, &count);
+    database_statement_finalize(statement);
+    if (!success)
+    {
+        evidence_entity_dao_set_database_error(dao, error,
+            EVIDENCE_ENTITY_DAO_ERROR_EXECUTE,
+            "Impossible de vérifier les provenances de l'association");
+        return FALSE;
+    }
+    if (count == 0)
+    {
+        success = evidence_entity_dao_execute_pair_statement(dao,
+            evidence_entity_dao_unlink_sql, evidence_identifier,
+            entity_identifier, "Impossible de préparer le détachement",
+            "Impossible de lier le détachement",
+            "Impossible de supprimer l'association sans provenance", error);
+        if (success && out_link_removed != NULL) *out_link_removed = TRUE;
+        return success;
+    }
+    return TRUE;
 }
 
 gboolean evidence_entity_dao_exists(

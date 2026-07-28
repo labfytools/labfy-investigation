@@ -151,6 +151,16 @@ gboolean evidence_entity_dao_unlink(
     GError **error
 );
 
+gboolean evidence_entity_dao_add_source(
+    EvidenceEntityDao *dao, const char *evidence_identifier,
+    const char *entity_identifier, const char *source_kind,
+    const char *source_uuid, const char *created_at, GError **error);
+
+gboolean evidence_entity_dao_remove_source(
+    EvidenceEntityDao *dao, const char *evidence_identifier,
+    const char *entity_identifier, const char *source_kind,
+    const char *source_uuid, gboolean *out_link_removed, GError **error);
+
 /**
  * @brief Vérifie si une association existe.
  *

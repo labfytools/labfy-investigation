@@ -180,6 +180,37 @@ Le socle actuel comprend notamment :
 - glisser-déposer des extractions texte depuis l'arborescence vers le graphe,
   avec confirmation explicite, création d'entité ou rattachement à une entité
   existante, sans déplacement du fichier produit ;
+- pivot forensique EML : contrôle SHA-256 avant analyse, lecture des en-têtes,
+  extraction MIME récursive, inventaire des pièces jointes et analyse locale
+  facultative par PDF, OCR et ExifTool ;
+- propositions bancaires issues du texte ou de l'OCR, avec validation IBAN/BIC
+  avant toute conservation ;
+- observations EML persistantes dans la fiche de preuve, sans création
+  automatique d'un nœud ;
+- promotion facultative et explicite d'une observation vers une entité du
+  graphe, puis retrait réversible conservant l'observation.
+- propriété persistante V13 des rattachements preuve-entité : un retrait EML
+  ne supprime que la source de l'observation concernée.
+
+### Pivot EML
+
+L'action « Analyser l'e-mail » vérifie d'abord que l'empreinte SHA-256 de la
+preuve correspond à celle enregistrée. Le pipeline lit ensuite les en-têtes,
+parcourt la structure MIME et présente les pièces jointes, textes PDF ou OCR,
+métadonnées ExifTool et propositions bancaires disponibles.
+
+Une proposition cochée avec « Conserver dans la fiche » devient une
+observation persistante liée à la preuve. Cette confirmation normale ne crée
+ni entité, ni nœud, ni rattachement `preuve_entites`. « Promouvoir en entité »
+est une décision séparée, facultative et désactivée par défaut. Une promotion
+peut ensuite être retirée du graphe sans supprimer l'observation ; une entité
+encore utilisée par une autre observation, une autre preuve ou une relation
+est conservée.
+
+Les outils documentaires sont optionnels : leur absence produit un résultat
+partiel sans empêcher la lecture des en-têtes ni l'extraction MIME. Les
+métadonnées sensibles, notamment GPS, sont signalées et ne sont jamais
+promues automatiquement.
 
 Les outils actuellement présents dans le catalogue initial sont :
 
@@ -285,7 +316,7 @@ Les paquets AUR ne devront jamais devenir une dépendance obligatoire du futur p
 Depuis la racine du dépôt :
 
 ```bash
-make
+make -j8
 ```
 
 Le binaire produit est :
@@ -315,15 +346,15 @@ Le projet est compilé en C17 avec les avertissements traités comme des erreurs
 Lancer tous les tests :
 
 ```bash
-make test
+make -j8 test
 ```
 
 Vérifications recommandées avant chaque commit :
 
 ```bash
 make clean
-make
-make test
+make -j8
+make -j8 test
 git diff --check
 ```
 

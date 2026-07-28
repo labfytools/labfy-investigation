@@ -1,8 +1,8 @@
 # Architecture
 
-> **Version :** 3.0  
-> **Dernière mise à jour :** 2026-07-24  
-> **Schéma SQLite courant :** V10  
+> **Version :** 3.1
+> **Dernière mise à jour :** 2026-07-28
+> **Schéma SQLite courant :** V13
 > **Statut :** architecture courante
 
 ---
@@ -301,7 +301,7 @@ validation du chemin
     ↓
 création de l'arborescence
     ↓
-initialisation transactionnelle de SQLite V10
+initialisation transactionnelle de SQLite V13
     ↓
 création de l'identité de l'enquête
     ↓
@@ -492,43 +492,168 @@ sont proches visuellement.
 
 ## 13. Pivot EML
 
-Statut :
+### 13.1 Parcours
 
 ```text
-PARTIEL
+preuve EML
+    ↓ contrôle d'intégrité SHA-256
+tâche asynchrone
+    ↓
+analyse des en-têtes
+    ↓
+extraction MIME récursive vers un staging
+    ↓
+outils documentaires optionnels
+    ↓
+propositions temporaires
+    ↓ confirmation explicite
+observations persistantes dans la fiche
+    ↓ promotion facultative
+entités canoniques du graphe
 ```
 
-La branche contient des briques d'analyse EML, d'extraction MIME, d'IBAN, OCR,
-ExifTool, vocabulaire contrôlé, propositions bancaires et pipeline de tâche.
+La preuve originale n'est jamais modifiée. Le staging et ses pièces jointes
+extraites sont supprimés après rejet, annulation, erreur ou intégration.
+L'absence d'ExifTool, Tesseract ou Poppler conserve un résultat partiel :
+l'analyse des en-têtes et MIME reste utilisable.
 
-Le flux cible est :
+### 13.2 Responsabilités
 
-```text
-EML original
-    ↓
-en-têtes et MIME
-    ↓
-pièces jointes dérivées
-    ↓
-empreintes et métadonnées
-    ↓
-OCR et indicateurs
-    ↓
-valeurs brutes + normalisées + dérivées
-    ↓
-révision humaine
-    ↓
-intégration transactionnelle
-```
+- `EmlAnalyzer` lit les en-têtes, conserve leurs occurrences et qualifie les
+  adresses, domaines et IP.
+- `EmlMimeExtractor` parcourt les parties imbriquées, y compris
+  `message/rfc822`, décode Base64, quoted-printable, RFC 2047 et RFC 2231,
+  assainit les noms et applique les limites de profondeur, nombre et taille.
+- `EmlPipelineTask` orchestre en arrière-plan l'analyse, le staging, les outils
+  documentaires et les propositions bancaires.
+- `DocumentToolRunner` lance les programmes avec `GSubprocess`, sans shell,
+  draine simultanément `stdout` et `stderr`, borne les sorties et propage
+  l'annulation.
+- les modules ExifTool, OCR et PDF structurent les résultats sans modifier la
+  source. Le PDF privilégie le texte natif puis utilise l'OCR page par page.
+- `BankProposal` conserve les valeurs bancaires détectées, leur normalisation,
+  leur validation et une éventuelle correction OCR distincte.
+- `EmlAnalysisDialog` présente les résultats et collecte séparément la
+  conservation et la promotion.
+- `EmlIntegration`, les DAO et `EvidenceObservation` assurent l'écriture
+  transactionnelle, la déduplication, la promotion et le retrait.
+- `Application`, `MainWindow` et `Workspace` raccordent la tâche au contexte
+  GTK principal, rafraîchissent le graphe et rechargent la fiche depuis SQLite.
 
-Les valeurs brutes restent immuables.
+### 13.3 Proposition, observation et entité
 
-Une IP de relais SMTP ne doit pas être présentée comme l'adresse personnelle
-d'un suspect.
+Une **proposition** est un résultat temporaire. Elle peut être rejetée,
+invalidée, corrigée, conservée ou accompagnée d'une demande de promotion.
 
-Une donnée bancaire observée ne prouve pas l'identité de l'auteur d'une fraude.
+Une **observation** est une information confirmée liée à une preuve. La table
+`evidence_entity_observations` conserve son UUID, son type, ses valeurs brute,
+normalisée et corrigée éventuelle, son rôle, l'en-tête et son occurrence, sa
+provenance, son statut, ses dates et une association facultative à une entité.
+Une observation peut donc exister durablement sans nœud de graphe.
 
-Le ticket Forgejo #107 reste la référence fonctionnelle du chantier.
+Une **entité** est un objet canonique réutilisable de `entites`. Elle n'est
+créée ou réutilisée que si « Promouvoir en entité » est explicitement coché.
+`preuve_entites` fournit alors le rattachement nécessaire à la projection du
+graphe. Une même entité peut servir plusieurs rôles, observations, preuves ou
+relations.
+
+### 13.4 MIME et outils documentaires
+
+L'extracteur accepte un EML de 50 Mio au maximum. Il limite une partie décodée
+à 8 Mio, le total décodé à 32 Mio, le message à 128 parties, la profondeur à
+12 niveaux et un nom produit à 240 octets. Les chemins MIME sont conservés,
+les fichiers inline et `Content-ID` sont inventoriés, les traversées de chemin
+sont neutralisées et les écritures passent par un temporaire renommé après
+succès. Cette prise en charge volontairement bornée ne prétend pas couvrir
+l'intégralité des RFC MIME.
+
+Une analyse documentaire accepte au maximum 50 Mio, 8 Mio de `stdout`,
+256 Kio de `stderr`, 100 pages PDF et 128 documents par pipeline. Un PDF
+chiffré n'est pas contourné. `pdfinfo` inspecte le document, `pdftotext`
+fournit en priorité le texte natif et `pdftoppm` rend les pages nécessitant un
+OCR. L'ordre des pages, les résultats partiels et la méthode utilisée sont
+conservés ; les images temporaires sont nettoyées.
+
+Tesseract reçoit `fra+eng` dans le pipeline. Son texte brut n'est pas corrigé
+silencieusement : une correction OCR proposée reste distincte. Les arguments,
+la version et l'état de l'exécution documentent la provenance.
+
+ExifTool est appelé en sortie JSON avec les groupes de tags. Les champs connus
+sont normalisés et les tags inconnus sont conservés avec leur groupe, leur nom
+et leur valeur brute. La version de l'outil est attachée à l'exécution. Les
+coordonnées GPS sont marquées sensibles et ne créent jamais automatiquement
+une entité.
+
+Les propositions bancaires peuvent contenir IBAN brut et normalisé,
+validation MOD-97, BIC, banque, titulaire déclaré, adresse, éléments de RIB et
+correction OCR distincte. Une donnée invalide n'est pas intégrable. Un
+titulaire déclaré dans un document n'établit ni identité certaine ni
+attribution pénale : la donnée reste une proposition puis une observation
+tant que l'enquêteur ne choisit pas de la promouvoir.
+
+### 13.5 Migrations V11, V12 et V13
+
+V11 crée le premier modèle `evidence_entity_observations`, où chaque
+observation est obligatoirement liée à une entité.
+
+V12 donne un UUID propre à l'observation, rend `entity_id` nullable, ajoute les
+valeurs corrigées, l'extraction, les avertissements, les dates d'observation,
+d'intégration et de promotion ainsi que `promotion_kind`. Les lignes V11 sont
+reprises avec `promotion_kind = 'legacy'`. L'index sémantique assure la
+déduplication, y compris lorsque `extraction_id` est nul.
+
+V13 ajoute `preuve_entite_sources`. Chaque rattachement matérialisé possède
+une justification `manual`, `legacy_manual` ou `eml_observation`. La migration
+protège les lignes historiques par `legacy_manual` et reprend les promotions
+V12 identifiables.
+
+### 13.6 Promotion et retrait
+
+La conservation seule écrit l'observation et l'affiche dans la fiche, sans
+créer `entites` ni `preuve_entites`. La promotion explicite crée ou réutilise
+une entité, l'associe à l'observation et ajoute le rattachement nécessaire.
+L'opération est transactionnelle et idempotente.
+
+« Retirer du graphe » efface uniquement la source `eml_observation` portant
+l'UUID de l'observation et conserve
+l'observation. Le nœud n'est supprimé que si les références connues
+(observations, preuves, relations, tags, recherches, chronologie, hypothèses,
+OSINT, comptes sociaux et rôles de personne) sont absentes.
+
+### 13.7 Qualification et provenance
+
+Les rôles couvrent `From`, `Sender`, `Reply-To`, `Return-Path`, `To`, `Cc`,
+`Bcc`, les relais `Received` et le domaine de `Message-ID`. Une même adresse
+peut conserver plusieurs rôles sans multiplier l'entité canonique.
+`192.0.2.10` et `198.51.100.20` sont des IP, jamais des domaines ;
+`MIME-Version: 1.0` ne produit pas de domaine intégrable.
+
+### 13.8 Asynchronisme et sécurité
+
+`BackgroundTask`, `TaskManager` et `GCancellable` portent l'état, la
+progression, l'annulation et la remise du résultat au contexte principal.
+Le worker ne manipule aucun widget. Avant de présenter le résultat,
+`Application` vérifie que la session attendue est toujours active ; un
+changement d'enquête rend le résultat caduc et déclenche le nettoyage.
+
+Tous les arguments externes sont séparés, sans shell. `stdout` et `stderr`
+sont drainés en parallèle pour éviter un interblocage. Les processus sont
+forcés à terminer lors d'une annulation, puis les répertoires temporaires sont
+supprimés.
+
+### 13.9 Limites connues
+
+- la promotion est disponible dans le dialogue d'analyse, pas directement
+  depuis la fiche ;
+- la fiche affiche la valeur canonique et les codes persistés, mais pas encore
+  la valeur brute distincte ni l'UUID de l'entité associée ;
+- le runner borne les sorties et gère l'annulation, mais ne possède pas de
+  délai maximal autonome ;
+- les pièces jointes analysées dans le staging ne sont pas persistées comme
+  dérivés confirmés par ce parcours ;
+- les rattachements antérieurs à V13 restent volontairement protégés par
+  `legacy_manual`, faute de provenance historique plus précise ;
+- la couverture visuelle du dialogue et de la fiche reste manuelle.
 
 ---
 
