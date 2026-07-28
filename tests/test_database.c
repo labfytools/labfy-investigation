@@ -525,7 +525,8 @@ static void test_database_initialize_valid_database(void)
         "FROM investigation;"
     );
 
-    assert(strcmp(schema_version, "13") == 0);
+    assert(strcmp(schema_version, "14") == 0);
+    test_database_assert_table_exists(database, "person_role_assignments");
     test_database_assert_table_exists(database, "bank_account_entities");
     test_database_assert_table_exists(database, "relation_types");
     test_database_assert_table_exists(database, "graph_viewport");
@@ -992,7 +993,7 @@ static void test_database_migrate_v1_to_v2(void)
     assert(
         strcmp(
             schema_version,
-            "13"
+            "14"
         ) == 0
     );
 
@@ -1412,7 +1413,17 @@ static void test_database_migrate_v12_to_v13_preserves_legacy_link(void)
     assert(database_initialize(path, "Migration V13 synthétique", directory));
     assert(sqlite3_open(path, &sqlite_database) == SQLITE_OK);
     test_database_execute_sql(sqlite_database,
+        "INSERT INTO entites(id,type_id,valeur,label,confiance,created_at,"
+        "updated_at,status) VALUES("
+        "'20000000-0000-4000-8000-000000000014',"
+        "(SELECT id FROM types_entite WHERE code='person'),"
+        "'Personne historique','Personne historique',50,"
+        "'2026-07-28T08:00:00Z','2026-07-28T08:00:00Z','active');"
+        "INSERT INTO person_roles(entity_id,role,updated_at) VALUES("
+        "'20000000-0000-4000-8000-000000000014','alleged_scammer',"
+        "'2026-07-28T08:00:00Z');"
         "DROP TABLE preuve_entite_sources;"
+        "DROP TABLE person_role_assignments;"
         "UPDATE metadata SET value='12' WHERE key='schema_version';"
         "INSERT INTO preuves(id,name,relative_path,type_id,size_bytes,sha256,"
         "imported_at,updated_at,status,locked,original_name) VALUES("
@@ -1437,11 +1448,17 @@ static void test_database_migrate_v12_to_v13_preserves_legacy_link(void)
     legacy_sources = test_database_read_single_text(sqlite_database,
         "SELECT COUNT(*) FROM preuve_entite_sources "
         "WHERE source_kind='legacy_manual';");
-    assert(strcmp(version, "13") == 0);
+    assert(strcmp(version, "14") == 0);
     assert(strcmp(legacy_sources, "1") == 0);
+    char *legacy_role = test_database_read_single_text(sqlite_database,
+        "SELECT role_code || ':' || provenance_kind "
+        "FROM person_role_assignments WHERE entity_id="
+        "'20000000-0000-4000-8000-000000000014';");
+    assert(strcmp(legacy_role, "alleged_scammer:legacy_manual") == 0);
     assert(sqlite3_close(sqlite_database) == SQLITE_OK);
     assert(g_remove(path) == 0 && g_rmdir(directory) == 0);
     g_free(legacy_sources);
+    g_free(legacy_role);
     g_free(version);
     g_free(path);
     g_free(directory);

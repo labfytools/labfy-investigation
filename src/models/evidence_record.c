@@ -18,6 +18,8 @@ struct EvidenceRecord
     char *internal_name;
     char *relative_path;
     char *type_identifier;
+    char *type_label;
+    char *mime_type;
 
     guint64 size_bytes;
 
@@ -29,6 +31,28 @@ struct EvidenceRecord
 
     EvidenceIntegrityStatus integrity_status;
 };
+
+EvidenceRecord *evidence_record_copy(const EvidenceRecord *evidence_record)
+{
+    EvidenceRecord *copy;
+    if (evidence_record == NULL) return NULL;
+    copy = g_new0(EvidenceRecord, 1);
+    copy->identifier = g_strdup(evidence_record->identifier);
+    copy->original_name = g_strdup(evidence_record->original_name);
+    copy->internal_name = g_strdup(evidence_record->internal_name);
+    copy->relative_path = g_strdup(evidence_record->relative_path);
+    copy->type_identifier = g_strdup(evidence_record->type_identifier);
+    copy->type_label = g_strdup(evidence_record->type_label);
+    copy->mime_type = g_strdup(evidence_record->mime_type);
+    copy->size_bytes = evidence_record->size_bytes;
+    copy->sha256 = g_strdup(evidence_record->sha256);
+    copy->imported_at = g_strdup(evidence_record->imported_at);
+    copy->collected_at = g_strdup(evidence_record->collected_at);
+    copy->source = g_strdup(evidence_record->source);
+    copy->description = g_strdup(evidence_record->description);
+    copy->integrity_status = evidence_record->integrity_status;
+    return copy;
+}
 
 /**
  * @brief Produit une erreur du domaine EvidenceRecord.
@@ -800,6 +824,8 @@ void evidence_record_free(
     g_free(
         evidence_record->type_identifier
     );
+    g_free(evidence_record->type_label);
+    g_free(evidence_record->mime_type);
 
     g_free(
         evidence_record->relative_path
@@ -880,6 +906,28 @@ const char *evidence_record_get_type_identifier(
     }
 
     return evidence_record->type_identifier;
+}
+
+void evidence_record_set_display_metadata(EvidenceRecord *record,
+    const char *type_label, const char *mime_type)
+{
+    if (record == NULL) return;
+    g_free(record->type_label);
+    g_free(record->mime_type);
+    record->type_label = g_strdup(type_label);
+    record->mime_type = g_strdup(mime_type);
+}
+
+const char *evidence_record_get_type_label(const EvidenceRecord *record)
+{
+    if (record == NULL) return NULL;
+    return record->type_label != NULL
+        ? record->type_label : record->type_identifier;
+}
+
+const char *evidence_record_get_mime_type(const EvidenceRecord *record)
+{
+    return record != NULL ? record->mime_type : NULL;
 }
 
 guint64 evidence_record_get_size_bytes(

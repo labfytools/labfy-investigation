@@ -6,6 +6,7 @@
 #define LABFY_INVESTIGATION_PERSON_ENTITY_SERVICE_H
 #include "database/database.h"
 #include "models/entity_record.h"
+#include "models/person_role_assignment.h"
 #include <glib.h>
 G_BEGIN_DECLS
 /** @brief Données factuelles utilisées pour créer une personne. */
@@ -18,6 +19,8 @@ typedef struct
     const char *notes;
     gint confidence;
     const char *evidence_identifier;
+    /** PersonRoleAssignmentInput* empruntés, facultatif. */
+    const GPtrArray *role_assignments;
 } PersonEntityInput;
 /**
  * @brief Crée une personne et son éventuelle liaison à une preuve.

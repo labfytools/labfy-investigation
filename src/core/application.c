@@ -56,6 +56,7 @@
 #include "core/relation_service.h"
 #include "core/social_account_service.h"
 #include "core/person_entity_service.h"
+#include "core/person_creation_guard.h"
 #include "core/eml_processing.h"
 #include "core/eml_integration.h"
 #include "core/eml_pipeline_task.h"
@@ -142,6 +143,7 @@ struct Application
     InvestigationGraphModel *graph_model;
     InvestigationGraphLayout *graph_layout;
     guint64 graph_load_generation;
+    guint64 session_generation;
     gboolean graph_viewport_restored;
     guint graph_viewport_save_source_id;
 
@@ -149,6 +151,20 @@ struct Application
     char *pending_relation_selection_identifier;
     char *pending_entity_selection_identifier;
 };
+
+typedef struct
+{
+    Application *application;
+    PersonCreationGuard *guard;
+} ApplicationPersonDialogContext;
+
+static void application_person_dialog_context_free(
+    ApplicationPersonDialogContext *context)
+{
+    if (context == NULL) return;
+    person_creation_guard_free(context->guard);
+    g_free(context);
+}
 
 static void application_on_evidence_selected(
     const char *evidence_identifier, gpointer user_data);
@@ -2726,6 +2742,7 @@ static gboolean application_install_session(
 
     application->tree_model = new_tree_model;
     application->session = new_session;
+    application->session_generation++;
     application->graph_viewport_restored = FALSE;
 
     main_window_set_tree_model(
@@ -5380,13 +5397,25 @@ static void application_on_add_social_account_requested(gpointer user_data)
 static void application_on_person_completed(
     CreatePersonDialogResult *result, gpointer user_data)
 {
-    Application *application = user_data;
-    const PersonEntityInput *input = create_person_dialog_result_get_input(result);
+    ApplicationPersonDialogContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    const PersonEntityInput *input = NULL;
     const InvestigationProject *project = NULL;
     GError *error = NULL;
     char *identifier = NULL;
-    if (result == NULL || application == NULL || application->session == NULL)
-    { create_person_dialog_result_free(result); return; }
+    const char *active_root = NULL, *active_database = NULL;
+    if (result == NULL) {
+        return;
+    }
+    input = create_person_dialog_result_get_input(result);
+    if (application == NULL || application->session == NULL)
+        goto changed_session;
+    project = investigation_session_get_project(application->session);
+    active_root = investigation_project_get_root_path(project);
+    active_database = investigation_project_get_database_path(project);
+    if (!person_creation_guard_matches(context->guard, TRUE,
+            application->session_generation, active_root, active_database))
+        goto changed_session;
     if (!person_entity_service_create(
             investigation_session_get_database(application->session),
             input, &identifier, &error))
@@ -5402,6 +5431,24 @@ static void application_on_person_completed(
     }
     g_clear_error(&error); g_free(identifier);
     create_person_dialog_result_free(result);
+    return;
+changed_session:
+    application_present_error(application, "Personne non créée",
+        "L'enquête active a changé depuis l'ouverture de l'assistant.");
+    create_person_dialog_result_free(result);
+}
+
+static gboolean application_person_dialog_session_matches(gpointer user_data)
+{
+    ApplicationPersonDialogContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    const InvestigationProject *project;
+    if (application == NULL || application->session == NULL) return FALSE;
+    project = investigation_session_get_project(application->session);
+    return person_creation_guard_matches(context->guard, TRUE,
+        application->session_generation,
+        investigation_project_get_root_path(project),
+        investigation_project_get_database_path(project));
 }
 
 /** @brief Charge les preuves puis ouvre le formulaire d'une personne. */
@@ -5410,6 +5457,8 @@ static void application_on_add_person_requested(gpointer user_data)
     Application *application = user_data;
     EvidenceDao *dao = NULL;
     GPtrArray *records = NULL;
+    ApplicationPersonDialogContext *context = NULL;
+    const InvestigationProject *project = NULL;
     GError *error = NULL;
     if (application == NULL || application->session == NULL) return;
     dao = evidence_dao_new(
@@ -5418,9 +5467,21 @@ static void application_on_add_person_requested(gpointer user_data)
     if (records == NULL)
         application_present_error(application, "Formulaire indisponible",
             error != NULL ? error->message : "Impossible de charger les preuves.");
-    else
+    else {
+        project = investigation_session_get_project(application->session);
+        context = g_new0(ApplicationPersonDialogContext, 1);
+        context->application = application;
+        context->guard = person_creation_guard_new(
+            application->session_generation,
+            investigation_project_get_root_path(project),
+            investigation_project_get_database_path(project));
         create_person_dialog_present(main_window_get_window(application->main_window),
-            records, application_on_person_completed, application);
+            records, investigation_project_get_root_path(project),
+            application->task_manager,
+            application_person_dialog_session_matches,
+            application_on_person_completed, context,
+            (GDestroyNotify) application_person_dialog_context_free);
+    }
     g_clear_pointer(&records, g_ptr_array_unref);
     evidence_dao_free(dao); g_clear_error(&error);
 }

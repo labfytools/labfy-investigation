@@ -371,6 +371,12 @@ bool schema_install_v13(Database *database)
         "la migration SQLite V13");
 }
 
+bool schema_install_v14(Database *database)
+{
+    return schema_execute_file(database, "database/schema_v14.sql",
+        "la migration SQLite V14");
+}
+
 bool schema_ensure_current(
     Database *database
 )

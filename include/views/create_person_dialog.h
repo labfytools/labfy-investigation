@@ -6,6 +6,7 @@
 #define LABFY_INVESTIGATION_CREATE_PERSON_DIALOG_H
 #include "core/person_entity_service.h"
 #include "models/evidence_record.h"
+#include "core/task_manager.h"
 #include <gtk/gtk.h>
 G_BEGIN_DECLS
 /** @brief Résultat opaque possédé par le callback. */
@@ -13,6 +14,7 @@ typedef struct CreatePersonDialogResult CreatePersonDialogResult;
 /** @brief Callback appelé après validation ou annulation. */
 typedef void (*CreatePersonDialogCallback)(CreatePersonDialogResult *result,
     gpointer user_data);
+typedef gboolean (*CreatePersonDialogSessionCheck)(gpointer user_data);
 /**
  * @brief Présente le formulaire de création d'une personne.
  * @param parent Fenêtre parente.
@@ -22,8 +24,10 @@ typedef void (*CreatePersonDialogCallback)(CreatePersonDialogResult *result,
  * @return TRUE si le dialogue a été présenté.
  */
 gboolean create_person_dialog_present(GtkWindow *parent,
-    const GPtrArray *evidence_records, CreatePersonDialogCallback callback,
-    gpointer user_data);
+    const GPtrArray *evidence_records, const char *investigation_root_path,
+    TaskManager *task_manager, CreatePersonDialogSessionCheck session_check,
+    CreatePersonDialogCallback callback, gpointer user_data,
+    GDestroyNotify user_data_destroy);
 /** @brief Libère un résultat. */
 void create_person_dialog_result_free(CreatePersonDialogResult *result);
 /** @brief Retourne les données empruntées du résultat. */

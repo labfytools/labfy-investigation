@@ -84,7 +84,9 @@ static const char *const evidence_dao_find_by_identifier_sql =
     "    preuves.collected_at,"
     "    preuves.source,"
     "    preuves.description,"
-    "    preuves.integrity_status "
+    "    preuves.integrity_status,"
+    "    types_preuve.label,"
+    "    preuves.mime_type "
     "FROM preuves "
     "LEFT JOIN types_preuve "
     "ON types_preuve.id = preuves.type_id "
@@ -140,7 +142,9 @@ static const char *const evidence_dao_list_all_sql =
     "    preuves.collected_at,"
     "    preuves.source,"
     "    preuves.description,"
-    "    preuves.integrity_status "
+    "    preuves.integrity_status,"
+    "    types_preuve.label,"
+    "    preuves.mime_type "
     "FROM preuves "
     "LEFT JOIN types_preuve "
     "ON types_preuve.id = preuves.type_id "
@@ -456,6 +460,8 @@ static EvidenceRecord *evidence_dao_read_current_record(
     char *collected_at = NULL;
     char *source = NULL;
     char *description = NULL;
+    char *type_label = NULL;
+    char *mime_type = NULL;
 
     int64_t size_bytes = -1;
     int64_t integrity_status_value = -1;
@@ -534,6 +540,9 @@ static EvidenceRecord *evidence_dao_read_current_record(
             statement,
             11,
             &integrity_status_value
+        ) ||
+        !database_statement_column_text(statement, 12, &type_label) ||
+        !database_statement_column_text(statement, 13, &mime_type
         ))
     {
         evidence_dao_set_error_literal(
@@ -608,6 +617,9 @@ static EvidenceRecord *evidence_dao_read_current_record(
             );
         }
     }
+    else
+        evidence_record_set_display_metadata(
+            evidence_record, type_label, mime_type);
 
 cleanup:
 
@@ -618,6 +630,8 @@ cleanup:
     g_free(
         description
     );
+    g_free(type_label);
+    g_free(mime_type);
 
     g_free(
         source

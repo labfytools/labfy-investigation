@@ -2,7 +2,12 @@
 
 > **Dernière mise à jour :** 2026-07-28
 > **État du projet :** développement actif  
-> **Schéma SQLite courant :** V13
+> **Schéma SQLite courant :** V14
+
+La tranche 1 du ticket #109 couvre les rôles contextuels multiples, la
+sélection d’une preuve existante, la création transactionnelle et la garde de
+session. Import intégré, PDF, vidéo, EML avancé, OCR et documents d’identité
+restent hors périmètre.
 > **Usage opérationnel :** non prêt pour la production
 
 ---
@@ -116,7 +121,7 @@ La branche `main` contient notamment :
 
 - création, validation et ouverture d'enquêtes ;
 - session d'enquête remplaçable proprement ;
-- infrastructure SQLite et migrations jusqu'à V13 ;
+- infrastructure SQLite et migrations jusqu'à V14 ;
 - couche Database, DAO et services métier ;
 - import de preuves avec copie contrôlée et SHA-256 ;
 - vérification d'intégrité et reclassement des preuves ;

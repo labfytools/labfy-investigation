@@ -148,6 +148,13 @@ EvidenceRecord *evidence_record_new(
 );
 
 /**
+ * @brief Copie intégralement une preuve, métadonnées d’affichage incluses.
+ *
+ * @return Nouvelle preuve possédée par l’appelant, ou NULL.
+ */
+EvidenceRecord *evidence_record_copy(const EvidenceRecord *evidence_record);
+
+/**
  * @brief Libère un modèle EvidenceRecord.
  *
  * Cette fonction accepte evidence_record == NULL.
@@ -202,6 +209,16 @@ const char *evidence_record_get_relative_path(
 const char *evidence_record_get_type_identifier(
     const EvidenceRecord *evidence_record
 );
+
+/** @brief Enrichit les métadonnées d'affichage copiées par le modèle. */
+void evidence_record_set_display_metadata(EvidenceRecord *evidence_record,
+    const char *type_label, const char *mime_type);
+/** @brief Retourne le libellé métier du type, ou son code à défaut. */
+const char *evidence_record_get_type_label(
+    const EvidenceRecord *evidence_record);
+/** @brief Retourne le type MIME enregistré, éventuellement NULL. */
+const char *evidence_record_get_mime_type(
+    const EvidenceRecord *evidence_record);
 
 /**
  * @brief Retourne la taille observée de la preuve.

@@ -238,3 +238,30 @@ CREATE INDEX IF NOT EXISTS idx_preuve_entite_sources_entity
     ON preuve_entite_sources(entite_id);
 CREATE INDEX IF NOT EXISTS idx_preuve_entite_sources_source
     ON preuve_entite_sources(source_kind, source_uuid);
+
+CREATE TABLE IF NOT EXISTS person_role_assignments
+(
+    id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+    entity_id TEXT NOT NULL,
+    role_code TEXT NOT NULL CHECK (length(trim(role_code)) > 0),
+    evidence_id TEXT,
+    provenance_kind TEXT NOT NULL CHECK (
+        provenance_kind IN ('manual', 'legacy_manual')
+    ),
+    confidence INTEGER CHECK (
+        confidence IS NULL OR confidence BETWEEN 0 AND 100
+    ),
+    notes TEXT,
+    created_at TEXT NOT NULL CHECK (length(created_at) = 20),
+    updated_at TEXT NOT NULL CHECK (length(updated_at) = 20),
+    FOREIGN KEY (entity_id) REFERENCES entites(id) ON DELETE CASCADE,
+    FOREIGN KEY (evidence_id) REFERENCES preuves(id) ON DELETE SET NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_person_role_assignments_semantic
+    ON person_role_assignments(
+        entity_id, role_code, COALESCE(evidence_id, ''), provenance_kind
+    );
+CREATE INDEX IF NOT EXISTS idx_person_role_assignments_entity
+    ON person_role_assignments(entity_id);
+CREATE INDEX IF NOT EXISTS idx_person_role_assignments_evidence
+    ON person_role_assignments(evidence_id);

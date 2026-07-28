@@ -405,16 +405,16 @@ tests/test_database.c
 
 ### 9.2 Nouvelle version de schéma
 
-Pour créer une nouvelle version après V13, par exemple V14 :
+Pour créer une nouvelle version après V14, par exemple V15 :
 
-1. ajouter `database/schema_v13.sql` ;
+1. ajouter le nouveau fichier `database/schema_v15.sql` ;
 2. déclarer et implémenter `schema_install_v13()` ;
 3. ajouter `database_migrate_v12_to_v13()` ;
 4. raccorder la migration dans la boucle vers la version courante ;
 5. mettre à jour les constantes de version ;
-6. installer V13 lors de la création d'une base neuve ;
+6. installer V15 lors de la création d'une base neuve ;
 7. adapter `schema_current.sql` si nécessaire ;
-8. ajouter une fixture V13 vers V14 ;
+8. ajouter une fixture V14 vers V15 ;
 
 La fixture V12 vers V13 vérifie le backfill `legacy_manual`. Les tests EML
 couvrent aussi le retrait isolé d'une source face à un rattachement manuel.

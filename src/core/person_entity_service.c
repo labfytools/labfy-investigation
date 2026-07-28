@@ -3,6 +3,7 @@
  * @brief Création transactionnelle d'une personne observée.
  ******************************************************************************/
 #include "core/person_entity_service.h"
+#include "dao/person_role_assignment_dao.h"
 #include "dao/entity_dao.h"
 #include "dao/evidence_entity_dao.h"
 #include "database/transaction.h"
@@ -188,6 +189,7 @@ gboolean person_entity_service_create(Database *database,
 {
     EntityDao *entity_dao = NULL;
     EvidenceEntityDao *link_dao = NULL;
+    PersonRoleAssignmentDao *role_dao = NULL;
     EntityRecord *record = NULL;
     GDateTime *now = NULL;
     char *timestamp = NULL;
@@ -208,6 +210,16 @@ gboolean person_entity_service_create(Database *database,
             "Les informations de la personne sont invalides.");
         return FALSE;
     }
+    for (guint i = 0; input->role_assignments != NULL &&
+         i < input->role_assignments->len; i++)
+        if (!person_role_assignment_input_is_valid(g_ptr_array_index(
+                (GPtrArray *) input->role_assignments, i)))
+        {
+            g_set_error_literal(error, g_quark_from_static_string(
+                "person-entity-service-error"), 1,
+                "Une affectation de rôle est invalide.");
+            return FALSE;
+        }
     value = input->declared_name != NULL && input->declared_name[0] != '\0'
         ? input->declared_name
         : input->pseudonym != NULL && input->pseudonym[0] != '\0'
@@ -232,6 +244,10 @@ gboolean person_entity_service_create(Database *database,
         timestamp, timestamp, ENTITY_STATUS_ACTIVE, error);
     if (entity_dao == NULL || record == NULL ||
         !entity_dao_insert(entity_dao, record, error)) goto cleanup;
+    role_dao = person_role_assignment_dao_new(database, error);
+    if (role_dao == NULL ||
+        !person_role_assignment_dao_insert_all(role_dao, identifier,
+            input->role_assignments, error)) goto cleanup;
     if (input->evidence_identifier != NULL && input->evidence_identifier[0] != '\0')
     {
         link_dao = evidence_entity_dao_new(database, error);
@@ -243,6 +259,7 @@ gboolean person_entity_service_create(Database *database,
     success = TRUE;
     if (out_identifier != NULL) *out_identifier = g_strdup(identifier);
 cleanup:
+    person_role_assignment_dao_free(role_dao);
     if (!success && active) database_transaction_rollback(database);
     evidence_entity_dao_free(link_dao);
     entity_record_free(record);

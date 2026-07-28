@@ -2,7 +2,22 @@
 
 > **Version :** 3.1
 > **Dernière mise à jour :** 2026-07-28
-> **Schéma SQLite courant :** V13
+> **Schéma SQLite courant :** V14
+
+## Personnes contextuelles — SQLite V14
+
+`person_role_assignments` sépare les rôles contextuels des champs de l’entité.
+Une personne peut porter plusieurs rôles avec preuve facultative, provenance,
+confiance et notes. Les anciens codes sont copiés littéralement depuis
+`person_roles` avec la provenance `legacy_manual`. Le service crée l’entité,
+les rôles et le rattachement manuel dans une transaction unique.
+
+Le cœur `EvidencePreview` vérifie l’intégrité avant décodage PNG/JPEG, applique
+des bornes et ne renvoie qu’un PNG mémoire réduit. Une `BackgroundTask`
+travaille hors du thread GTK ; la texture est créée sur le contexte principal.
+Le dialogue annule l’ancienne tâche et rejette les générations obsolètes.
+L’interface conserve une génération de session et les chemins stables du
+projet et de sa base. PDF, vidéo, EML avancé et OCR restent exclus.
 > **Statut :** architecture courante
 
 ---
@@ -301,7 +316,7 @@ validation du chemin
     ↓
 création de l'arborescence
     ↓
-initialisation transactionnelle de SQLite V13
+initialisation transactionnelle de SQLite V14
     ↓
 création de l'identité de l'enquête
     ↓

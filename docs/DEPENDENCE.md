@@ -1,5 +1,9 @@
 # Dépendances externes
 
+`libjpeg` est utilisée pour le décodage borné des aperçus JPEG du ticket #109.
+PNG est décodé avec Cairo. Aucun outil documentaire externe n’est lancé par
+l’aperçu et aucun dérivé n’est persisté.
+
 Ce fichier recense les outils utilisés par LabFy Investigation et leur
 installation. Il sera complété à chaque intégration d’un nouvel outil.
 
