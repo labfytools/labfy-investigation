@@ -136,6 +136,16 @@ TEST_CONTROLLED_VOCAB := tests/test_controlled_vocab
 TEST_BANK_PROPOSAL := tests/test_bank_proposal
 TEST_EML_PIPELINE_TASK := tests/test_eml_pipeline_task
 TEST_EML_MIME_EXTRACTOR := tests/test_eml_mime_extractor
+TEST_EXIFTOOL_ANALYSIS := tests/test_exiftool_analysis
+TEST_OCR_ANALYSIS := tests/test_ocr_analysis
+TEST_PDF_ANALYSIS := tests/test_pdf_analysis
+FAKE_DOCUMENT_TOOL := tests/fake_document_tool
+
+DOCUMENT_ANALYSIS_TEST_SOURCES := \
+	src/core/document_analysis.c \
+	src/core/document_tool_runner.c \
+	src/core/tool_process.c \
+	src/core/file_hash.c
 
 all: $(TARGET)
 
@@ -158,15 +168,52 @@ $(TEST_EML_PIPELINE_TASK): \
 	src/core/eml_pipeline_task.c src/core/eml_mime_extractor.c \
 	src/core/eml_analyzer.c src/core/bank_proposal.c \
 	src/core/controlled_vocab.c src/core/iban_analyzer.c \
-	src/core/rib_ocr.c src/core/file_hash.c src/core/background_task.c
-	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ \
-		$(TEST_LDFLAGS) -lsqlite3
+	src/core/file_hash.c src/core/background_task.c \
+	src/core/document_analysis.c src/core/document_tool_runner.c \
+	src/core/exiftool_analysis.c src/core/ocr_analysis.c \
+	src/core/pdf_analysis.c src/core/document_file_analysis.c \
+	src/core/tool_process.c $(FAKE_DOCUMENT_TOOL)
+	$(CC) $(TEST_CFLAGS) -Wpedantic \
+		tests/test_eml_pipeline_task.c \
+		src/core/eml_pipeline_task.c src/core/eml_mime_extractor.c \
+		src/core/eml_analyzer.c src/core/bank_proposal.c \
+		src/core/controlled_vocab.c src/core/iban_analyzer.c \
+		src/core/file_hash.c src/core/background_task.c \
+		src/core/document_analysis.c src/core/document_tool_runner.c \
+		src/core/exiftool_analysis.c src/core/ocr_analysis.c \
+		src/core/pdf_analysis.c src/core/document_file_analysis.c \
+		src/core/tool_process.c -o $@ $(TEST_LDFLAGS) -lsqlite3
 
 $(TEST_EML_MIME_EXTRACTOR): \
 	tests/test_eml_mime_extractor.c \
 	src/core/eml_mime_extractor.c \
 	src/core/file_hash.c
 	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
+
+$(FAKE_DOCUMENT_TOOL): tests/fake_document_tool.c
+	$(CC) -std=c17 -Wall -Wextra -Werror -Wpedantic $< -o $@
+
+$(TEST_EXIFTOOL_ANALYSIS): tests/test_exiftool_analysis.c \
+	src/core/exiftool_analysis.c $(DOCUMENT_ANALYSIS_TEST_SOURCES) \
+	$(FAKE_DOCUMENT_TOOL)
+	$(CC) $(TEST_CFLAGS) -Wpedantic \
+		tests/test_exiftool_analysis.c src/core/exiftool_analysis.c \
+		$(DOCUMENT_ANALYSIS_TEST_SOURCES) -o $@ $(TEST_LDFLAGS)
+
+$(TEST_OCR_ANALYSIS): tests/test_ocr_analysis.c \
+	src/core/ocr_analysis.c $(DOCUMENT_ANALYSIS_TEST_SOURCES) \
+	$(FAKE_DOCUMENT_TOOL)
+	$(CC) $(TEST_CFLAGS) -Wpedantic \
+		tests/test_ocr_analysis.c src/core/ocr_analysis.c \
+		$(DOCUMENT_ANALYSIS_TEST_SOURCES) -o $@ $(TEST_LDFLAGS)
+
+$(TEST_PDF_ANALYSIS): tests/test_pdf_analysis.c \
+	src/core/pdf_analysis.c src/core/ocr_analysis.c \
+	$(DOCUMENT_ANALYSIS_TEST_SOURCES) $(FAKE_DOCUMENT_TOOL)
+	$(CC) $(TEST_CFLAGS) -Wpedantic \
+		tests/test_pdf_analysis.c src/core/pdf_analysis.c \
+		src/core/ocr_analysis.c $(DOCUMENT_ANALYSIS_TEST_SOURCES) \
+		-o $@ $(TEST_LDFLAGS)
 
 
 
@@ -838,7 +885,10 @@ test: \
 	$(TEST_CONTROLLED_VOCAB) \
 	$(TEST_BANK_PROPOSAL) \
 	$(TEST_EML_PIPELINE_TASK) \
-	$(TEST_EML_MIME_EXTRACTOR)
+	$(TEST_EML_MIME_EXTRACTOR) \
+	$(TEST_EXIFTOOL_ANALYSIS) \
+	$(TEST_OCR_ANALYSIS) \
+	$(TEST_PDF_ANALYSIS)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -908,6 +958,9 @@ test: \
 	@$(TEST_BANK_PROPOSAL)
 	@$(TEST_EML_PIPELINE_TASK)
 	@$(TEST_EML_MIME_EXTRACTOR)
+	@$(TEST_EXIFTOOL_ANALYSIS)
+	@$(TEST_OCR_ANALYSIS)
+	@$(TEST_PDF_ANALYSIS)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -980,7 +1033,11 @@ clean:
 		$(TEST_CONTROLLED_VOCAB) \
 		$(TEST_BANK_PROPOSAL) \
 		$(TEST_EML_PIPELINE_TASK) \
-		$(TEST_EML_MIME_EXTRACTOR)
+		$(TEST_EML_MIME_EXTRACTOR) \
+		$(TEST_EXIFTOOL_ANALYSIS) \
+		$(TEST_OCR_ANALYSIS) \
+		$(TEST_PDF_ANALYSIS) \
+		$(FAKE_DOCUMENT_TOOL)
 
 
 

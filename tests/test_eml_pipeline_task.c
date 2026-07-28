@@ -86,9 +86,61 @@ static void test_eml_pipeline_basic(void)
     g_free(tmp_dir);
 }
 
+static void test_eml_pipeline_document_analysis(void)
+{
+    GError *error = NULL;
+    char *tmp_dir = g_dir_make_tmp("labfy-eml-document-XXXXXX", &error);
+    g_assert_no_error(error);
+    char *eml_path = g_build_filename(tmp_dir, "document.eml", NULL);
+    char *processed_dir = g_build_filename(
+        tmp_dir, "02_Preuves_Traitees", NULL);
+    static const char eml[] =
+        "From: synthetic@example.test\r\n"
+        "Content-Type: multipart/mixed; boundary=x\r\n\r\n"
+        "--x\r\nContent-Type: image/png; name=synthetic.png\r\n"
+        "Content-Disposition: attachment; filename=synthetic.png\r\n"
+        "Content-Transfer-Encoding: base64\r\n\r\n"
+        "UE5H\r\n--x--\r\n";
+    g_assert_true(g_file_set_contents(eml_path, eml, -1, &error));
+    g_assert_no_error(error);
+    DocumentAnalysisTools tools = {
+        .exiftool = "tests/fake_document_tool",
+        .tesseract = "tests/fake_document_tool",
+        .pdfinfo = "tests/fake_document_tool",
+        .pdftotext = "tests/fake_document_tool",
+        .pdftoppm = "tests/fake_document_tool"
+    };
+    BackgroundTask *task = eml_pipeline_task_new_with_tools(
+        eml_path, processed_dir, "synthetic-evidence", &tools);
+    g_assert_nonnull(task);
+    while (background_task_get_state(task) ==
+               BACKGROUND_TASK_STATE_RUNNING ||
+           background_task_get_state(task) ==
+               BACKGROUND_TASK_STATE_PENDING)
+        g_main_context_iteration(NULL, TRUE);
+    g_assert_cmpint(background_task_get_state(task), ==,
+        BACKGROUND_TASK_STATE_COMPLETED);
+    EmlPipelineResult *result = background_task_get_result(task);
+    g_assert_nonnull(result);
+    g_assert_cmpuint(result->document_analyses->len, ==, 1);
+    DocumentFileAnalysis *document = g_ptr_array_index(
+        result->document_analyses, 0);
+    g_assert_nonnull(document->metadata);
+    g_assert_nonnull(document->ocr);
+    g_assert_cmpstr(document->ocr->text, ==,
+        "Texte OCR synthétique page une.\n");
+    background_task_unref(task);
+    g_remove(eml_path);
+    g_free(processed_dir);
+    g_free(eml_path);
+    g_free(tmp_dir);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/eml-pipeline-task/basic", test_eml_pipeline_basic);
+    g_test_add_func("/eml-pipeline-task/document-analysis",
+        test_eml_pipeline_document_analysis);
     return g_test_run();
 }

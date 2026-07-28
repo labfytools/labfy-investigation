@@ -4,7 +4,6 @@
  ******************************************************************************/
 #include "core/eml_pipeline_task.h"
 #include "core/file_hash.h"
-#include "core/rib_ocr.h"
 #include <gio/gio.h>
 #include <glib.h>
 #include <string.h>
@@ -14,6 +13,11 @@ typedef struct
     char *eml_path;
     char *processed_evidence_dir;
     char *evidence_id;
+    char *exiftool;
+    char *tesseract;
+    char *pdfinfo;
+    char *pdftotext;
+    char *pdftoppm;
 } EmlPipelineTaskData;
 
 static void eml_pipeline_task_data_free(gpointer user_data)
@@ -24,6 +28,11 @@ static void eml_pipeline_task_data_free(gpointer user_data)
     g_free(data->eml_path);
     g_free(data->processed_evidence_dir);
     g_free(data->evidence_id);
+    g_free(data->exiftool);
+    g_free(data->tesseract);
+    g_free(data->pdfinfo);
+    g_free(data->pdftotext);
+    g_free(data->pdftoppm);
     g_free(data);
 }
 
@@ -37,6 +46,8 @@ void eml_pipeline_result_free(EmlPipelineResult *res)
         eml_mime_result_free(res->mime_result);
     if (res->bank_proposals != NULL)
         g_ptr_array_unref(res->bank_proposals);
+    if (res->document_analyses != NULL)
+        g_ptr_array_unref(res->document_analyses);
     if (res->warnings != NULL)
         g_ptr_array_unref(res->warnings);
     g_free(res);
@@ -103,14 +114,20 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
 
     background_task_report_progress(task, 0.75, "Analyse OCR et détection bancaire...");
     GPtrArray *bank_proposals = g_ptr_array_new_with_free_func((GDestroyNotify) bank_proposal_free);
+    GPtrArray *document_analyses = g_ptr_array_new_with_free_func(
+        (GDestroyNotify) document_file_analysis_free);
 
     for (guint i = 0; mime_res->attachments != NULL && i < mime_res->attachments->len; i++)
     {
+        if (document_analyses->len >=
+            DOCUMENT_ANALYSIS_MAX_PIPELINE_ITEMS)
+            break;
         if (g_cancellable_is_cancelled(cancellable))
         {
             eml_analysis_free(analysis);
             eml_mime_result_free(mime_res);
             g_ptr_array_unref(bank_proposals);
+            g_ptr_array_unref(document_analyses);
             g_set_error_literal(
                 error,
                 G_IO_ERROR,
@@ -139,13 +156,41 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
                 g_free(content);
             }
         }
-        else if (g_str_has_suffix(att->extracted_path, ".png") || g_str_has_suffix(att->extracted_path, ".jpg") || g_str_has_suffix(att->extracted_path, ".jpeg"))
+        else if (ocr_analysis_mime_is_compatible(att->detected_mime) ||
+                 g_strcmp0(att->detected_mime, "application/pdf") == 0 ||
+                 g_strcmp0(att->content_type, "application/pdf") == 0)
         {
-            char *ocr_text = NULL;
-            char *ocr_version = NULL;
-            (void) rib_ocr_extract_text(att->extracted_path, &ocr_text,
-                &ocr_version, NULL);
-            g_free(ocr_version);
+            DocumentAnalysisTools tools = {
+                .exiftool = data->exiftool,
+                .tesseract = data->tesseract,
+                .pdfinfo = data->pdfinfo,
+                .pdftotext = data->pdftotext,
+                .pdftoppm = data->pdftoppm
+            };
+            GError *analysis_error = NULL;
+            DocumentFileAnalysis *document =
+                document_file_analysis_run(&tools, att->extracted_path,
+                    att->content_type, att->detected_mime, TRUE,
+                    "fra+eng", cancellable, &analysis_error);
+            if (document == NULL &&
+                analysis_error != NULL &&
+                g_error_matches(analysis_error, G_IO_ERROR,
+                    G_IO_ERROR_CANCELLED))
+            {
+                g_propagate_error(error, analysis_error);
+                eml_analysis_free(analysis);
+                eml_mime_result_free(mime_res);
+                g_ptr_array_unref(bank_proposals);
+                g_ptr_array_unref(document_analyses);
+                return FALSE;
+            }
+            g_clear_error(&analysis_error);
+            if (document == NULL)
+                continue;
+            g_ptr_array_add(document_analyses, document);
+            const char *ocr_text = document->ocr != NULL
+                ? document->ocr->text
+                : NULL;
             if (ocr_text != NULL)
             {
                 BankProposal *bp = bank_proposal_analyze_text(ocr_text, data->evidence_id);
@@ -154,7 +199,6 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
                     bp->extraction_id = g_strdup(att->part_index);
                     g_ptr_array_add(bank_proposals, bp);
                 }
-                g_free(ocr_text);
             }
         }
     }
@@ -165,6 +209,7 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
     res->analysis = analysis;
     res->mime_result = mime_res;
     res->bank_proposals = bank_proposals;
+    res->document_analyses = document_analyses;
     res->warnings = g_ptr_array_new_with_free_func(g_free);
 
     if (out_result != NULL)
@@ -177,13 +222,35 @@ BackgroundTask *eml_pipeline_task_new(const char *eml_path,
                                        const char *processed_evidence_dir,
                                        const char *evidence_id)
 {
-    if (eml_path == NULL || processed_evidence_dir == NULL)
+    DocumentAnalysisTools tools = {
+        .exiftool = "exiftool",
+        .tesseract = "tesseract",
+        .pdfinfo = "pdfinfo",
+        .pdftotext = "pdftotext",
+        .pdftoppm = "pdftoppm"
+    };
+    return eml_pipeline_task_new_with_tools(eml_path,
+        processed_evidence_dir, evidence_id, &tools);
+}
+
+BackgroundTask *eml_pipeline_task_new_with_tools(
+    const char *eml_path,
+    const char *processed_evidence_dir,
+    const char *evidence_id,
+    const DocumentAnalysisTools *tools)
+{
+    if (eml_path == NULL || processed_evidence_dir == NULL || tools == NULL)
         return NULL;
 
     EmlPipelineTaskData *data = g_new0(EmlPipelineTaskData, 1);
     data->eml_path = g_strdup(eml_path);
     data->processed_evidence_dir = g_strdup(processed_evidence_dir);
     data->evidence_id = g_strdup(evidence_id);
+    data->exiftool = g_strdup(tools->exiftool);
+    data->tesseract = g_strdup(tools->tesseract);
+    data->pdfinfo = g_strdup(tools->pdfinfo);
+    data->pdftotext = g_strdup(tools->pdftotext);
+    data->pdftoppm = g_strdup(tools->pdftoppm);
 
     BackgroundTask *task = background_task_new(
         "Analyse du message EML et de ses pièces jointes");
