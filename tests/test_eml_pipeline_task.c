@@ -136,11 +136,107 @@ static void test_eml_pipeline_document_analysis(void)
     g_free(tmp_dir);
 }
 
+static void wait_for_task(BackgroundTask *task)
+{
+    while (background_task_get_state(task) ==
+               BACKGROUND_TASK_STATE_RUNNING ||
+           background_task_get_state(task) ==
+               BACKGROUND_TASK_STATE_PENDING)
+        g_main_context_iteration(NULL, TRUE);
+}
+
+static DocumentAnalysisTools synthetic_tools(void)
+{
+    DocumentAnalysisTools tools = {
+        .exiftool = "tests/fake_document_tool",
+        .tesseract = "tests/fake_document_tool",
+        .pdfinfo = "tests/fake_document_tool",
+        .pdftotext = "tests/fake_document_tool",
+        .pdftoppm = "tests/fake_document_tool"
+    };
+    return tools;
+}
+
+static void test_eml_pipeline_pdf_end_to_end_and_limit(void)
+{
+    GError *error = NULL;
+    char *tmp_dir = g_dir_make_tmp("labfy-eml-pdf-XXXXXX", &error);
+    g_assert_no_error(error);
+    char *eml_path = g_build_filename(tmp_dir, "pdf.eml", NULL);
+    char *processed_dir = g_build_filename(tmp_dir, "processed", NULL);
+    static const char eml[] =
+        "From: synthetic@example.test\r\n"
+        "MIME-Version: 1.0\r\n"
+        "Content-Type: multipart/mixed; boundary=pdf-boundary\r\n\r\n"
+        "--pdf-boundary\r\n"
+        "Content-Type: application/pdf; name=scan.pdf\r\n"
+        "Content-Disposition: attachment; filename=scan.pdf\r\n"
+        "Content-Transfer-Encoding: base64\r\n\r\n"
+        "JVBERi1zeW50aGV0aWM=\r\n"
+        "--pdf-boundary\r\n"
+        "Content-Type: application/pdf; name=second.pdf\r\n"
+        "Content-Disposition: attachment; filename=second.pdf\r\n"
+        "Content-Transfer-Encoding: base64\r\n\r\n"
+        "JVBERi1zeW50aGV0aWM=\r\n"
+        "--pdf-boundary--\r\n";
+    g_assert_true(g_file_set_contents(eml_path, eml, -1, &error));
+    g_assert_no_error(error);
+    char *source_before = NULL;
+    gsize source_before_length = 0;
+    g_assert_true(g_file_get_contents(
+        eml_path, &source_before, &source_before_length, &error));
+    g_assert_no_error(error);
+
+    DocumentAnalysisTools tools = synthetic_tools();
+    BackgroundTask *task = eml_pipeline_task_new_with_tools_and_limit(
+        eml_path, processed_dir, "synthetic-evidence", &tools, 1);
+    g_assert_nonnull(task);
+    wait_for_task(task);
+    g_assert_cmpint(background_task_get_state(task), ==,
+        BACKGROUND_TASK_STATE_COMPLETED);
+    EmlPipelineResult *result = background_task_get_result(task);
+    g_assert_nonnull(result);
+    g_assert_cmpuint(result->mime_result->attachments->len, ==, 2);
+    g_assert_cmpuint(result->document_analyses->len, ==, 1);
+    g_assert_cmpuint(result->skipped_document_analyses, ==, 1);
+    g_assert_cmpint(result->state, ==, DOCUMENT_ANALYSIS_STATE_PARTIAL);
+    g_assert_cmpuint(result->warnings->len, ==, 1);
+    DocumentFileAnalysis *document = g_ptr_array_index(
+        result->document_analyses, 0);
+    g_assert_nonnull(document->pdf);
+    g_assert_false(document->pdf->native_text_usable);
+    g_assert_cmpuint(document->pdf->pages->len, ==, 2);
+    PdfPageAnalysis *first = g_ptr_array_index(document->pdf->pages, 0);
+    PdfPageAnalysis *second = g_ptr_array_index(document->pdf->pages, 1);
+    g_assert_cmpuint(first->page_number, ==, 1);
+    g_assert_cmpuint(second->page_number, ==, 2);
+    g_assert_nonnull(first->render_execution);
+    g_assert_nonnull(first->execution);
+
+    char *source_after = NULL;
+    gsize source_after_length = 0;
+    g_assert_true(g_file_get_contents(
+        eml_path, &source_after, &source_after_length, &error));
+    g_assert_no_error(error);
+    g_assert_cmpuint(source_after_length, ==, source_before_length);
+    g_assert_cmpmem(source_after, source_after_length,
+        source_before, source_before_length);
+    g_free(source_after);
+    g_free(source_before);
+    background_task_unref(task);
+    g_remove(eml_path);
+    g_free(processed_dir);
+    g_free(eml_path);
+    g_free(tmp_dir);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/eml-pipeline-task/basic", test_eml_pipeline_basic);
     g_test_add_func("/eml-pipeline-task/document-analysis",
         test_eml_pipeline_document_analysis);
+    g_test_add_func("/eml-pipeline-task/pdf-end-to-end-limit",
+        test_eml_pipeline_pdf_end_to_end_and_limit);
     return g_test_run();
 }

@@ -6,6 +6,7 @@
 #define LABFY_INVESTIGATION_EXIFTOOL_ANALYSIS_H
 
 #include "core/document_analysis.h"
+#include "core/document_tool_runner.h"
 
 G_BEGIN_DECLS
 
@@ -18,6 +19,13 @@ typedef struct
 ExiftoolAnalysisResult *exiftool_analysis_run(
     const char *executable,
     const char *file_path,
+    GCancellable *cancellable,
+    GError **error
+);
+ExiftoolAnalysisResult *exiftool_analysis_run_with_limits(
+    const char *executable,
+    const char *file_path,
+    const DocumentToolRunnerLimits *limits,
     GCancellable *cancellable,
     GError **error
 );

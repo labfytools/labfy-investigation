@@ -139,6 +139,7 @@ static gboolean pdf_analysis_render_and_ocr(
     }
 
     gboolean success = TRUE;
+    char *source_basename = g_path_get_basename(result->source_path);
     for (guint page_number = 1; page_number <= pages; page_number++)
     {
         if (cancellable != NULL &&
@@ -150,8 +151,8 @@ static gboolean pdf_analysis_render_and_ocr(
             success = FALSE;
             break;
         }
-        char *prefix = g_strdup_printf("%s/page-%u",
-            temporary_directory, page_number);
+        char *prefix = g_strdup_printf("%s/%s-page-%u",
+            temporary_directory, source_basename, page_number);
         char *page_text = g_strdup_printf("%u", page_number);
         const char *render_arguments[] = {
             "-f", page_text, "-singlefile", "-png",
@@ -162,6 +163,9 @@ static gboolean pdf_analysis_render_and_ocr(
                 render_arguments, result->source_path, cancellable,
                 &render_execution, error))
         {
+            result->state = result->pages->len > 0
+                ? DOCUMENT_ANALYSIS_STATE_PARTIAL
+                : DOCUMENT_ANALYSIS_STATE_CANCELLED;
             document_tool_execution_free(render_execution);
             g_free(page_text);
             g_free(prefix);
@@ -198,12 +202,23 @@ static gboolean pdf_analysis_render_and_ocr(
             g_ptr_array_add(result->pages, page);
             if (page->state != DOCUMENT_ANALYSIS_STATE_SUCCESS)
                 result->state = DOCUMENT_ANALYSIS_STATE_PARTIAL;
+            if (ocr == NULL && error != NULL && *error != NULL &&
+                g_error_matches(*error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+            {
+                result->state = result->pages->len > 1
+                    ? DOCUMENT_ANALYSIS_STATE_PARTIAL
+                    : DOCUMENT_ANALYSIS_STATE_CANCELLED;
+                success = FALSE;
+            }
         }
         g_remove(image_path);
         g_free(image_path);
         g_free(page_text);
         g_free(prefix);
+        if (!success)
+            break;
     }
+    g_free(source_basename);
     g_rmdir(temporary_directory);
     g_free(temporary_directory);
     return success;
@@ -233,7 +248,16 @@ PdfAnalysisResult *pdf_analysis_run(
     if (!document_tool_runner_run("pdfinfo", tools->pdfinfo,
             info_arguments, pdf_path, cancellable,
             &result->pdfinfo_execution, error))
+    {
+        if (error != NULL && *error != NULL &&
+            g_error_matches(*error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        {
+            result->state = DOCUMENT_ANALYSIS_STATE_CANCELLED;
+            g_clear_error(error);
+            return result;
+        }
         goto failure;
+    }
     if (result->pdfinfo_execution->state ==
         DOCUMENT_ANALYSIS_STATE_UNAVAILABLE)
     {
@@ -262,7 +286,16 @@ PdfAnalysisResult *pdf_analysis_run(
     if (!document_tool_runner_run("pdftotext", tools->pdftotext,
             text_arguments, pdf_path, cancellable,
             &result->native_execution, error))
+    {
+        if (error != NULL && *error != NULL &&
+            g_error_matches(*error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+        {
+            result->state = DOCUMENT_ANALYSIS_STATE_CANCELLED;
+            g_clear_error(error);
+            return result;
+        }
         goto failure;
+    }
     result->native_execution->version =
         document_tool_runner_read_version(
             tools->pdftotext, version_arguments, cancellable);

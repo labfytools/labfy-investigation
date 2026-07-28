@@ -9,11 +9,28 @@
 
 G_BEGIN_DECLS
 
+typedef struct
+{
+    gsize stdout_limit;
+    gsize stderr_limit;
+} DocumentToolRunnerLimits;
+
 gboolean document_tool_runner_run(
     const char *tool_id,
     const char *executable,
     const char *const arguments[],
     const char *source_path,
+    GCancellable *cancellable,
+    DocumentToolExecution **out_execution,
+    GError **error
+);
+
+gboolean document_tool_runner_run_with_limits(
+    const char *tool_id,
+    const char *executable,
+    const char *const arguments[],
+    const char *source_path,
+    const DocumentToolRunnerLimits *limits,
     GCancellable *cancellable,
     DocumentToolExecution **out_execution,
     GError **error

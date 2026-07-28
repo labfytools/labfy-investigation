@@ -30,6 +30,23 @@ OcrAnalysisResult *ocr_analysis_run(
     GError **error
 )
 {
+    const DocumentToolRunnerLimits limits = {
+        DOCUMENT_ANALYSIS_MAX_TEXT,
+        DOCUMENT_ANALYSIS_MAX_STDERR
+    };
+    return ocr_analysis_run_with_limits(executable, image_path, languages,
+        &limits, cancellable, error);
+}
+
+OcrAnalysisResult *ocr_analysis_run_with_limits(
+    const char *executable,
+    const char *image_path,
+    const char *languages,
+    const DocumentToolRunnerLimits *limits,
+    GCancellable *cancellable,
+    GError **error
+)
+{
     if (executable == NULL || image_path == NULL || languages == NULL ||
         languages[0] == '\0' ||
         (!g_str_equal(languages, "fra") &&
@@ -45,8 +62,8 @@ OcrAnalysisResult *ocr_analysis_run(
     };
     const char *version_arguments[] = { "--version", NULL };
     DocumentToolExecution *execution = NULL;
-    if (!document_tool_runner_run("tesseract", executable, arguments,
-            image_path, cancellable, &execution, error))
+    if (!document_tool_runner_run_with_limits("tesseract", executable,
+            arguments, image_path, limits, cancellable, &execution, error))
     {
         document_tool_execution_free(execution);
         return NULL;

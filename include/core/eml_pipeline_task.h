@@ -21,6 +21,8 @@ typedef struct EmlPipelineResult
     GPtrArray *bank_proposals;  /**< Tableau de BankProposal* */
     GPtrArray *document_analyses; /**< Tableau de DocumentFileAnalysis* */
     GPtrArray *warnings;        /**< Avertissements globaux */
+    DocumentAnalysisState state;
+    guint skipped_document_analyses;
 } EmlPipelineResult;
 
 /** @brief Libère un résultat EmlPipelineResult. */
@@ -42,6 +44,14 @@ BackgroundTask *eml_pipeline_task_new_with_tools(
     const char *processed_evidence_dir,
     const char *evidence_id,
     const DocumentAnalysisTools *tools
+);
+
+BackgroundTask *eml_pipeline_task_new_with_tools_and_limit(
+    const char *eml_path,
+    const char *processed_evidence_dir,
+    const char *evidence_id,
+    const DocumentAnalysisTools *tools,
+    guint document_analysis_limit
 );
 
 G_END_DECLS

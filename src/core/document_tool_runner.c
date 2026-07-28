@@ -1,11 +1,189 @@
 /******************************************************************************
  * @file document_tool_runner.c
- * @brief Exécution bornée et annulable des outils documentaires.
+ * @brief Exécution réellement bornée et annulable des outils documentaires.
  ******************************************************************************/
 #include "core/document_tool_runner.h"
 #include "core/file_hash.h"
-#include "core/tool_process.h"
+
 #include <glib/gstdio.h>
+
+#define DOCUMENT_TOOL_RUNNER_READ_BLOCK 4096U
+#define DOCUMENT_TOOL_RUNNER_VERSION_LIMIT 65536U
+
+typedef struct
+{
+    GInputStream *stream;
+    GCancellable *cancellable;
+    GByteArray *prefix;
+    gsize limit;
+    gsize bytes_observed;
+    gboolean truncated;
+    GError *error;
+} DocumentToolStreamCapture;
+
+typedef struct
+{
+    GBytes *stdout_bytes;
+    GBytes *stderr_bytes;
+    gsize stdout_bytes_observed;
+    gsize stderr_bytes_observed;
+    gboolean stdout_truncated;
+    gboolean stderr_truncated;
+    gboolean exited_normally;
+    int exit_status;
+} DocumentToolCaptureResult;
+
+static GPtrArray *document_tool_runner_build_argv(
+    const char *executable,
+    const char *const arguments[]
+)
+{
+    GPtrArray *argv = g_ptr_array_new();
+    g_ptr_array_add(argv, (gpointer) executable);
+    for (gsize index = 0; arguments != NULL &&
+         arguments[index] != NULL; index++)
+        g_ptr_array_add(argv, (gpointer) arguments[index]);
+    g_ptr_array_add(argv, NULL);
+    return argv;
+}
+
+static gpointer document_tool_runner_drain_stream(gpointer user_data)
+{
+    DocumentToolStreamCapture *capture = user_data;
+    guint8 block[DOCUMENT_TOOL_RUNNER_READ_BLOCK];
+
+    while (TRUE)
+    {
+        gssize bytes_read = g_input_stream_read(
+            capture->stream, block, sizeof(block),
+            capture->cancellable, &capture->error);
+        if (bytes_read <= 0)
+            break;
+
+        gsize observed = (gsize) bytes_read;
+        if (G_MAXSIZE - capture->bytes_observed < observed)
+            capture->bytes_observed = G_MAXSIZE;
+        else
+            capture->bytes_observed += observed;
+
+        gsize remaining = capture->prefix->len < capture->limit
+            ? capture->limit - capture->prefix->len : 0;
+        gsize retained = MIN(remaining, observed);
+        if (retained > 0)
+            g_byte_array_append(capture->prefix, block, retained);
+        if (retained < observed)
+            capture->truncated = TRUE;
+    }
+    return NULL;
+}
+
+static void document_tool_capture_result_clear(
+    DocumentToolCaptureResult *result
+)
+{
+    g_clear_pointer(&result->stdout_bytes, g_bytes_unref);
+    g_clear_pointer(&result->stderr_bytes, g_bytes_unref);
+}
+
+static gboolean document_tool_runner_capture(
+    const char *executable,
+    const char *const arguments[],
+    const DocumentToolRunnerLimits *limits,
+    GCancellable *cancellable,
+    DocumentToolCaptureResult *out_result,
+    GError **error
+)
+{
+    GPtrArray *argv = document_tool_runner_build_argv(executable, arguments);
+    GSubprocessLauncher *launcher = g_subprocess_launcher_new(
+        G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE);
+    GError *local_error = NULL;
+    GSubprocess *process = g_subprocess_launcher_spawnv(
+        launcher, (const char *const *) argv->pdata, &local_error);
+    g_object_unref(launcher);
+    g_ptr_array_unref(argv);
+    if (process == NULL)
+    {
+        g_propagate_error(error, local_error);
+        return FALSE;
+    }
+
+    DocumentToolStreamCapture stdout_capture = {
+        .stream = g_subprocess_get_stdout_pipe(process),
+        .cancellable = cancellable,
+        .prefix = g_byte_array_sized_new(MIN(limits->stdout_limit, 4096U)),
+        .limit = limits->stdout_limit
+    };
+    DocumentToolStreamCapture stderr_capture = {
+        .stream = g_subprocess_get_stderr_pipe(process),
+        .cancellable = cancellable,
+        .prefix = g_byte_array_sized_new(MIN(limits->stderr_limit, 4096U)),
+        .limit = limits->stderr_limit
+    };
+    GThread *stdout_thread = g_thread_new(
+        "document-stdout", document_tool_runner_drain_stream, &stdout_capture);
+    GThread *stderr_thread = g_thread_new(
+        "document-stderr", document_tool_runner_drain_stream, &stderr_capture);
+
+    gboolean waited = g_subprocess_wait(process, cancellable, &local_error);
+    if (!waited)
+    {
+        g_subprocess_force_exit(process);
+        GError *final_wait_error = NULL;
+        (void) g_subprocess_wait(process, NULL, &final_wait_error);
+        g_clear_error(&final_wait_error);
+    }
+    g_thread_join(stdout_thread);
+    g_thread_join(stderr_thread);
+
+    gboolean cancelled =
+        (cancellable != NULL && g_cancellable_is_cancelled(cancellable)) ||
+        g_error_matches(local_error, G_IO_ERROR, G_IO_ERROR_CANCELLED) ||
+        g_error_matches(stdout_capture.error, G_IO_ERROR, G_IO_ERROR_CANCELLED) ||
+        g_error_matches(stderr_capture.error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+
+    if (!waited || stdout_capture.error != NULL ||
+        stderr_capture.error != NULL)
+    {
+        if (cancelled)
+            g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_CANCELLED,
+                "L'exécution de l'outil documentaire a été annulée.");
+        else if (local_error != NULL)
+            g_propagate_error(error, g_steal_pointer(&local_error));
+        else
+            g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "La lecture des sorties de l'outil documentaire a échoué.");
+        g_clear_error(&local_error);
+        g_clear_error(&stdout_capture.error);
+        g_clear_error(&stderr_capture.error);
+        g_byte_array_unref(stdout_capture.prefix);
+        g_byte_array_unref(stderr_capture.prefix);
+        g_object_unref(process);
+        return FALSE;
+    }
+
+    out_result->stdout_bytes = g_byte_array_free_to_bytes(
+        stdout_capture.prefix);
+    out_result->stderr_bytes = g_byte_array_free_to_bytes(
+        stderr_capture.prefix);
+    out_result->stdout_bytes_observed = stdout_capture.bytes_observed;
+    out_result->stderr_bytes_observed = stderr_capture.bytes_observed;
+    out_result->stdout_truncated = stdout_capture.truncated;
+    out_result->stderr_truncated = stderr_capture.truncated;
+    out_result->exited_normally = g_subprocess_get_if_exited(process);
+    out_result->exit_status = out_result->exited_normally
+        ? g_subprocess_get_exit_status(process) : -1;
+    g_clear_error(&local_error);
+    g_object_unref(process);
+    return TRUE;
+}
+
+static char *document_tool_runner_bytes_to_text(GBytes *bytes)
+{
+    gsize length = 0;
+    const char *data = g_bytes_get_data(bytes, &length);
+    return g_utf8_make_valid(data != NULL ? data : "", (gssize) length);
+}
 
 char *document_tool_runner_read_version(
     const char *executable,
@@ -13,78 +191,42 @@ char *document_tool_runner_read_version(
     GCancellable *cancellable
 )
 {
-    ToolProcessResult *result = NULL;
+    DocumentToolRunnerLimits limits = {
+        DOCUMENT_TOOL_RUNNER_VERSION_LIMIT,
+        DOCUMENT_TOOL_RUNNER_VERSION_LIMIT
+    };
+    DocumentToolCaptureResult capture = { 0 };
     GError *error = NULL;
-    char *version = NULL;
-    if (!tool_process_run(executable, arguments, NULL, cancellable,
-            &result, &error))
+    if (!document_tool_runner_capture(executable, arguments, &limits,
+            cancellable, &capture, &error))
     {
         g_clear_error(&error);
         return NULL;
     }
-    GBytes *stdout_bytes = tool_process_result_ref_stdout(result);
-    GBytes *stderr_bytes = tool_process_result_ref_stderr(result);
-    gsize stdout_length = 0;
-    gsize stderr_length = 0;
-    const char *stdout_data = g_bytes_get_data(
-        stdout_bytes, &stdout_length);
-    const char *stderr_data = g_bytes_get_data(
-        stderr_bytes, &stderr_length);
-    if (stdout_data == NULL)
-        stdout_data = "";
-    if (stderr_data == NULL)
-        stderr_data = "";
-    if (stdout_length > 0)
-        version = g_utf8_make_valid(stdout_data, (gssize) stdout_length);
-    else if (stderr_length > 0)
-        version = g_utf8_make_valid(stderr_data, (gssize) stderr_length);
-    if (version != NULL)
-        g_strstrip(version);
-    g_bytes_unref(stdout_bytes);
-    g_bytes_unref(stderr_bytes);
-    tool_process_result_free(result);
+    char *version = document_tool_runner_bytes_to_text(
+        g_bytes_get_size(capture.stdout_bytes) > 0
+            ? capture.stdout_bytes : capture.stderr_bytes);
+    g_strstrip(version);
+    document_tool_capture_result_clear(&capture);
     return version;
 }
 
-static char *document_tool_runner_bytes_to_text(
-    GBytes *bytes,
-    gsize limit,
-    gboolean *truncated
-)
-{
-    gsize length = 0;
-    const char *data = bytes != NULL
-        ? g_bytes_get_data(bytes, &length)
-        : "";
-    if (data == NULL)
-        data = "";
-    if (length > limit)
-    {
-        length = limit;
-        *truncated = TRUE;
-    }
-    return g_utf8_make_valid(data, (gssize) length);
-}
-
-gboolean document_tool_runner_run(
+gboolean document_tool_runner_run_with_limits(
     const char *tool_id,
     const char *executable,
     const char *const arguments[],
     const char *source_path,
+    const DocumentToolRunnerLimits *limits,
     GCancellable *cancellable,
     DocumentToolExecution **out_execution,
     GError **error
 )
 {
-    ToolProcessResult *process_result = NULL;
-    DocumentToolExecution *execution = NULL;
-    GError *process_error = NULL;
-    gboolean stdout_truncated = FALSE;
-    gboolean stderr_truncated = FALSE;
-
     g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
     if (tool_id == NULL || executable == NULL || source_path == NULL ||
-        out_execution == NULL || *out_execution != NULL)
+        limits == NULL || limits->stdout_limit == 0 ||
+        limits->stderr_limit == 0 || out_execution == NULL ||
+        *out_execution != NULL)
     {
         g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
             "Les paramètres de l'outil documentaire sont invalides.");
@@ -98,31 +240,34 @@ gboolean document_tool_runner_run(
             "Le fichier dépasse la taille maximale d'analyse.");
         return FALSE;
     }
-    execution = document_tool_execution_new(tool_id, source_path);
+
+    DocumentToolExecution *execution =
+        document_tool_execution_new(tool_id, source_path);
     for (gsize index = 0; arguments != NULL &&
          arguments[index] != NULL; index++)
         document_tool_execution_add_argument(execution, arguments[index]);
     (void) file_hash_compute_sha256(source_path, cancellable,
         &execution->source_sha256, NULL, NULL);
 
-    if (!tool_process_run(executable, arguments, NULL, cancellable,
-            &process_result, &process_error))
+    DocumentToolCaptureResult capture = { 0 };
+    GError *capture_error = NULL;
+    if (!document_tool_runner_capture(executable, arguments, limits,
+            cancellable, &capture, &capture_error))
     {
-        if (g_error_matches(process_error, TOOL_PROCESS_ERROR,
-                TOOL_PROCESS_ERROR_CANCELLED))
+        if (g_error_matches(capture_error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         {
             execution->state = DOCUMENT_ANALYSIS_STATE_CANCELLED;
-            g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_CANCELLED,
-                "L'analyse documentaire a été annulée.");
+            g_propagate_error(error, capture_error);
+            capture_error = NULL;
         }
         else
         {
             execution->state = DOCUMENT_ANALYSIS_STATE_UNAVAILABLE;
-            g_ptr_array_add(execution->errors,
-                g_strdup(process_error != NULL ? process_error->message :
-                    "Outil indisponible."));
+            g_ptr_array_add(execution->errors, g_strdup(
+                capture_error != NULL ? capture_error->message :
+                "Outil indisponible."));
         }
-        g_clear_error(&process_error);
+        g_clear_error(&capture_error);
         GDateTime *now = g_date_time_new_now_utc();
         execution->finished_at_utc = g_date_time_format_iso8601(now);
         g_date_time_unref(now);
@@ -130,33 +275,53 @@ gboolean document_tool_runner_run(
         return execution->state != DOCUMENT_ANALYSIS_STATE_CANCELLED;
     }
 
-    GBytes *stdout_bytes = tool_process_result_ref_stdout(process_result);
-    GBytes *stderr_bytes = tool_process_result_ref_stderr(process_result);
-    execution->raw_stdout = document_tool_runner_bytes_to_text(stdout_bytes,
-        DOCUMENT_ANALYSIS_MAX_STDOUT, &stdout_truncated);
-    execution->raw_stderr = document_tool_runner_bytes_to_text(stderr_bytes,
-        DOCUMENT_ANALYSIS_MAX_STDERR, &stderr_truncated);
-    execution->exit_status =
-        tool_process_result_get_exit_status(process_result);
-    if (execution->raw_stdout != NULL)
-        execution->raw_stdout_sha256 = g_compute_checksum_for_string(
-            G_CHECKSUM_SHA256, execution->raw_stdout, -1);
-    if (stdout_truncated || stderr_truncated)
-    {
-        execution->state = DOCUMENT_ANALYSIS_STATE_PARTIAL;
+    execution->raw_stdout =
+        document_tool_runner_bytes_to_text(capture.stdout_bytes);
+    execution->raw_stderr =
+        document_tool_runner_bytes_to_text(capture.stderr_bytes);
+    execution->stdout_bytes_observed = capture.stdout_bytes_observed;
+    execution->stderr_bytes_observed = capture.stderr_bytes_observed;
+    execution->stdout_truncated = capture.stdout_truncated;
+    execution->stderr_truncated = capture.stderr_truncated;
+    execution->exit_status = capture.exit_status;
+    execution->raw_stdout_sha256 = g_compute_checksum_for_string(
+        G_CHECKSUM_SHA256, execution->raw_stdout, -1);
+
+    if (execution->stdout_truncated)
         g_ptr_array_add(execution->warnings,
-            g_strdup("La sortie de l'outil a été tronquée à la limite."));
-    }
-    else
-        execution->state = tool_process_result_is_success(process_result)
-            ? DOCUMENT_ANALYSIS_STATE_SUCCESS
-            : DOCUMENT_ANALYSIS_STATE_FAILED;
+            g_strdup("La sortie standard de l'outil a été tronquée."));
+    if (execution->stderr_truncated)
+        g_ptr_array_add(execution->warnings,
+            g_strdup("La sortie d'erreur de l'outil a été tronquée."));
+    execution->state =
+        execution->stdout_truncated || execution->stderr_truncated
+            ? DOCUMENT_ANALYSIS_STATE_PARTIAL
+            : capture.exited_normally && capture.exit_status == 0
+                ? DOCUMENT_ANALYSIS_STATE_SUCCESS
+                : DOCUMENT_ANALYSIS_STATE_FAILED;
+
     GDateTime *now = g_date_time_new_now_utc();
     execution->finished_at_utc = g_date_time_format_iso8601(now);
     g_date_time_unref(now);
-    g_clear_pointer(&stdout_bytes, g_bytes_unref);
-    g_clear_pointer(&stderr_bytes, g_bytes_unref);
-    tool_process_result_free(process_result);
+    document_tool_capture_result_clear(&capture);
     *out_execution = execution;
     return TRUE;
+}
+
+gboolean document_tool_runner_run(
+    const char *tool_id,
+    const char *executable,
+    const char *const arguments[],
+    const char *source_path,
+    GCancellable *cancellable,
+    DocumentToolExecution **out_execution,
+    GError **error
+)
+{
+    const DocumentToolRunnerLimits limits = {
+        DOCUMENT_ANALYSIS_MAX_STDOUT,
+        DOCUMENT_ANALYSIS_MAX_STDERR
+    };
+    return document_tool_runner_run_with_limits(tool_id, executable,
+        arguments, source_path, &limits, cancellable, out_execution, error);
 }

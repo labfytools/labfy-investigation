@@ -68,6 +68,54 @@ static void test_run_and_unavailable(void)
     g_free(directory);
 }
 
+static gpointer cancel_exiftool(gpointer user_data)
+{
+    g_usleep(50000);
+    g_cancellable_cancel(user_data);
+    return NULL;
+}
+
+static void test_cancellation_and_truncated_json(void)
+{
+    GError *error = NULL;
+    char *directory = g_dir_make_tmp("labfy-exif-hardening-XXXXXX", &error);
+    char *slow_path = g_build_filename(directory, "slow.png", NULL);
+    char *large_path = g_build_filename(directory, "large.png", NULL);
+    g_assert_true(g_file_set_contents(slow_path, "PNG", 3, &error));
+    g_assert_true(g_file_set_contents(large_path, "PNG", 3, &error));
+
+    GCancellable *cancellable = g_cancellable_new();
+    GThread *thread = g_thread_new(
+        "exif-cancel", cancel_exiftool, cancellable);
+    ExiftoolAnalysisResult *result = exiftool_analysis_run(
+        "tests/fake_document_tool", slow_path, cancellable, &error);
+    g_thread_join(thread);
+    g_assert_null(result);
+    g_assert_error(error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+    g_clear_error(&error);
+    g_object_unref(cancellable);
+
+    DocumentToolRunnerLimits limits = { 128, 128 };
+    result = exiftool_analysis_run_with_limits(
+        "tests/fake_document_tool", large_path, &limits, NULL, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(result);
+    g_assert_true(result->execution->stdout_truncated);
+    g_assert_cmpuint(strlen(result->execution->raw_stdout), ==, 128);
+    g_assert_cmpuint(result->metadata->len, ==, 0);
+    g_assert_cmpint(result->execution->state, ==,
+        DOCUMENT_ANALYSIS_STATE_FAILED);
+    g_assert_cmpuint(result->execution->warnings->len, >, 0);
+    exiftool_analysis_result_free(result);
+
+    g_remove(slow_path);
+    g_remove(large_path);
+    g_rmdir(directory);
+    g_free(slow_path);
+    g_free(large_path);
+    g_free(directory);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -76,5 +124,7 @@ int main(int argc, char **argv)
     g_test_add_func("/exiftool-analysis/invalid-json", test_invalid_json);
     g_test_add_func("/exiftool-analysis/run-unavailable",
         test_run_and_unavailable);
+    g_test_add_func("/exiftool-analysis/cancellation-truncated",
+        test_cancellation_and_truncated_json);
     return g_test_run();
 }

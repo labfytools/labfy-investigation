@@ -75,6 +75,29 @@ static void test_cancellation(void)
     g_free(directory);
 }
 
+static void test_truncated_text(void)
+{
+    GError *error = NULL;
+    char *directory = g_dir_make_tmp("labfy-ocr-limit-XXXXXX", &error);
+    char *path = g_build_filename(directory, "large.png", NULL);
+    g_assert_true(g_file_set_contents(path, "PNG", 3, &error));
+    DocumentToolRunnerLimits limits = { 96, 64 };
+    OcrAnalysisResult *result = ocr_analysis_run_with_limits(
+        "tests/fake_document_tool", path, "fra", &limits,
+        NULL, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(result);
+    g_assert_cmpuint(strlen(result->text), ==, 96);
+    g_assert_true(result->execution->stdout_truncated);
+    g_assert_cmpint(result->execution->state, ==,
+        DOCUMENT_ANALYSIS_STATE_PARTIAL);
+    ocr_analysis_result_free(result);
+    g_remove(path);
+    g_rmdir(directory);
+    g_free(path);
+    g_free(directory);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -83,5 +106,6 @@ int main(int argc, char **argv)
     g_test_add_func("/ocr-analysis/unavailable-compatible",
         test_unavailable_and_compatibility);
     g_test_add_func("/ocr-analysis/cancellation", test_cancellation);
+    g_test_add_func("/ocr-analysis/truncated-text", test_truncated_text);
     return g_test_run();
 }

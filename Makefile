@@ -139,6 +139,7 @@ TEST_EML_MIME_EXTRACTOR := tests/test_eml_mime_extractor
 TEST_EXIFTOOL_ANALYSIS := tests/test_exiftool_analysis
 TEST_OCR_ANALYSIS := tests/test_ocr_analysis
 TEST_PDF_ANALYSIS := tests/test_pdf_analysis
+TEST_DOCUMENT_TOOL_RUNNER := tests/test_document_tool_runner
 FAKE_DOCUMENT_TOOL := tests/fake_document_tool
 
 DOCUMENT_ANALYSIS_TEST_SOURCES := \
@@ -146,6 +147,12 @@ DOCUMENT_ANALYSIS_TEST_SOURCES := \
 	src/core/document_tool_runner.c \
 	src/core/tool_process.c \
 	src/core/file_hash.c
+
+$(TEST_DOCUMENT_TOOL_RUNNER): tests/test_document_tool_runner.c \
+	$(DOCUMENT_ANALYSIS_TEST_SOURCES) $(FAKE_DOCUMENT_TOOL)
+	$(CC) $(TEST_CFLAGS) -Wpedantic \
+		tests/test_document_tool_runner.c \
+		$(DOCUMENT_ANALYSIS_TEST_SOURCES) -o $@ $(TEST_LDFLAGS)
 
 all: $(TARGET)
 
@@ -888,7 +895,8 @@ test: \
 	$(TEST_EML_MIME_EXTRACTOR) \
 	$(TEST_EXIFTOOL_ANALYSIS) \
 	$(TEST_OCR_ANALYSIS) \
-	$(TEST_PDF_ANALYSIS)
+	$(TEST_PDF_ANALYSIS) \
+	$(TEST_DOCUMENT_TOOL_RUNNER)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -961,6 +969,7 @@ test: \
 	@$(TEST_EXIFTOOL_ANALYSIS)
 	@$(TEST_OCR_ANALYSIS)
 	@$(TEST_PDF_ANALYSIS)
+	@$(TEST_DOCUMENT_TOOL_RUNNER)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -1037,6 +1046,7 @@ clean:
 		$(TEST_EXIFTOOL_ANALYSIS) \
 		$(TEST_OCR_ANALYSIS) \
 		$(TEST_PDF_ANALYSIS) \
+		$(TEST_DOCUMENT_TOOL_RUNNER) \
 		$(FAKE_DOCUMENT_TOOL)
 
 

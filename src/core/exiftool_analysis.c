@@ -217,11 +217,27 @@ ExiftoolAnalysisResult *exiftool_analysis_run(
     GError **error
 )
 {
+    const DocumentToolRunnerLimits limits = {
+        DOCUMENT_ANALYSIS_MAX_STDOUT,
+        DOCUMENT_ANALYSIS_MAX_STDERR
+    };
+    return exiftool_analysis_run_with_limits(
+        executable, file_path, &limits, cancellable, error);
+}
+
+ExiftoolAnalysisResult *exiftool_analysis_run_with_limits(
+    const char *executable,
+    const char *file_path,
+    const DocumentToolRunnerLimits *limits,
+    GCancellable *cancellable,
+    GError **error
+)
+{
     const char *arguments[] = { "-j", "-G1", "-n", "--", file_path, NULL };
     const char *version_arguments[] = { "-ver", NULL };
     DocumentToolExecution *execution = NULL;
-    if (!document_tool_runner_run("exiftool", executable, arguments,
-            file_path, cancellable, &execution, error))
+    if (!document_tool_runner_run_with_limits("exiftool", executable,
+            arguments, file_path, limits, cancellable, &execution, error))
     {
         document_tool_execution_free(execution);
         return NULL;
@@ -237,6 +253,18 @@ ExiftoolAnalysisResult *exiftool_analysis_run(
     }
     execution->version = document_tool_runner_read_version(
         executable, version_arguments, cancellable);
+    if (execution->stdout_truncated)
+    {
+        ExiftoolAnalysisResult *truncated =
+            g_new0(ExiftoolAnalysisResult, 1);
+        truncated->execution = execution;
+        truncated->metadata = g_ptr_array_new_with_free_func(
+            exiftool_metadata_entry_free);
+        execution->state = DOCUMENT_ANALYSIS_STATE_FAILED;
+        g_ptr_array_add(execution->errors, g_strdup(
+            "Le JSON ExifTool tronqué n'a pas été interprété."));
+        return truncated;
+    }
     ExiftoolAnalysisResult *result = exiftool_analysis_parse(file_path,
         execution->raw_stdout != NULL ? execution->raw_stdout : "",
         execution->raw_stderr, execution->exit_status, error);

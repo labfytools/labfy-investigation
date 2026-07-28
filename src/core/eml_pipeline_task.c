@@ -18,6 +18,7 @@ typedef struct
     char *pdfinfo;
     char *pdftotext;
     char *pdftoppm;
+    guint document_analysis_limit;
 } EmlPipelineTaskData;
 
 static void eml_pipeline_task_data_free(gpointer user_data)
@@ -116,18 +117,19 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
     GPtrArray *bank_proposals = g_ptr_array_new_with_free_func((GDestroyNotify) bank_proposal_free);
     GPtrArray *document_analyses = g_ptr_array_new_with_free_func(
         (GDestroyNotify) document_file_analysis_free);
+    GPtrArray *pipeline_warnings =
+        g_ptr_array_new_with_free_func(g_free);
+    guint skipped_document_analyses = 0;
 
     for (guint i = 0; mime_res->attachments != NULL && i < mime_res->attachments->len; i++)
     {
-        if (document_analyses->len >=
-            DOCUMENT_ANALYSIS_MAX_PIPELINE_ITEMS)
-            break;
         if (g_cancellable_is_cancelled(cancellable))
         {
             eml_analysis_free(analysis);
             eml_mime_result_free(mime_res);
             g_ptr_array_unref(bank_proposals);
             g_ptr_array_unref(document_analyses);
+            g_ptr_array_unref(pipeline_warnings);
             g_set_error_literal(
                 error,
                 G_IO_ERROR,
@@ -160,6 +162,11 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
                  g_strcmp0(att->detected_mime, "application/pdf") == 0 ||
                  g_strcmp0(att->content_type, "application/pdf") == 0)
         {
+            if (document_analyses->len >= data->document_analysis_limit)
+            {
+                skipped_document_analyses++;
+                continue;
+            }
             DocumentAnalysisTools tools = {
                 .exiftool = data->exiftool,
                 .tesseract = data->tesseract,
@@ -182,6 +189,7 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
                 eml_mime_result_free(mime_res);
                 g_ptr_array_unref(bank_proposals);
                 g_ptr_array_unref(document_analyses);
+                g_ptr_array_unref(pipeline_warnings);
                 return FALSE;
             }
             g_clear_error(&analysis_error);
@@ -210,7 +218,16 @@ static gboolean eml_pipeline_task_worker(BackgroundTask *task,
     res->mime_result = mime_res;
     res->bank_proposals = bank_proposals;
     res->document_analyses = document_analyses;
-    res->warnings = g_ptr_array_new_with_free_func(g_free);
+    res->warnings = pipeline_warnings;
+    res->skipped_document_analyses = skipped_document_analyses;
+    res->state = skipped_document_analyses > 0
+        ? DOCUMENT_ANALYSIS_STATE_PARTIAL
+        : DOCUMENT_ANALYSIS_STATE_SUCCESS;
+    if (skipped_document_analyses > 0)
+        g_ptr_array_add(res->warnings, g_strdup_printf(
+            "La limite d'analyses documentaires est atteinte : "
+            "%u fichier(s) n'ont pas été analysés.",
+            skipped_document_analyses));
 
     if (out_result != NULL)
         *out_result = res;
@@ -239,7 +256,21 @@ BackgroundTask *eml_pipeline_task_new_with_tools(
     const char *evidence_id,
     const DocumentAnalysisTools *tools)
 {
+    return eml_pipeline_task_new_with_tools_and_limit(
+        eml_path, processed_evidence_dir, evidence_id, tools,
+        DOCUMENT_ANALYSIS_MAX_PIPELINE_ITEMS);
+}
+
+BackgroundTask *eml_pipeline_task_new_with_tools_and_limit(
+    const char *eml_path,
+    const char *processed_evidence_dir,
+    const char *evidence_id,
+    const DocumentAnalysisTools *tools,
+    guint document_analysis_limit)
+{
     if (eml_path == NULL || processed_evidence_dir == NULL || tools == NULL)
+        return NULL;
+    if (document_analysis_limit == 0)
         return NULL;
 
     EmlPipelineTaskData *data = g_new0(EmlPipelineTaskData, 1);
@@ -251,6 +282,7 @@ BackgroundTask *eml_pipeline_task_new_with_tools(
     data->pdfinfo = g_strdup(tools->pdfinfo);
     data->pdftotext = g_strdup(tools->pdftotext);
     data->pdftoppm = g_strdup(tools->pdftoppm);
+    data->document_analysis_limit = document_analysis_limit;
 
     BackgroundTask *task = background_task_new(
         "Analyse du message EML et de ses pièces jointes");

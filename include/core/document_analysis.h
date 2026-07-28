@@ -38,6 +38,10 @@ typedef struct
     char *raw_stdout;
     char *raw_stdout_sha256;
     char *raw_stderr;
+    gsize stdout_bytes_observed;
+    gsize stderr_bytes_observed;
+    gboolean stdout_truncated;
+    gboolean stderr_truncated;
     int exit_status;
     DocumentAnalysisState state;
     GPtrArray *warnings;
