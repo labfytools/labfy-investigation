@@ -17,3 +17,8 @@ labfy-investigation
 .cache/
 compile_commands.json
 /AGENTS.md
+/prompt.md
+
+# OpenCode local
+/opencode.json
+/.opencode/

@@ -1995,6 +1995,22 @@ void main_window_set_selected_evidence(
     );
 }
 
+void main_window_set_evidence_observations(MainWindow *main_window,
+    const GPtrArray *observations)
+{
+    if (main_window != NULL)
+        workspace_set_evidence_observations(main_window->workspace,
+            observations);
+}
+
+void main_window_set_observation_remove_callback(MainWindow *main_window,
+    void (*callback)(const char *, gpointer), gpointer user_data)
+{
+    if (main_window != NULL)
+        workspace_set_observation_remove_callback(main_window->workspace,
+            callback, user_data);
+}
+
 void main_window_set_eml_analysis_available(
     MainWindow *main_window,
     gboolean available)

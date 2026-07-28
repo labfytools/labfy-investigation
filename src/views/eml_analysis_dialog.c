@@ -5,8 +5,54 @@
 #include "views/eml_analysis_dialog.h"
 #include "widgets/controlled_vocab_dropdown.h"
 typedef struct { GtkWindow *window; GtkWidget *proposals_box;
+    GtkWidget *summary_label;
     EmlAnalysisDialogCallback callback; gpointer user_data; gboolean completed;
 } EmlAnalysisDialogState;
+static void eml_analysis_dialog_update_summary(GtkCheckButton *button,
+    gpointer data)
+{
+    EmlAnalysisDialogState *state = data; guint kept = 0, promoted = 0;
+    (void) button;
+    for (GtkWidget *row = gtk_widget_get_first_child(state->proposals_box);
+         row != NULL; row = gtk_widget_get_next_sibling(row))
+    {
+        GtkWidget *keep = g_object_get_data(G_OBJECT(row), "eml-keep");
+        GtkWidget *promote = g_object_get_data(G_OBJECT(row), "eml-promote");
+        gboolean active = keep != NULL &&
+            gtk_check_button_get_active(GTK_CHECK_BUTTON(keep));
+        if (promote != NULL)
+        {
+            gtk_widget_set_sensitive(promote, active);
+            if (!active)
+                gtk_check_button_set_active(GTK_CHECK_BUTTON(promote), FALSE);
+        }
+        if (active) kept++;
+        if (promote != NULL &&
+            gtk_check_button_get_active(GTK_CHECK_BUTTON(promote))) promoted++;
+    }
+    char *summary = g_strdup_printf(
+        "%u observation(s) seront conservée(s) dans la fiche ; "
+        "%u seront promue(s) en entité(s).", kept, promoted);
+    gtk_label_set_text(GTK_LABEL(state->summary_label), summary);
+    g_free(summary);
+}
+static void eml_analysis_dialog_bind_summary(EmlAnalysisDialogState *state,
+    GtkWidget *content)
+{
+    state->summary_label = gtk_label_new(
+        "0 observation sera conservée dans la fiche ; "
+        "0 sera promue en entité.");
+    gtk_label_set_xalign(GTK_LABEL(state->summary_label), 0.0f);
+    gtk_box_append(GTK_BOX(content), state->summary_label);
+    for (GtkWidget *row = gtk_widget_get_first_child(state->proposals_box);
+         row != NULL; row = gtk_widget_get_next_sibling(row))
+    {
+        g_signal_connect(g_object_get_data(G_OBJECT(row), "eml-keep"),
+            "toggled", G_CALLBACK(eml_analysis_dialog_update_summary), state);
+        g_signal_connect(g_object_get_data(G_OBJECT(row), "eml-promote"),
+            "toggled", G_CALLBACK(eml_analysis_dialog_update_summary), state);
+    }
+}
 /** @brief Libère l'état de révision. */
 static void eml_analysis_dialog_state_free(gpointer data) { g_free(data); }
 /** @brief Signale une annulation une seule fois. */
@@ -30,7 +76,7 @@ static void eml_analysis_dialog_on_integrate(GtkButton *button, gpointer data)
     for (GtkWidget *child = gtk_widget_get_first_child(state->proposals_box);
          child != NULL; child = gtk_widget_get_next_sibling(child))
     {
-        GtkWidget *check = GTK_IS_BOX(child) ? gtk_widget_get_first_child(child) : NULL;
+        GtkWidget *check = g_object_get_data(G_OBJECT(child), "eml-keep");
         if (check != NULL && GTK_IS_CHECK_BUTTON(check) &&
             gtk_check_button_get_active(GTK_CHECK_BUTTON(check)))
         {
@@ -39,10 +85,23 @@ static void eml_analysis_dialog_on_integrate(GtkButton *button, gpointer data)
             GtkWidget *status = g_object_get_data(G_OBJECT(child), "eml-status");
             GtkWidget *provenance = g_object_get_data(G_OBJECT(child),
                 "eml-provenance");
-            g_ptr_array_add(selected, eml_entity_proposal_new_with_metadata(
-                type, value,
+            const char *raw = g_object_get_data(G_OBJECT(child), "eml-raw");
+            const char *role = g_object_get_data(G_OBJECT(child), "eml-role");
+            const char *header = g_object_get_data(G_OBJECT(child), "eml-header");
+            guint occurrence = GPOINTER_TO_UINT(g_object_get_data(
+                G_OBJECT(child), "eml-occurrence"));
+            EmlEntityProposal *proposal = eml_entity_proposal_new_observation(
+                type, raw != NULL ? raw : value, value,
+                role != NULL ? role : "other",
+                header != NULL ? header : "manual",
+                occurrence > 0 ? occurrence : 1,
                 controlled_vocab_dropdown_get_selected_code(status),
-                controlled_vocab_dropdown_get_selected_code(provenance)));
+                controlled_vocab_dropdown_get_selected_code(provenance));
+            GtkWidget *promote = g_object_get_data(G_OBJECT(child),
+                "eml-promote");
+            proposal->promote_to_entity = promote != NULL &&
+                gtk_check_button_get_active(GTK_CHECK_BUTTON(promote));
+            g_ptr_array_add(selected, proposal);
         }
     }
     if (selected->len == 0)
@@ -51,6 +110,54 @@ static void eml_analysis_dialog_on_integrate(GtkButton *button, gpointer data)
     if (state->callback != NULL) state->callback(selected, state->user_data);
     else g_ptr_array_unref(selected);
     gtk_window_close(state->window);
+}
+static void eml_analysis_dialog_add_observations(GtkWidget *box,
+    const GPtrArray *observations)
+{
+    for (guint i = 0; observations != NULL && i < observations->len; i++)
+    {
+        const EmlObservation *observation = g_ptr_array_index(
+            (GPtrArray *) observations, i);
+        char *text = g_strdup_printf("%s — %s — rôle : %s — origine : %s #%u",
+            observation->type_identifier, observation->value_normalized,
+            observation->role, observation->source_header,
+            observation->occurrence);
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        GtkWidget *check = gtk_check_button_new_with_label(
+            "Conserver dans la fiche");
+        GtkWidget *value_label = gtk_label_new(text);
+        GtkWidget *promote = gtk_check_button_new_with_label(
+            "Promouvoir en entité");
+        gtk_widget_set_sensitive(promote, FALSE);
+        GtkWidget *status = controlled_vocab_dropdown_new(
+            CONTROLLED_VOCAB_VERIFICATION_STATUS, "proposed");
+        GtkWidget *provenance = controlled_vocab_dropdown_new(
+            CONTROLLED_VOCAB_PROVENANCE_KIND, observation->provenance_kind);
+        g_object_set_data_full(G_OBJECT(row), "eml-type",
+            g_strdup(observation->type_identifier), g_free);
+        g_object_set_data_full(G_OBJECT(row), "eml-value",
+            g_strdup(observation->value_normalized), g_free);
+        g_object_set_data_full(G_OBJECT(row), "eml-raw",
+            g_strdup(observation->value_raw), g_free);
+        g_object_set_data_full(G_OBJECT(row), "eml-role",
+            g_strdup(observation->role), g_free);
+        g_object_set_data_full(G_OBJECT(row), "eml-header",
+            g_strdup(observation->source_header), g_free);
+        g_object_set_data(G_OBJECT(row), "eml-occurrence",
+            GUINT_TO_POINTER(observation->occurrence));
+        g_object_set_data(G_OBJECT(row), "eml-status", status);
+        g_object_set_data(G_OBJECT(row), "eml-provenance", provenance);
+        g_object_set_data(G_OBJECT(row), "eml-keep", check);
+        g_object_set_data(G_OBJECT(row), "eml-promote", promote);
+        gtk_widget_set_hexpand(check, TRUE);
+        gtk_box_append(GTK_BOX(row), check);
+        gtk_box_append(GTK_BOX(row), value_label);
+        gtk_box_append(GTK_BOX(row), promote);
+        gtk_box_append(GTK_BOX(row), status);
+        gtk_box_append(GTK_BOX(row), provenance);
+        gtk_box_append(GTK_BOX(box), row);
+        g_free(text);
+    }
 }
 /** @brief Ajoute les propositions d'un type sous forme de cases décochées. */
 static void eml_analysis_dialog_add_proposals(GtkWidget *box,
@@ -61,7 +168,12 @@ static void eml_analysis_dialog_add_proposals(GtkWidget *box,
         const char *value = g_ptr_array_index((GPtrArray *) values, i);
         char *text = g_strdup_printf("%s : %s", label, value);
         GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-        GtkWidget *check = gtk_check_button_new_with_label(text);
+        GtkWidget *check = gtk_check_button_new_with_label(
+            "Conserver dans la fiche");
+        GtkWidget *value_label = gtk_label_new(text);
+        GtkWidget *promote = gtk_check_button_new_with_label(
+            "Promouvoir en entité");
+        gtk_widget_set_sensitive(promote, FALSE);
         GtkWidget *status = controlled_vocab_dropdown_new(
             CONTROLLED_VOCAB_VERIFICATION_STATUS, "proposed");
         GtkWidget *provenance = controlled_vocab_dropdown_new(
@@ -71,8 +183,12 @@ static void eml_analysis_dialog_add_proposals(GtkWidget *box,
         g_object_set_data_full(G_OBJECT(row), "eml-value", g_strdup(value), g_free);
         g_object_set_data(G_OBJECT(row), "eml-status", status);
         g_object_set_data(G_OBJECT(row), "eml-provenance", provenance);
+        g_object_set_data(G_OBJECT(row), "eml-keep", check);
+        g_object_set_data(G_OBJECT(row), "eml-promote", promote);
         gtk_widget_set_hexpand(check, TRUE);
         gtk_box_append(GTK_BOX(row), check);
+        gtk_box_append(GTK_BOX(row), value_label);
+        gtk_box_append(GTK_BOX(row), promote);
         gtk_box_append(GTK_BOX(row), status);
         gtk_box_append(GTK_BOX(row), provenance);
         gtk_box_append(GTK_BOX(box), row); g_free(text);
@@ -162,17 +278,13 @@ void eml_analysis_dialog_present(GtkWindow *parent,
         destination_ips);
     gtk_box_append(GTK_BOX(content), grid);
     gtk_box_append(GTK_BOX(content), gtk_label_new(
-        "Sélection explicite des entités à intégrer"));
+        "Choisir les observations à conserver ; la promotion vers le graphe "
+        "est une action séparée."));
     state->proposals_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-    eml_analysis_dialog_add_proposals(state->proposals_box, "email_address",
-        "Email", eml_analysis_get_email_addresses(analysis));
-    eml_analysis_dialog_add_proposals(state->proposals_box, "domain_name",
-        "Domaine", eml_analysis_get_domains(analysis));
-    eml_analysis_dialog_add_proposals(state->proposals_box, "ip_address",
-        "IP expéditeur", eml_analysis_get_sender_ip_addresses(analysis));
-    eml_analysis_dialog_add_proposals(state->proposals_box, "ip_address",
-        "IP destinataire", eml_analysis_get_destination_ip_addresses(analysis));
+    eml_analysis_dialog_add_observations(state->proposals_box,
+        eml_analysis_get_observations(analysis));
     gtk_box_append(GTK_BOX(content), state->proposals_box);
+    eml_analysis_dialog_bind_summary(state, content);
     gtk_box_append(GTK_BOX(content), gtk_label_new("En-têtes bruts (lecture seule)"));
     raw = gtk_text_view_new(); gtk_text_view_set_editable(GTK_TEXT_VIEW(raw), FALSE);
     gtk_text_view_set_monospace(GTK_TEXT_VIEW(raw), TRUE);
@@ -384,12 +496,8 @@ void eml_analysis_dialog_present_pipeline(
     gtk_box_append(GTK_BOX(content), details);
 
     state->proposals_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-    eml_analysis_dialog_add_proposals(state->proposals_box, "email_address",
-        "E-mail", eml_analysis_get_email_addresses(result->analysis));
-    eml_analysis_dialog_add_proposals(state->proposals_box, "domain_name",
-        "Domaine", eml_analysis_get_domains(result->analysis));
-    eml_analysis_dialog_add_proposals(state->proposals_box, "ip_address",
-        "IP expéditeur", eml_analysis_get_sender_ip_addresses(result->analysis));
+    eml_analysis_dialog_add_observations(state->proposals_box,
+        eml_analysis_get_observations(result->analysis));
     GPtrArray *valid_ibans = g_ptr_array_new();
     for (guint index = 0; result->bank_proposals != NULL &&
          index < result->bank_proposals->len; index++)
@@ -406,6 +514,7 @@ void eml_analysis_dialog_present_pipeline(
     gtk_box_append(GTK_BOX(content), gtk_label_new(
         "Propositions à intégrer explicitement"));
     gtk_box_append(GTK_BOX(content), state->proposals_box);
+    eml_analysis_dialog_bind_summary(state, content);
 
     GtkWidget *scroll = gtk_scrolled_window_new();
     gtk_widget_set_vexpand(scroll, TRUE);

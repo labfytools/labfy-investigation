@@ -7,6 +7,7 @@
 #define LABFY_INVESTIGATION_EVIDENCE_ENTITY_DAO_H
 
 #include "database/database.h"
+#include "models/evidence_observation.h"
 
 #include <glib.h>
 
@@ -212,6 +213,27 @@ GPtrArray *evidence_entity_dao_list_evidence_identifiers(
     const char *entity_identifier,
     GError **error
 );
+
+gboolean evidence_entity_dao_add_observation(
+    EvidenceEntityDao *dao, const char *evidence_identifier,
+    const char *entity_type,
+    const char *value_raw, const char *value_normalized,
+    const char *role, const char *provenance_kind,
+    const char *source_header, guint occurrence,
+    const char *verification_status, const char *created_at,
+    char **out_observation_identifier, GError **error);
+
+gboolean evidence_entity_dao_promote_observation(
+    EvidenceEntityDao *dao, const char *observation_identifier,
+    const char *entity_identifier, const char *promoted_at,
+    const char *promotion_kind, GError **error);
+
+/** @brief Construit le texte persistant affiché dans la fiche preuve. */
+char *evidence_entity_dao_format_observations(
+    EvidenceEntityDao *dao, const char *evidence_identifier,
+    GError **error);
+GPtrArray *evidence_entity_dao_list_observations(
+    EvidenceEntityDao *dao, const char *evidence_identifier, GError **error);
 
 G_END_DECLS
 

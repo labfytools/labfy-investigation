@@ -3,6 +3,7 @@
  * @brief Analyse locale et non destructive des en-têtes d'un fichier EML.
  ******************************************************************************/
 #include "core/eml_analyzer.h"
+#include <gio/gio.h>
 #include <stdio.h>
 #include <string.h>
 #define EML_ANALYZER_MAX_FILE_SIZE (25U * 1024U * 1024U)
@@ -15,9 +16,35 @@ struct EmlAnalysis
     GPtrArray *ips;
     GPtrArray *sender_ips;
     GPtrArray *destination_ips;
+    GPtrArray *observations;
     char *raw_headers;
     char *date_utc;
 };
+void eml_observation_free(EmlObservation *observation)
+{
+    if (observation == NULL) return;
+    g_free(observation->type_identifier);
+    g_free(observation->value_raw);
+    g_free(observation->value_normalized);
+    g_free(observation->role);
+    g_free(observation->source_header);
+    g_free(observation->provenance_kind);
+    g_free(observation);
+}
+static void eml_analyzer_add_observation(EmlAnalysis *analysis,
+    const char *type, const char *raw, const char *normalized,
+    const char *role, const char *header, guint occurrence)
+{
+    EmlObservation *observation = g_new0(EmlObservation, 1);
+    observation->type_identifier = g_strdup(type);
+    observation->value_raw = g_strdup(raw);
+    observation->value_normalized = g_strdup(normalized);
+    observation->role = g_strdup(role);
+    observation->source_header = g_strdup(header);
+    observation->occurrence = occurrence;
+    observation->provenance_kind = g_strdup("header");
+    g_ptr_array_add(analysis->observations, observation);
+}
 
 static gint eml_analyzer_month_number(const char *month)
 {
@@ -153,6 +180,129 @@ static void eml_analyzer_extract_regex(GRegex *regex, const char *text,
     }
     g_match_info_free(matches);
 }
+static gboolean eml_analyzer_valid_domain(const char *value)
+{
+    gboolean has_dot = FALSE;
+    const char *label = value;
+    GInetAddress *address = value != NULL
+        ? g_inet_address_new_from_string(value) : NULL;
+    if (value == NULL) return FALSE;
+    if (address != NULL) { g_object_unref(address); return FALSE; }
+    for (const char *cursor = value; *cursor != '\0'; cursor++)
+    {
+        if (*cursor == '.')
+        {
+            if (cursor == label || cursor[-1] == '-') return FALSE;
+            has_dot = TRUE; label = cursor + 1;
+        }
+        else if (!(g_ascii_isalnum(*cursor) || *cursor == '-') ||
+                 (cursor == label && *cursor == '-')) return FALSE;
+    }
+    if (!has_dot || *label == '\0' || label[strlen(label) - 1] == '-')
+        return FALSE;
+    for (const char *cursor = label; *cursor != '\0'; cursor++)
+        if (g_ascii_isalpha(*cursor)) return strlen(label) >= 2;
+    return FALSE;
+}
+static void eml_analyzer_observe_email_header(EmlAnalysis *analysis,
+    GRegex *email_regex, const char *header, const char *role)
+{
+    const GPtrArray *values = eml_analysis_get_header_values(analysis, header);
+    for (guint index = 0; values != NULL && index < values->len; index++)
+    {
+        const char *value = g_ptr_array_index((GPtrArray *) values, index);
+        GMatchInfo *matches = NULL;
+        g_regex_match(email_regex, value, 0, &matches);
+        while (g_match_info_matches(matches))
+        {
+            char *raw = g_match_info_fetch(matches, 1);
+            char *normalized = g_ascii_strdown(raw, -1);
+            eml_analyzer_add_unique(analysis->emails, normalized, FALSE);
+            eml_analyzer_add_observation(analysis, "email_address", raw,
+                normalized, role, header, index + 1);
+            const char *at = strrchr(normalized, '@');
+            if (at != NULL && eml_analyzer_valid_domain(at + 1))
+            {
+                eml_analyzer_add_unique(analysis->domains, at + 1, TRUE);
+                eml_analyzer_add_observation(analysis, "domain_name", at + 1,
+                    at + 1, role, header, index + 1);
+            }
+            g_free(normalized); g_free(raw);
+            if (!g_match_info_next(matches, NULL)) break;
+        }
+        g_match_info_free(matches);
+    }
+}
+static void eml_analyzer_observe_received(EmlAnalysis *analysis,
+    GRegex *ip_regex, GRegex *host_regex)
+{
+    const GPtrArray *values = eml_analysis_get_header_values(analysis, "received");
+    for (guint index = 0; values != NULL && index < values->len; index++)
+    {
+        const char *value = g_ptr_array_index((GPtrArray *) values, index);
+        GMatchInfo *matches = NULL;
+        g_regex_match(ip_regex, value, 0, &matches);
+        while (g_match_info_matches(matches))
+        {
+            char *raw = g_match_info_fetch(matches, 1);
+            GInetAddress *address = g_inet_address_new_from_string(raw);
+            if (address != NULL)
+            {
+                char *normalized = g_inet_address_to_string(address);
+                eml_analyzer_add_unique(analysis->ips, normalized, FALSE);
+                eml_analyzer_add_observation(analysis, "ip_address", raw,
+                    normalized, "smtp_relay", "received", index + 1);
+                g_free(normalized); g_object_unref(address);
+            }
+            g_free(raw);
+            if (!g_match_info_next(matches, NULL)) break;
+        }
+        g_match_info_free(matches);
+        g_regex_match(host_regex, value, 0, &matches);
+        while (g_match_info_matches(matches))
+        {
+            char *raw = g_match_info_fetch(matches, 1);
+            char *normalized = g_ascii_strdown(raw, -1);
+            if (eml_analyzer_valid_domain(normalized))
+            {
+                eml_analyzer_add_unique(analysis->domains, normalized, FALSE);
+                eml_analyzer_add_observation(analysis, "domain_name", raw,
+                    normalized, "smtp_relay", "received", index + 1);
+            }
+            g_free(normalized); g_free(raw);
+            if (!g_match_info_next(matches, NULL)) break;
+        }
+        g_match_info_free(matches);
+    }
+}
+static void eml_analyzer_observe_received_ipv6(EmlAnalysis *analysis,
+    GRegex *regex)
+{
+    const GPtrArray *values = eml_analysis_get_header_values(analysis, "received");
+    for (guint index = 0; values != NULL && index < values->len; index++)
+    {
+        const char *value = g_ptr_array_index((GPtrArray *) values, index);
+        GMatchInfo *matches = NULL;
+        g_regex_match(regex, value, 0, &matches);
+        while (g_match_info_matches(matches))
+        {
+            char *raw = g_match_info_fetch(matches, 1);
+            GInetAddress *address = g_inet_address_new_from_string(raw);
+            if (address != NULL &&
+                g_inet_address_get_family(address) == G_SOCKET_FAMILY_IPV6)
+            {
+                char *normalized = g_inet_address_to_string(address);
+                eml_analyzer_add_unique(analysis->ips, normalized, FALSE);
+                eml_analyzer_add_observation(analysis, "ip_address", raw,
+                    normalized, "smtp_relay", "received", index + 1);
+                g_free(normalized);
+            }
+            g_clear_object(&address); g_free(raw);
+            if (!g_match_info_next(matches, NULL)) break;
+        }
+        g_match_info_free(matches);
+    }
+}
 /** @brief Extrait les IP d'une portion nommée d'un en-tête Received. */
 static void eml_analyzer_extract_received_part(GRegex *part_regex,
     GRegex *ip_regex, const char *received, GPtrArray *values)
@@ -199,6 +349,7 @@ EmlAnalysis *eml_analyzer_analyze_file(const char *file_path, GError **error)
     char *utf8 = NULL, **lines = NULL, *current_name = NULL;
     GString *current_value = NULL;
     GRegex *email_regex = NULL, *domain_regex = NULL, *ip_regex = NULL;
+    GRegex *ipv6_regex = NULL;
     GRegex *received_from_regex = NULL, *received_by_regex = NULL;
     g_return_val_if_fail(error == NULL || *error == NULL, NULL);
     if (file_path == NULL || file_path[0] == '\0')
@@ -226,6 +377,8 @@ EmlAnalysis *eml_analyzer_analyze_file(const char *file_path, GError **error)
     analysis->ips = g_ptr_array_new_with_free_func(g_free);
     analysis->sender_ips = g_ptr_array_new_with_free_func(g_free);
     analysis->destination_ips = g_ptr_array_new_with_free_func(g_free);
+    analysis->observations = g_ptr_array_new_with_free_func(
+        (GDestroyNotify) eml_observation_free);
     analysis->raw_headers = g_utf8_make_valid(data, (gssize) header_size);
     utf8 = g_strdup(analysis->raw_headers); lines = g_strsplit(utf8, "\n", -1);
     current_value = g_string_new(NULL);
@@ -245,13 +398,42 @@ EmlAnalysis *eml_analyzer_analyze_file(const char *file_path, GError **error)
     if (current_name != NULL) eml_analyzer_add_header(analysis,
         current_name, current_value->str);
     email_regex = g_regex_new("([A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,})", 0, 0, NULL);
-    domain_regex = g_regex_new("(?:@|[.\\s<([])([A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+)", 0, 0, NULL);
+    domain_regex = g_regex_new("(?i)\\b([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+)\\b", 0, 0, NULL);
     ip_regex = g_regex_new("(?:^|[^0-9])([0-9]{1,3}(?:\\.[0-9]{1,3}){3})(?:[^0-9]|$)", 0, 0, NULL);
+    ipv6_regex = g_regex_new("(?i)(?:\\[)?([0-9a-f]*:[0-9a-f:]+)(?:\\])?", 0, 0, NULL);
     received_from_regex = g_regex_new("(?i)\\bfrom\\b(.*?)\\bby\\b", 0, 0, NULL);
     received_by_regex = g_regex_new("(?i)\\bby\\b(.*?)(?:\\bwith\\b|;|$)", 0, 0, NULL);
-    eml_analyzer_extract_regex(email_regex, analysis->raw_headers, analysis->emails, TRUE);
-    eml_analyzer_extract_regex(domain_regex, analysis->raw_headers, analysis->domains, TRUE);
-    eml_analyzer_extract_regex(ip_regex, analysis->raw_headers, analysis->ips, FALSE);
+    static const struct { const char *header; const char *role; } email_headers[] = {
+        { "from", "from" }, { "sender", "sender" },
+        { "reply-to", "reply_to" }, { "return-path", "return_path" },
+        { "to", "to" }, { "cc", "cc" }, { "bcc", "bcc" }
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(email_headers); i++)
+        eml_analyzer_observe_email_header(analysis, email_regex,
+            email_headers[i].header, email_headers[i].role);
+    const char *message_id = eml_analysis_get_first_header(analysis, "message-id");
+    if (message_id != NULL)
+    {
+        GMatchInfo *matches = NULL;
+        g_regex_match(email_regex, message_id, 0, &matches);
+        if (g_match_info_matches(matches))
+        {
+            char *identifier = g_match_info_fetch(matches, 1);
+            const char *at = strrchr(identifier, '@');
+            if (at != NULL && eml_analyzer_valid_domain(at + 1))
+            {
+                char *normalized = g_ascii_strdown(at + 1, -1);
+                eml_analyzer_add_unique(analysis->domains, normalized, FALSE);
+                eml_analyzer_add_observation(analysis, "domain_name", at + 1,
+                    normalized, "message_id_domain", "message-id", 1);
+                g_free(normalized);
+            }
+            g_free(identifier);
+        }
+        g_match_info_free(matches);
+    }
+    eml_analyzer_observe_received(analysis, ip_regex, domain_regex);
+    eml_analyzer_observe_received_ipv6(analysis, ipv6_regex);
     const GPtrArray *received_values = eml_analysis_get_header_values(
         analysis, "received");
     for (guint i = 0; received_values != NULL && i < received_values->len; i++)
@@ -269,6 +451,7 @@ EmlAnalysis *eml_analyzer_analyze_file(const char *file_path, GError **error)
 cleanup:
     g_clear_pointer(&email_regex, g_regex_unref); g_clear_pointer(&domain_regex, g_regex_unref);
     g_clear_pointer(&ip_regex, g_regex_unref); g_clear_pointer(&current_name, g_free);
+    g_clear_pointer(&ipv6_regex, g_regex_unref);
     g_clear_pointer(&received_from_regex, g_regex_unref);
     g_clear_pointer(&received_by_regex, g_regex_unref);
     if (current_value != NULL) g_string_free(current_value, TRUE);
@@ -282,6 +465,7 @@ void eml_analysis_free(EmlAnalysis *analysis)
     g_ptr_array_unref(analysis->domains); g_ptr_array_unref(analysis->ips);
     g_ptr_array_unref(analysis->sender_ips);
     g_ptr_array_unref(analysis->destination_ips);
+    g_ptr_array_unref(analysis->observations);
     g_free(analysis->raw_headers); g_free(analysis->date_utc); g_free(analysis);
 }
 const GPtrArray *eml_analysis_get_header_values(const EmlAnalysis *analysis,
@@ -300,6 +484,7 @@ const char *eml_analysis_get_first_header(const EmlAnalysis *analysis,
 }
 const GPtrArray *eml_analysis_get_email_addresses(const EmlAnalysis *a) { return a != NULL ? a->emails : NULL; }
 const GPtrArray *eml_analysis_get_domains(const EmlAnalysis *a) { return a != NULL ? a->domains : NULL; }
+const GPtrArray *eml_analysis_get_observations(const EmlAnalysis *a) { return a != NULL ? a->observations : NULL; }
 const GPtrArray *eml_analysis_get_ip_addresses(const EmlAnalysis *a) { return a != NULL ? a->ips : NULL; }
 const GPtrArray *eml_analysis_get_sender_ip_addresses(const EmlAnalysis *a) { return a != NULL ? a->sender_ips : NULL; }
 const GPtrArray *eml_analysis_get_destination_ip_addresses(const EmlAnalysis *a) { return a != NULL ? a->destination_ips : NULL; }

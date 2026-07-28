@@ -177,3 +177,38 @@ INSERT OR IGNORE INTO relation_types(code, label, normalized_key, description, i
 ('held_at',             'Tenu auprès de',            'tenu auprès de',            'Compte bancaire ouvert dans une banque.',               1),
 ('named_as_holder_of',  'Nommé titulaire de',        'nommé titulaire de',        'Personne ou entité observée comme titulaire du RIB.',   1),
 ('supports',            'Soutient',                  'soutient',                  'Preuve soutenant une entité ou relation.',              1);
+
+CREATE TABLE IF NOT EXISTS evidence_entity_observations
+(
+    id TEXT PRIMARY KEY,
+    evidence_id TEXT NOT NULL,
+    entity_id TEXT,
+    entity_type TEXT NOT NULL,
+    value_raw TEXT NOT NULL,
+    value_normalized TEXT,
+    value_corrected TEXT,
+    role TEXT NOT NULL,
+    provenance_kind TEXT NOT NULL,
+    source_header TEXT NOT NULL,
+    occurrence INTEGER NOT NULL DEFAULT 1 CHECK (occurrence > 0),
+    verification_status TEXT NOT NULL DEFAULT 'proposed',
+    extraction_id TEXT,
+    warning TEXT,
+    observed_at TEXT NOT NULL CHECK (length(observed_at) = 20),
+    integrated_at TEXT NOT NULL CHECK (length(integrated_at) = 20),
+    promoted_at TEXT,
+    promotion_kind TEXT,
+    UNIQUE (evidence_id, entity_type, value_normalized, role, source_header,
+            occurrence, provenance_kind, extraction_id),
+    FOREIGN KEY (evidence_id) REFERENCES preuves(id) ON DELETE CASCADE,
+    FOREIGN KEY (entity_id) REFERENCES entites(id) ON DELETE SET NULL,
+    FOREIGN KEY (extraction_id) REFERENCES extractions(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_entity_observations_evidence
+    ON evidence_entity_observations(evidence_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_entity_observations_entity
+    ON evidence_entity_observations(entity_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_evidence_entity_observations_semantic
+    ON evidence_entity_observations(
+        evidence_id,entity_type,value_normalized,role,source_header,
+        occurrence,provenance_kind,COALESCE(extraction_id,''));

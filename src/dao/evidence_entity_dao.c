@@ -1067,3 +1067,218 @@ GPtrArray *evidence_entity_dao_list_evidence_identifiers(
         error
     );
 }
+
+gboolean evidence_entity_dao_add_observation(EvidenceEntityDao *dao,
+    const char *evidence_identifier, const char *entity_type,
+    const char *value_raw,
+    const char *value_normalized, const char *role,
+    const char *provenance_kind, const char *source_header,
+    guint occurrence, const char *verification_status,
+    const char *created_at, char **out_observation_identifier, GError **error)
+{
+    static const char *sql =
+        "INSERT OR IGNORE INTO evidence_entity_observations("
+        "id,evidence_id,entity_type,value_raw,value_normalized,role,"
+        "provenance_kind,source_header,occurrence,verification_status,"
+        "observed_at,integrated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?);";
+    static const char *find_sql =
+        "SELECT id FROM evidence_entity_observations WHERE evidence_id=? "
+        "AND entity_type=? AND value_normalized=? AND role=? "
+        "AND source_header=? AND occurrence=? AND provenance_kind=? "
+        "AND extraction_id IS NULL LIMIT 1;";
+    DatabaseStatement *statement = NULL;
+    char *new_identifier = NULL;
+    gboolean success = FALSE;
+    g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+    if (out_observation_identifier != NULL) *out_observation_identifier = NULL;
+    if (!evidence_entity_dao_validate_list_request(dao, evidence_identifier,
+            "L'identifiant de preuve est invalide.", error) ||
+        entity_type == NULL ||
+        value_raw == NULL || value_normalized == NULL || role == NULL ||
+        source_header == NULL || occurrence == 0 || created_at == NULL)
+        return FALSE;
+    new_identifier = g_uuid_string_random();
+    statement = database_statement_prepare(dao->database, sql);
+    if (statement == NULL) goto cleanup;
+    success =
+        database_statement_bind_text(statement, 1, new_identifier) &&
+        database_statement_bind_text(statement, 2, evidence_identifier) &&
+        database_statement_bind_text(statement, 3, entity_type) &&
+        database_statement_bind_text(statement, 4, value_raw) &&
+        database_statement_bind_text(statement, 5, value_normalized) &&
+        database_statement_bind_text(statement, 6, role) &&
+        database_statement_bind_text(statement, 7, provenance_kind) &&
+        database_statement_bind_text(statement, 8, source_header) &&
+        database_statement_bind_int64(statement, 9, occurrence) &&
+        database_statement_bind_text(statement, 10, verification_status) &&
+        database_statement_bind_text(statement, 11, created_at) &&
+        database_statement_bind_text(statement, 12, created_at) &&
+        database_statement_step(statement) == DATABASE_STATEMENT_STEP_DONE;
+    database_statement_finalize(statement); statement = NULL;
+    if (!success) goto cleanup;
+    statement = database_statement_prepare(dao->database, find_sql);
+    success = statement != NULL &&
+        database_statement_bind_text(statement, 1, evidence_identifier) &&
+        database_statement_bind_text(statement, 2, entity_type) &&
+        database_statement_bind_text(statement, 3, value_normalized) &&
+        database_statement_bind_text(statement, 4, role) &&
+        database_statement_bind_text(statement, 5, source_header) &&
+        database_statement_bind_int64(statement, 6, occurrence) &&
+        database_statement_bind_text(statement, 7, provenance_kind) &&
+        database_statement_step(statement) == DATABASE_STATEMENT_STEP_ROW &&
+        database_statement_column_text(statement, 0,
+            out_observation_identifier);
+cleanup:
+    if (!success)
+        evidence_entity_dao_set_database_error(dao, error,
+            EVIDENCE_ENTITY_DAO_ERROR_EXECUTE,
+            "Impossible d’enregistrer l’observation preuve-entité");
+    database_statement_finalize(statement);
+    g_free(new_identifier);
+    return success;
+}
+
+gboolean evidence_entity_dao_promote_observation(EvidenceEntityDao *dao,
+    const char *observation_identifier, const char *entity_identifier,
+    const char *promoted_at, const char *promotion_kind, GError **error)
+{
+    static const char *sql =
+        "UPDATE evidence_entity_observations SET entity_id=?,promoted_at=?,"
+        "promotion_kind=? WHERE id=? AND (entity_id IS NULL OR entity_id=?);";
+    DatabaseStatement *statement = NULL;
+    gboolean success = FALSE;
+    g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+    if (dao == NULL || !g_uuid_string_is_valid(observation_identifier) ||
+        !g_uuid_string_is_valid(entity_identifier) || promoted_at == NULL ||
+        (g_strcmp0(promotion_kind, "created") != 0 &&
+         g_strcmp0(promotion_kind, "reused") != 0)) return FALSE;
+    statement = database_statement_prepare(dao->database, sql);
+    success = statement != NULL &&
+        database_statement_bind_text(statement, 1, entity_identifier) &&
+        database_statement_bind_text(statement, 2, promoted_at) &&
+        database_statement_bind_text(statement, 3, promotion_kind) &&
+        database_statement_bind_text(statement, 4, observation_identifier) &&
+        database_statement_bind_text(statement, 5, entity_identifier) &&
+        database_statement_step(statement) == DATABASE_STATEMENT_STEP_DONE;
+    if (!success)
+        evidence_entity_dao_set_database_error(dao, error,
+            EVIDENCE_ENTITY_DAO_ERROR_EXECUTE,
+            "Impossible de promouvoir l’observation");
+    database_statement_finalize(statement);
+    return success;
+}
+
+char *evidence_entity_dao_format_observations(EvidenceEntityDao *dao,
+    const char *evidence_identifier, GError **error)
+{
+    static const char *sql =
+        "SELECT COALESCE(o.value_normalized,o.value_raw),o.entity_type,o.role,"
+        "o.source_header,o.occurrence,o.provenance_kind,o.verification_status,"
+        "o.integrated_at,o.entity_id,o.promotion_kind "
+        "FROM evidence_entity_observations o WHERE o.evidence_id=? "
+        "ORDER BY o.source_header,o.occurrence,1,o.role;";
+    DatabaseStatement *statement = NULL;
+    GString *text = NULL;
+    g_return_val_if_fail(error == NULL || *error == NULL, NULL);
+    if (!evidence_entity_dao_validate_list_request(dao, evidence_identifier,
+            "L'identifiant de preuve est invalide.", error)) return NULL;
+    statement = database_statement_prepare(dao->database, sql);
+    if (statement == NULL ||
+        !database_statement_bind_text(statement, 1, evidence_identifier))
+        goto failure;
+    text = g_string_new(NULL);
+    for (;;)
+    {
+        DatabaseStatementStepResult step = database_statement_step(statement);
+        if (step == DATABASE_STATEMENT_STEP_DONE) break;
+        if (step != DATABASE_STATEMENT_STEP_ROW) goto failure;
+        char *value = NULL, *type = NULL, *role = NULL, *header = NULL;
+        char *provenance = NULL, *status = NULL, *date = NULL;
+        char *entity = NULL, *promotion = NULL; int64_t occurrence = 0;
+        if (!database_statement_column_text(statement, 0, &value) ||
+            !database_statement_column_text(statement, 1, &type) ||
+            !database_statement_column_text(statement, 2, &role) ||
+            !database_statement_column_text(statement, 3, &header) ||
+            !database_statement_column_int64(statement, 4, &occurrence) ||
+            !database_statement_column_text(statement, 5, &provenance) ||
+            !database_statement_column_text(statement, 6, &status) ||
+            !database_statement_column_text(statement, 7, &date) ||
+            !database_statement_column_text(statement, 8, &entity) ||
+            !database_statement_column_text(statement, 9, &promotion))
+        { g_free(value); g_free(type); g_free(role); g_free(header);
+          g_free(provenance); g_free(status); g_free(date); g_free(entity);
+          g_free(promotion); goto failure; }
+        g_string_append_printf(text, "%s%s — %s — rôle : %s — origine : %s"
+            " #%lld — provenance : %s — validation : %s — date : %s — "
+            "graphe : %s%s%s", text->len > 0 ? "\n" : "",
+            value, type, role, header, (long long) occurrence, provenance,
+            status, date, entity != NULL ? "promue" : "non ajoutée",
+            promotion != NULL ? " (" : "", promotion != NULL ? promotion : "");
+        if (promotion != NULL) g_string_append_c(text, ')');
+        g_free(value); g_free(type); g_free(role); g_free(header);
+        g_free(provenance); g_free(status); g_free(date); g_free(entity);
+        g_free(promotion);
+    }
+    database_statement_finalize(statement);
+    return g_string_free(text, FALSE);
+failure:
+    evidence_entity_dao_set_database_error(dao, error,
+        EVIDENCE_ENTITY_DAO_ERROR_EXECUTE,
+        "Impossible de charger les observations preuve-entité");
+    database_statement_finalize(statement);
+    if (text != NULL) g_string_free(text, TRUE);
+    return NULL;
+}
+
+GPtrArray *evidence_entity_dao_list_observations(EvidenceEntityDao *dao,
+    const char *evidence_identifier, GError **error)
+{
+    static const char *sql =
+        "SELECT id,COALESCE(value_normalized,value_raw),entity_type,role,"
+        "source_header,occurrence,provenance_kind,verification_status,"
+        "integrated_at,entity_id,promotion_kind "
+        "FROM evidence_entity_observations WHERE evidence_id=? "
+        "ORDER BY source_header,occurrence,2,role;";
+    DatabaseStatement *statement = NULL;
+    GPtrArray *items = NULL;
+    g_return_val_if_fail(error == NULL || *error == NULL, NULL);
+    if (!evidence_entity_dao_validate_list_request(dao, evidence_identifier,
+            "L'identifiant de preuve est invalide.", error)) return NULL;
+    statement = database_statement_prepare(dao->database, sql);
+    if (statement == NULL ||
+        !database_statement_bind_text(statement, 1, evidence_identifier))
+        goto failure;
+    items = g_ptr_array_new_with_free_func(
+        (GDestroyNotify) evidence_observation_free);
+    for (;;)
+    {
+        DatabaseStatementStepResult step = database_statement_step(statement);
+        if (step == DATABASE_STATEMENT_STEP_DONE) break;
+        if (step != DATABASE_STATEMENT_STEP_ROW) goto failure;
+        EvidenceObservation *item = g_new0(EvidenceObservation, 1);
+        int64_t occurrence = 0;
+        if (!database_statement_column_text(statement, 0, &item->identifier) ||
+            !database_statement_column_text(statement, 1, &item->value) ||
+            !database_statement_column_text(statement, 2, &item->type_identifier) ||
+            !database_statement_column_text(statement, 3, &item->role) ||
+            !database_statement_column_text(statement, 4, &item->source_header) ||
+            !database_statement_column_int64(statement, 5, &occurrence) ||
+            !database_statement_column_text(statement, 6, &item->provenance_kind) ||
+            !database_statement_column_text(statement, 7, &item->verification_status) ||
+            !database_statement_column_text(statement, 8, &item->integrated_at) ||
+            !database_statement_column_text(statement, 9, &item->entity_identifier) ||
+            !database_statement_column_text(statement, 10, &item->promotion_kind))
+        { evidence_observation_free(item); goto failure; }
+        item->occurrence = (guint) occurrence;
+        g_ptr_array_add(items, item);
+    }
+    database_statement_finalize(statement);
+    return items;
+failure:
+    evidence_entity_dao_set_database_error(dao, error,
+        EVIDENCE_ENTITY_DAO_ERROR_EXECUTE,
+        "Impossible de charger toutes les observations de la preuve");
+    database_statement_finalize(statement);
+    g_clear_pointer(&items, g_ptr_array_unref);
+    return NULL;
+}

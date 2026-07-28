@@ -126,6 +126,7 @@ TEST_SOCIAL_ACCOUNT_SERVICE := tests/test_social_account_service
 TEST_SOCIAL_PLATFORM := tests/test_social_platform
 TEST_PERSON_ENTITY_SERVICE := tests/test_person_entity_service
 TEST_EML_ANALYZER := tests/test_eml_analyzer
+TEST_EML_INTEGRATION := tests/test_eml_integration
 TEST_IBAN_ANALYZER := tests/test_iban_analyzer
 TEST_EXIFTOOL_METADATA := tests/test_exiftool_metadata
 TEST_PDF_PASSWORD_RECOVERY := tests/test_pdf_password_recovery
@@ -316,6 +317,7 @@ $(TEST_EXTRACTION_DROP_SERVICE): \
 	src/dao/entity_dao.c \
 	src/dao/evidence_entity_dao.c \
 	src/models/evidence_record.c \
+	src/models/evidence_observation.c \
 	src/models/entity_record.c \
 	src/database/database.c \
 	src/database/schema.c \
@@ -575,6 +577,7 @@ $(TEST_EVIDENCE_ENTITY_DAO): \
 	src/dao/entity_dao.c \
 	src/models/evidence_record.c \
 	src/models/entity_record.c \
+	src/models/evidence_observation.c \
 	src/database/database.c \
 	src/database/schema.c \
 	src/database/statement.c \
@@ -759,6 +762,7 @@ $(TEST_SOCIAL_ACCOUNT_SERVICE): \
 	src/dao/entity_dao.c \
 	src/dao/evidence_entity_dao.c \
 	src/models/entity_record.c \
+	src/models/evidence_observation.c \
 	src/database/database.c \
 	src/database/schema.c \
 	src/database/statement.c \
@@ -777,6 +781,7 @@ $(TEST_PERSON_ENTITY_SERVICE): \
 	src/dao/entity_dao.c \
 	src/dao/evidence_entity_dao.c \
 	src/models/entity_record.c \
+	src/models/evidence_observation.c \
 	src/database/database.c \
 	src/database/schema.c \
 	src/database/statement.c \
@@ -786,6 +791,14 @@ $(TEST_PERSON_ENTITY_SERVICE): \
 
 $(TEST_EML_ANALYZER): tests/test_eml_analyzer.c src/core/eml_analyzer.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_EML_INTEGRATION): tests/test_eml_integration.c \
+	src/core/eml_integration.c src/core/controlled_vocab.c \
+	src/dao/entity_dao.c src/dao/evidence_entity_dao.c \
+	src/models/entity_record.c src/models/evidence_observation.c \
+	src/database/database.c src/database/schema.c \
+	src/database/statement.c src/database/transaction.c src/database/error.c
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
 
 $(TEST_IBAN_ANALYZER): tests/test_iban_analyzer.c src/core/iban_analyzer.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
@@ -883,6 +896,7 @@ test: \
 	$(TEST_SOCIAL_PLATFORM) \
 	$(TEST_PERSON_ENTITY_SERVICE) \
 	$(TEST_EML_ANALYZER) \
+	$(TEST_EML_INTEGRATION) \
 	$(TEST_IBAN_ANALYZER) \
 	$(TEST_EXIFTOOL_METADATA) \
 	$(TEST_PDF_PASSWORD_RECOVERY) \
@@ -956,6 +970,7 @@ test: \
 	@$(TEST_SOCIAL_PLATFORM)
 	@$(TEST_PERSON_ENTITY_SERVICE)
 	@$(TEST_EML_ANALYZER)
+	@$(TEST_EML_INTEGRATION)
 	@$(TEST_IBAN_ANALYZER)
 	@$(TEST_EXIFTOOL_METADATA)
 	@$(TEST_PDF_PASSWORD_RECOVERY)
@@ -1036,6 +1051,7 @@ clean:
 		$(TEST_SOCIAL_PLATFORM) \
 		$(TEST_PERSON_ENTITY_SERVICE) \
 		$(TEST_EML_ANALYZER) \
+		$(TEST_EML_INTEGRATION) \
 		$(TEST_EXTRACTION_DROP_SERVICE) \
 		$(TEST_RELATION_TYPE_NORMALIZER) \
 		$(TEST_RELATION_TYPE_SERVICE) \

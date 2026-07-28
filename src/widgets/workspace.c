@@ -90,6 +90,7 @@ struct Workspace
     GtkWidget *evidence_internal_name_label;
     GtkWidget *evidence_identifier_label;
     GtkWidget *evidence_sha256_label;
+    GtkWidget *evidence_observations_box;
     GtkWidget *verify_evidence_button;
     GtkWidget *edit_evidence_button;
     GtkWidget *analyze_eml_button;
@@ -123,6 +124,8 @@ struct Workspace
     gpointer extract_metadata_user_data;
     WorkspaceRecoverPdfPasswordCallback recover_pdf_password_callback;
     gpointer recover_pdf_password_user_data;
+    WorkspaceObservationRemoveCallback observation_remove_callback;
+    gpointer observation_remove_user_data;
 
     WorkspaceGraphNodeMovedCallback
         graph_node_moved_callback;
@@ -1746,6 +1749,15 @@ Workspace *workspace_new(void)
             10,
             "SHA-256"
         );
+    GtkWidget *observations_title = gtk_label_new(
+        "Observations extraites");
+    gtk_label_set_xalign(GTK_LABEL(observations_title), 0.0f);
+    gtk_widget_add_css_class(observations_title, "heading");
+    workspace->evidence_observations_box =
+        gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_grid_attach(GTK_GRID(evidence_grid), observations_title, 0, 11, 1, 1);
+    gtk_grid_attach(GTK_GRID(evidence_grid),
+        workspace->evidence_observations_box, 1, 11, 1, 1);
 
     if (workspace->evidence_type_label == NULL ||
         workspace->evidence_integrity_label == NULL ||
@@ -1757,7 +1769,8 @@ Workspace *workspace_new(void)
         workspace->evidence_relative_path_label == NULL ||
         workspace->evidence_internal_name_label == NULL ||
         workspace->evidence_identifier_label == NULL ||
-        workspace->evidence_sha256_label == NULL)
+        workspace->evidence_sha256_label == NULL ||
+        workspace->evidence_observations_box == NULL)
     {
         workspace_free(
             workspace
@@ -2574,6 +2587,82 @@ Workspace *workspace_new(void)
     );
 
     return workspace;
+}
+
+static void workspace_on_remove_observation_clicked(GtkButton *button,
+    gpointer user_data)
+{
+    Workspace *workspace = user_data;
+    const char *identifier = g_object_get_data(G_OBJECT(button),
+        "observation-identifier");
+    if (workspace != NULL && workspace->observation_remove_callback != NULL)
+        workspace->observation_remove_callback(identifier,
+            workspace->observation_remove_user_data);
+}
+
+void workspace_set_evidence_observations(Workspace *workspace,
+    const GPtrArray *observations)
+{
+    if (workspace == NULL || workspace->evidence_observations_box == NULL)
+        return;
+    GtkWidget *child = gtk_widget_get_first_child(
+        workspace->evidence_observations_box);
+    while (child != NULL)
+    {
+        GtkWidget *next = gtk_widget_get_next_sibling(child);
+        gtk_box_remove(GTK_BOX(workspace->evidence_observations_box), child);
+        child = next;
+    }
+    if (observations == NULL || observations->len == 0)
+    {
+        gtk_box_append(GTK_BOX(workspace->evidence_observations_box),
+            gtk_label_new("Aucune observation confirmée pour cette preuve."));
+        return;
+    }
+    for (guint index = 0; index < observations->len; index++)
+    {
+        const EvidenceObservation *item = g_ptr_array_index(
+            (GPtrArray *) observations, index);
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        char *text = g_strdup_printf(
+            "%s\nType : %s — rôle : %s\nSource : %s #%u — provenance : %s\n"
+            "Validation : %s — intégrée : %s\nGraphe : %s",
+            item->value, item->type_identifier, item->role,
+            item->source_header, item->occurrence, item->provenance_kind,
+            item->verification_status, item->integrated_at,
+            item->entity_identifier == NULL ? "Non ajoutée" :
+            (g_strcmp0(item->promotion_kind, "created") == 0
+                ? "Entité créée" :
+             g_strcmp0(item->promotion_kind, "reused") == 0
+                ? "Entité existante réutilisée" : "Promotion historique"));
+        GtkWidget *label = gtk_label_new(text);
+        gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+        gtk_label_set_selectable(GTK_LABEL(label), TRUE);
+        gtk_widget_set_hexpand(label, TRUE);
+        gtk_box_append(GTK_BOX(row), label);
+        if (item->entity_identifier != NULL)
+        {
+            GtkWidget *remove = gtk_button_new_with_label("Retirer du graphe");
+            gtk_widget_add_css_class(remove, "flat");
+            gtk_widget_set_tooltip_text(remove,
+                "Détache cette observation sans supprimer son contenu.");
+            g_object_set_data_full(G_OBJECT(remove), "observation-identifier",
+                g_strdup(item->identifier), g_free);
+            g_signal_connect(remove, "clicked",
+                G_CALLBACK(workspace_on_remove_observation_clicked), workspace);
+            gtk_box_append(GTK_BOX(row), remove);
+        }
+        gtk_box_append(GTK_BOX(workspace->evidence_observations_box), row);
+        g_free(text);
+    }
+}
+
+void workspace_set_observation_remove_callback(Workspace *workspace,
+    WorkspaceObservationRemoveCallback callback, gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->observation_remove_callback = callback;
+    workspace->observation_remove_user_data = user_data;
 }
 
 GtkWidget *workspace_get_widget(

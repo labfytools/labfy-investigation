@@ -8,6 +8,7 @@
 
 #include "core/investigation_node.h"
 #include "models/evidence_record.h"
+#include "models/evidence_observation.h"
 #include "models/entity_record.h"
 #include "models/osint_action_catalog.h"
 
@@ -153,6 +154,8 @@ typedef void (*WorkspaceExtractMetadataCallback)(const char *evidence_identifier
 /** @brief Callback appelé pour récupérer le mot de passe d'un PDF. */
 typedef void (*WorkspaceRecoverPdfPasswordCallback)(
     const char *evidence_identifier, gpointer user_data);
+typedef void (*WorkspaceObservationRemoveCallback)(
+    const char *observation_identifier, gpointer user_data);
 
 /**
  * @brief Crée une nouvelle zone de travail.
@@ -203,6 +206,10 @@ void workspace_set_selected_evidence(
     Workspace *workspace,
     const EvidenceRecord *evidence_record
 );
+void workspace_set_evidence_observations(Workspace *workspace,
+    const GPtrArray *observations);
+void workspace_set_observation_remove_callback(Workspace *workspace,
+    WorkspaceObservationRemoveCallback callback, gpointer user_data);
 void workspace_set_eml_analysis_available(
     Workspace *workspace,
     gboolean available

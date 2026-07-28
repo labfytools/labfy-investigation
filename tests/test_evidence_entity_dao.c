@@ -523,6 +523,7 @@ static void test_evidence_entity_dao_link_valid(void)
 
     GError *error =
         NULL;
+    char *observation_identifier = NULL;
 
     test_evidence_entity_dao_insert_evidence(
         &fixture,
@@ -565,6 +566,30 @@ static void test_evidence_entity_dao_link_valid(void)
 
     assert(error == NULL);
     assert(association_exists);
+    assert(evidence_entity_dao_add_observation(
+        fixture.evidence_entity_dao, evidence_identifier,
+        "email_address", "Contact@Example.org", "contact@example.org",
+        "from", "header", "from", 1, "confirmed",
+        "2026-07-28T08:00:00Z", &observation_identifier, &error));
+    assert(error == NULL);
+    assert(g_uuid_string_is_valid(observation_identifier));
+    g_clear_pointer(&observation_identifier, g_free);
+    /* Réapplication idempotente : ni entité ni observation dupliquée. */
+    assert(evidence_entity_dao_add_observation(
+        fixture.evidence_entity_dao, evidence_identifier,
+        "email_address", "Contact@Example.org", "contact@example.org",
+        "from", "header", "from", 1, "confirmed",
+        "2026-07-28T08:00:00Z", &observation_identifier, &error));
+    assert(g_uuid_string_is_valid(observation_identifier));
+    char *summary = evidence_entity_dao_format_observations(
+        fixture.evidence_entity_dao, evidence_identifier, &error);
+    assert(error == NULL && summary != NULL);
+    assert(strstr(summary, "contact@example.org") != NULL);
+    assert(strstr(summary, "rôle : from") != NULL);
+    assert(strstr(summary, "origine : from #1") != NULL);
+    assert(strchr(summary, '\n') == NULL);
+    g_free(summary);
+    g_free(observation_identifier);
 
     test_evidence_entity_dao_fixture_clear(
         &fixture

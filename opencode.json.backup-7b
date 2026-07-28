@@ -1,0 +1,151 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "enabled_providers": [
+    "llama.cpp"
+  ],
+  "provider": {
+    "llama.cpp": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "llama-server local",
+      "options": {
+        "baseURL": "http://127.0.0.1:8080/v1",
+        "timeout": 600000,
+        "chunkTimeout": 180000
+      },
+      "models": {
+        "qwen3-8b": {
+          "name": "Qwen3 8B — Architecte et reviewer",
+          "limit": {
+            "context": 32768,
+            "output": 2048
+          }
+        },
+        "qwen2.5-coder-7b": {
+          "name": "Qwen2.5-Coder 7B — Développeur C17",
+          "limit": {
+            "context": 32768,
+            "output": 2048
+          }
+        }
+      }
+    }
+  },
+  "model": "llama.cpp/qwen3-8b",
+  "small_model": "llama.cpp/qwen3-8b",
+  "default_agent": "orchestrateur",
+  "subagent_depth": 1,
+  "instructions": [
+    ".opencode/labfy.md"
+  ],
+  "compaction": {
+    "auto": true,
+    "prune": true,
+    "reserved": 8000
+  },
+  "permission": {
+    "external_directory": "deny",
+    "edit": "ask",
+    "bash": "ask"
+  },
+  "agent": {
+    "orchestrateur": {
+      "description": "Agent principal. Inspecte le dépôt, prépare le plan, consulte l’architecte, délègue la production de code C17, applique les changements autorisés, compile, teste et présente le résultat.",
+      "mode": "primary",
+      "model": "llama.cpp/qwen3-8b",
+      "temperature": 0.1,
+      "steps": 40,
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "edit": "ask",
+        "bash": {
+          "*": "ask",
+          "pwd": "allow",
+          "ls *": "allow",
+          "grep *": "allow",
+          "rg *": "allow",
+          "head *": "allow",
+          "tail *": "allow",
+          "file *": "allow",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "git log*": "allow",
+          "make -j8*": "allow",
+          "make test*": "allow",
+          "git commit*": "deny",
+          "git push*": "deny",
+          "git reset*": "deny",
+          "git clean*": "deny",
+          "git checkout*": "deny",
+          "git restore*": "deny",
+          "rm *": "deny",
+          "sudo *": "deny",
+          "doas *": "deny"
+        },
+        "task": {
+          "*": "deny",
+          "architecte-reviewer": "allow",
+          "coder-c17": "allow"
+        },
+        "external_directory": "deny",
+        "todowrite": "allow",
+        "lsp": "allow",
+        "question": "allow",
+        "skill": "deny",
+        "websearch": "allow",
+        "webfetch": "allow"
+      },
+      "prompt": "Tu pilotes le travail dans Labfy Investigation. Pour une nouvelle API, une migration, une modification transversale ou un changement sensible, consulte architecte-reviewer avant l’implémentation. Transmets ensuite à coder-c17 tout le contexte nécessaire : objectif, fichiers pertinents, interfaces, extraits de code, contraintes et diagnostics. Le Coder ne dispose d’aucun outil : il renvoie uniquement du code ou un patch textuel. Tu restes seul responsable de l’application des changements, de l’exécution de make -j8, des tests, de git diff --check et de la validation finale. Ne crée jamais de commit ni de push sans autorisation explicite."
+    },
+    "coder-c17": {
+      "description": "Spécialiste ISO C17 sans outils. Reçoit le contexte transmis par l’orchestrateur et produit du code ou un patch textuel précis.",
+      "mode": "all",
+      "model": "llama.cpp/qwen2.5-coder-7b",
+      "temperature": 0.1,
+      "permission": {
+        "read": "deny",
+        "glob": "deny",
+        "grep": "deny",
+        "list": "deny",
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "external_directory": "deny",
+        "todowrite": "deny",
+        "lsp": "deny",
+        "skill": "deny",
+        "question": "deny",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "doom_loop": "deny"
+      },
+      "prompt": "Tu es le spécialiste C17 de Labfy Investigation. Tu ne disposes d’aucun outil et tu ne peux ni lire le dépôt, ni modifier un fichier, ni compiler, ni exécuter un test. Travaille uniquement à partir du contexte transmis. Produis du code ISO C17 compatible avec -std=c17 -Wall -Wextra -Wpedantic -Werror. Respecte les interfaces existantes, les noms snake_case, les préfixes de modules, l’ownership GLib, l’architecture GTK4/DAO/services et SQLite. Retourne de préférence un diff unifié applicable, ou des blocs de code complets avec les chemins concernés. Signale clairement les hypothèses. Ne prétends jamais avoir lu, modifié, compilé ou testé quoi que ce soit."
+    },
+    "architecte-reviewer": {
+      "description": "Architecte et reviewer en lecture seule. Contrôle l’architecture, la cohérence des API, l’ownership, GTK4/GLib, SQLite, les risques de régression et les tests manquants.",
+      "mode": "subagent",
+      "model": "llama.cpp/qwen3-8b",
+      "temperature": 0.1,
+      "steps": 30,
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "external_directory": "deny",
+        "todowrite": "deny",
+        "lsp": "allow",
+        "skill": "deny",
+        "question": "deny",
+        "webfetch": "deny",
+        "websearch": "deny"
+      },
+      "prompt": "Tu es l’architecte et reviewer de Labfy Investigation. Tu travailles strictement en lecture seule. Examine le plan, les fichiers pertinents et le diff. Vérifie la séparation widgets/modèles/DAO/services, la cohérence entre .h et .c, l’ownership et les durées de vie GLib/GTK, les transactions SQLite, la gestion d’erreurs, la sécurité, les régressions et les tests manquants. Classe les remarques par gravité : bloquant, important, amélioration. Propose des corrections précises sans modifier le dépôt et sans créer de commit."
+    }
+  }
+}

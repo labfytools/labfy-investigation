@@ -497,6 +497,10 @@ void main_window_set_selected_evidence(
     MainWindow *main_window,
     const EvidenceRecord *evidence_record
 );
+void main_window_set_evidence_observations(MainWindow *main_window,
+    const GPtrArray *observations);
+void main_window_set_observation_remove_callback(MainWindow *main_window,
+    void (*callback)(const char *, gpointer), gpointer user_data);
 void main_window_set_eml_analysis_available(
     MainWindow *main_window,
     gboolean available

@@ -8,6 +8,15 @@
 G_BEGIN_DECLS
 /** @brief Résultat opaque d'une analyse d'en-têtes EML. */
 typedef struct EmlAnalysis EmlAnalysis;
+typedef struct {
+    char *type_identifier;
+    char *value_raw;
+    char *value_normalized;
+    char *role;
+    char *source_header;
+    guint occurrence;
+    char *provenance_kind;
+} EmlObservation;
 /**
  * @brief Analyse uniquement les en-têtes d'un fichier EML local.
  * @param file_path Chemin du fichier original en lecture seule.
@@ -27,6 +36,10 @@ const GPtrArray *eml_analysis_get_header_values(const EmlAnalysis *analysis,
 const GPtrArray *eml_analysis_get_email_addresses(const EmlAnalysis *analysis);
 /** @brief Retourne les domaines uniques extraits. */
 const GPtrArray *eml_analysis_get_domains(const EmlAnalysis *analysis);
+/** @brief Retourne les observations sémantiques ordonnées. */
+const GPtrArray *eml_analysis_get_observations(const EmlAnalysis *analysis);
+/** @brief Libère une observation autonome. */
+void eml_observation_free(EmlObservation *observation);
 /** @brief Retourne les adresses IP uniques extraites. */
 const GPtrArray *eml_analysis_get_ip_addresses(const EmlAnalysis *analysis);
 /** @brief Retourne les IP présentes dans la partie `from` des Received. */

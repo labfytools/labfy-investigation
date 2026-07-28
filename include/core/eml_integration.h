@@ -13,12 +13,22 @@ typedef struct {
     char *value;
     char *verification_status;
     char *provenance_kind;
+    char *value_raw;
+    char *role;
+    char *source_header;
+    guint occurrence;
+    gboolean promote_to_entity;
 } EmlEntityProposal;
 /** @brief Crée une proposition possédée. */
 EmlEntityProposal *eml_entity_proposal_new(const char *type_identifier,
     const char *value);
 EmlEntityProposal *eml_entity_proposal_new_with_metadata(
     const char *type_identifier, const char *value,
+    const char *verification_status, const char *provenance_kind);
+EmlEntityProposal *eml_entity_proposal_new_observation(
+    const char *type_identifier, const char *value_raw,
+    const char *value_normalized, const char *role,
+    const char *source_header, guint occurrence,
     const char *verification_status, const char *provenance_kind);
 /** @brief Libère une proposition. */
 void eml_entity_proposal_free(EmlEntityProposal *proposal);
@@ -34,6 +44,12 @@ void eml_entity_proposal_free(EmlEntityProposal *proposal);
  */
 gboolean eml_integration_apply(Database *database,
     const char *evidence_identifier, const GPtrArray *proposals,
-    guint *out_created, guint *out_reused, GError **error);
+    guint *out_observations, guint *out_created, guint *out_reused,
+    GError **error);
+
+/** @brief Annule une promotion sans supprimer l'observation. */
+gboolean eml_integration_remove_promotion(Database *database,
+    const char *observation_identifier, gboolean *out_entity_deleted,
+    gboolean *out_entity_shared, GError **error);
 G_END_DECLS
 #endif

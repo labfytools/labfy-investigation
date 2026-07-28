@@ -150,6 +150,22 @@ struct Application
     char *pending_entity_selection_identifier;
 };
 
+static void application_on_evidence_selected(
+    const char *evidence_identifier, gpointer user_data);
+
+typedef struct {
+    Application *application;
+    char *observation_identifier;
+} ApplicationObservationRemovalContext;
+
+static void application_observation_removal_context_free(
+    ApplicationObservationRemovalContext *context)
+{
+    if (context == NULL) return;
+    g_free(context->observation_identifier);
+    g_free(context);
+}
+
 /**
  * @brief Contexte ApplicationOpenErrorconservé jusqu’à la fin d’un import.
  */
@@ -3798,7 +3814,8 @@ static void application_on_eml_selection_completed(
     ApplicationEmlReviewContext *context = user_data;
     Application *application = context != NULL ? context->application : NULL;
     const InvestigationProject *project = NULL;
-    GError *error = NULL; guint created = 0, reused = 0; char *message = NULL;
+    GError *error = NULL; guint observations = 0, created = 0, reused = 0;
+    char *message = NULL;
     if (proposals == NULL)
     {
         application_remove_staging_directory(context != NULL
@@ -3808,19 +3825,26 @@ static void application_on_eml_selection_completed(
     }
     if (application == NULL || application->session == NULL ||
         !eml_integration_apply(investigation_session_get_database(application->session),
-            context->evidence_identifier, proposals, &created, &reused, &error))
+            context->evidence_identifier, proposals, &observations,
+            &created, &reused, &error))
         application_present_error(application, "Intégration EML impossible",
             error != NULL ? error->message : "La transaction a échoué.");
     else
     {
-        message = g_strdup_printf("%u entité(s) créée(s), %u réutilisée(s).",
-            created, reused);
+        message = g_strdup_printf(
+            "%u observation(s) conservée(s), %u entité(s) créée(s), "
+            "%u réutilisée(s).", observations, created, reused);
         application_message_dialog_present(main_window_get_window(application->main_window),
             APPLICATION_MESSAGE_DIALOG_INFORMATION, "Analyse EML intégrée", message);
-        project = investigation_session_get_project(application->session);
-        application_start_graph_loading(application,
-            investigation_project_get_database_path(project));
+        if (created + reused > 0)
+        {
+            project = investigation_session_get_project(application->session);
+            application_start_graph_loading(application,
+                investigation_project_get_database_path(project));
+        }
         (void) application_refresh_evidence_models(application, NULL);
+        application_on_evidence_selected(context->evidence_identifier,
+            application);
     }
     g_free(message); g_clear_error(&error); g_ptr_array_unref(proposals);
     application_remove_staging_directory(context != NULL
@@ -5677,6 +5701,21 @@ static void application_on_evidence_selected(
         application->main_window,
         evidence_record
     );
+    {
+        EvidenceEntityDao *observation_dao =
+            evidence_entity_dao_new(database, &error);
+        GPtrArray *observations = observation_dao != NULL
+            ? evidence_entity_dao_list_observations(observation_dao,
+                evidence_identifier, &error) : NULL;
+        if (error == NULL)
+            main_window_set_evidence_observations(application->main_window,
+                observations);
+        else
+            g_warning("Observations EML indisponibles : %s", error->message);
+        g_clear_error(&error);
+        g_clear_pointer(&observations, g_ptr_array_unref);
+        evidence_entity_dao_free(observation_dao);
+    }
 
     project = investigation_session_get_project(application->session);
     investigation_root = project != NULL
@@ -8019,6 +8058,60 @@ static void application_on_reset_graph_layout_requested(
     );
 }
 
+static void application_on_observation_remove_confirmed(
+    gboolean confirmed, gpointer user_data)
+{
+    ApplicationObservationRemovalContext *context = user_data;
+    Application *application = context != NULL ? context->application : NULL;
+    GError *error = NULL; gboolean deleted = FALSE, shared = FALSE;
+    if (!confirmed || application == NULL || application->session == NULL)
+    { application_observation_removal_context_free(context); return; }
+    if (!eml_integration_remove_promotion(
+            investigation_session_get_database(application->session),
+            context->observation_identifier, &deleted, &shared, &error))
+        application_present_error(application, "Retrait du graphe impossible",
+            error != NULL ? error->message : "La transaction a échoué.");
+    else
+    {
+        if (deleted)
+        {
+            const InvestigationProject *project =
+                investigation_session_get_project(application->session);
+            application_start_graph_loading(application,
+                investigation_project_get_database_path(project));
+        }
+        char *selected_evidence = g_strdup(
+            application->selected_evidence_identifier);
+        application_on_evidence_selected(selected_evidence, application);
+        g_free(selected_evidence);
+        main_window_set_status(application->main_window,
+            deleted ? "Observation conservée et nœud orphelin supprimé." :
+            shared ? "Observation détachée ; entité partagée conservée." :
+            "Observation retirée du graphe.");
+    }
+    g_clear_error(&error);
+    application_observation_removal_context_free(context);
+}
+
+static void application_on_observation_remove_requested(
+    const char *observation_identifier, gpointer user_data)
+{
+    Application *application = user_data;
+    if (application == NULL ||
+        !g_uuid_string_is_valid(observation_identifier)) return;
+    ApplicationObservationRemovalContext *context =
+        g_new0(ApplicationObservationRemovalContext, 1);
+    context->application = application;
+    context->observation_identifier = g_strdup(observation_identifier);
+    application_message_dialog_present_confirmation(
+        main_window_get_window(application->main_window),
+        APPLICATION_MESSAGE_DIALOG_WARNING, "Retirer du graphe",
+        "L’observation restera dans la fiche. Le nœud sera supprimé "
+        "uniquement s’il n’est utilisé par aucune autre preuve, observation "
+        "ou relation.", "Retirer du graphe",
+        application_on_observation_remove_confirmed, context);
+}
+
 /**
  * @brief Ferme proprement l'application.
  *
@@ -8102,6 +8195,8 @@ static void application_on_activate(
         application_on_evidence_selected,
         application
     );
+    main_window_set_observation_remove_callback(application->main_window,
+        application_on_observation_remove_requested, application);
 
     main_window_set_verify_evidence_callback(
         application->main_window,

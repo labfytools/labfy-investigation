@@ -16,12 +16,12 @@
 /**
  * @brief Version actuelle du schéma SQLite.
  */
-#define DATABASE_SCHEMA_VERSION_CURRENT 10
+#define DATABASE_SCHEMA_VERSION_CURRENT 12
 
 /**
  * @brief Version actuelle sous forme textuelle pour metadata.
  */
-#define DATABASE_SCHEMA_VERSION_CURRENT_TEXT "10"
+#define DATABASE_SCHEMA_VERSION_CURRENT_TEXT "12"
 
 /**
  * @brief Nom de l'application enregistré dans les métadonnées.
@@ -812,6 +812,36 @@ rollback:
     return false;
 }
 
+static bool database_migrate_v10_to_v11(Database *database)
+{
+    bool transaction_started = false;
+    if (database == NULL || !database_transaction_begin(database)) return false;
+    transaction_started = true;
+    if (!schema_install_v11(database) ||
+        !database_update_schema_version(database, "11") ||
+        !database_transaction_commit(database)) goto rollback;
+    return true;
+rollback:
+    if (transaction_started && !database_transaction_rollback(database))
+        g_warning("Impossible d’annuler la migration SQLite V10 vers V11.");
+    return false;
+}
+
+static bool database_migrate_v11_to_v12(Database *database)
+{
+    bool transaction_started = false;
+    if (database == NULL || !database_transaction_begin(database)) return false;
+    transaction_started = true;
+    if (!schema_install_v12(database) ||
+        !database_update_schema_version(database, "12") ||
+        !database_transaction_commit(database)) goto rollback;
+    return true;
+rollback:
+    if (transaction_started && !database_transaction_rollback(database))
+        g_warning("Impossible d’annuler la migration SQLite V11 vers V12.");
+    return false;
+}
+
 /**
  * @brief Garantit atomiquement la présence des extensions du schéma courant.
  */
@@ -1040,6 +1070,14 @@ bool database_migrate_to_latest(
             case 9:
                 if (!database_migrate_v9_to_v10(database)) return false;
                 schema_version = 10;
+                break;
+            case 10:
+                if (!database_migrate_v10_to_v11(database)) return false;
+                schema_version = 11;
+                break;
+            case 11:
+                if (!database_migrate_v11_to_v12(database)) return false;
+                schema_version = 12;
                 break;
 
             default:
