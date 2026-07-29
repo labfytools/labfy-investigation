@@ -525,7 +525,7 @@ static void test_database_initialize_valid_database(void)
         "FROM investigation;"
     );
 
-    assert(strcmp(schema_version, "14") == 0);
+    assert(strcmp(schema_version, "17") == 0);
     test_database_assert_table_exists(database, "person_role_assignments");
     test_database_assert_table_exists(database, "bank_account_entities");
     test_database_assert_table_exists(database, "relation_types");
@@ -993,7 +993,7 @@ static void test_database_migrate_v1_to_v2(void)
     assert(
         strcmp(
             schema_version,
-            "14"
+            "17"
         ) == 0
     );
 
@@ -1448,7 +1448,7 @@ static void test_database_migrate_v12_to_v13_preserves_legacy_link(void)
     legacy_sources = test_database_read_single_text(sqlite_database,
         "SELECT COUNT(*) FROM preuve_entite_sources "
         "WHERE source_kind='legacy_manual';");
-    assert(strcmp(version, "14") == 0);
+    assert(strcmp(version, "17") == 0);
     assert(strcmp(legacy_sources, "1") == 0);
     char *legacy_role = test_database_read_single_text(sqlite_database,
         "SELECT role_code || ':' || provenance_kind "

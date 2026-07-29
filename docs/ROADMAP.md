@@ -1,5 +1,18 @@
 # Roadmap
 
+La tranche 3 du ticket #109 ajoute l’OCR contrôlé des documents d’identité dans
+l’assistant de création : lancement explicite, staging, révision champ par
+champ et persistance transactionnelle V15. Elle ne clôt pas le ticket #109 et
+n’engage aucune tranche suivante.
+La provenance graphique, les langues Tesseract dynamiques et la compensation
+complète des répertoires OCR font partie de cette même tranche.
+La lecture structurée V15 et les scénarios de fermeture/réouverture restent
+également circonscrits à la tranche 3.
+L’OCR contrôlé est limité à une preuve par opération dans l’import normal.
+L’import multiple sans OCR reste disponible. L’OCR multiple constitue un
+chantier futur distinct ; les preuves sont actuellement analysées
+successivement afin de conserver une association non ambiguë.
+
 La tranche 2 partage désormais l’aperçu entre l’assistant personne et la
 fiche directe. La validation manuelle des codecs installés reste nécessaire ;
 elle ne vaut pas achèvement du ticket #109 et n’inclut aucun OCR.

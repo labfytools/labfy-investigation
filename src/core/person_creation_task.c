@@ -11,11 +11,12 @@ struct PersonCreationTaskRequest {
     char *notes;
     GPtrArray *roles;
     PersonEvidenceSelection *selection;
+    GPtrArray *ocr_runs;
 };
 PersonCreationTaskRequest *person_creation_task_request_new(
     const char *database_path, const char *root,
     const PersonEntityInput *person,
-    const PersonEvidenceSelection *selection)
+    const PersonEvidenceSelection *selection, const GPtrArray *ocr_runs)
 {
     PersonCreationTaskRequest *request;
     if (database_path == NULL || root == NULL || person == NULL) return NULL;
@@ -43,6 +44,11 @@ PersonCreationTaskRequest *person_creation_task_request_new(
     request->person.evidence_identifier = NULL;
     request->person.role_assignments = request->roles;
     request->selection = person_evidence_selection_copy(selection);
+    request->ocr_runs = g_ptr_array_new_with_free_func(
+        (GDestroyNotify) identity_ocr_run_free);
+    for (guint i = 0; ocr_runs != NULL && i < ocr_runs->len; i++)
+        g_ptr_array_add(request->ocr_runs,
+            identity_ocr_run_copy(g_ptr_array_index((GPtrArray *) ocr_runs,i)));
     return request;
 }
 void person_creation_task_request_free(PersonCreationTaskRequest *request)
@@ -53,6 +59,7 @@ void person_creation_task_request_free(PersonCreationTaskRequest *request)
     g_free(request->pseudonym); g_free(request->status);
     g_free(request->notes); g_ptr_array_unref(request->roles);
     person_evidence_selection_free(request->selection);
+    g_ptr_array_unref(request->ocr_runs);
     g_free(request);
 }
 static gboolean worker(BackgroundTask *task, GCancellable *cancellable,
@@ -69,7 +76,8 @@ static gboolean worker(BackgroundTask *task, GCancellable *cancellable,
         return FALSE;
     }
     *result = person_creation_coordinator_execute(database, request->root,
-        &request->person, request->selection, cancellable, error);
+        &request->person, request->selection, request->ocr_runs,
+        cancellable, error);
     database_close(database);
     return *result != NULL;
 }
@@ -83,7 +91,8 @@ BackgroundTask *person_creation_task_start(TaskManager *manager,
     if (manager == NULL || request == NULL) return NULL;
     task = background_task_new("Création de la personne et import des preuves");
     copy = person_creation_task_request_new(request->database_path,
-        request->root, &request->person, request->selection);
+        request->root, &request->person, request->selection,
+        request->ocr_runs);
     if (task == NULL || copy == NULL ||
         !task_manager_add(manager, task, error) ||
         !background_task_start(task, worker, copy,

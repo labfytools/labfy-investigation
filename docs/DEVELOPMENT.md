@@ -1,5 +1,16 @@
 # Guide de développement
 
+Pour la tranche OCR identité, les tests ciblés sont
+`tests/test_identity_ocr`, `tests/test_identity_ocr_preprocessor`,
+`tests/test_person_creation_coordinator`,
+`tests/test_ocr_provenance_overlay_gtk` et
+`tests/test_create_person_dialog_gtk`. Le test Tesseract réel est facultatif
+et s’ignore explicitement si l’outil ou une langue compatible manque.
+Les fixtures directes du préprocesseur sont générées en mémoire ou dans un
+répertoire temporaire : JPEG avec APP1 EXIF, HEIC/HEIF via libheif et PDF
+multipage via Cairo. Elles ne doivent jamais être remplacées par un document
+réel.
+
 La validation ciblée du composant partagé comprend
 `test_evidence_preview_widget_gtk`, `test_evidence_preview`,
 `test_evidence_video_preview_controller` et

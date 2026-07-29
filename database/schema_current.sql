@@ -265,3 +265,56 @@ CREATE INDEX IF NOT EXISTS idx_person_role_assignments_entity
     ON person_role_assignments(entity_id);
 CREATE INDEX IF NOT EXISTS idx_person_role_assignments_evidence
     ON person_role_assignments(evidence_id);
+
+CREATE TABLE IF NOT EXISTS identity_ocr_runs (
+    id TEXT PRIMARY KEY, evidence_id TEXT NOT NULL,
+    expected_sha256 TEXT NOT NULL CHECK(length(expected_sha256)=64),
+    page_number INTEGER NOT NULL CHECK(page_number>0),
+    document_type TEXT NOT NULL, document_side TEXT NOT NULL,
+    engine TEXT NOT NULL, engine_version TEXT, requested_languages TEXT NOT NULL,
+    available_languages TEXT NOT NULL, parameters TEXT NOT NULL,
+    preprocessing_profile TEXT NOT NULL, executed_at TEXT NOT NULL,
+    status TEXT NOT NULL, error_message TEXT,
+    text_relative_path TEXT NOT NULL, text_sha256 TEXT NOT NULL,
+    tsv_relative_path TEXT NOT NULL, tsv_sha256 TEXT NOT NULL,
+    work_image_relative_path TEXT, work_image_sha256 TEXT,
+    corrected_transcription TEXT,
+    transcription_is_human INTEGER NOT NULL DEFAULT 0
+      CHECK(transcription_is_human IN (0,1)),
+    transcription_corrected_at TEXT,
+    transcription_origin TEXT
+      CHECK(transcription_origin IS NULL OR transcription_origin='human'),
+    FOREIGN KEY(evidence_id) REFERENCES preuves(id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_identity_ocr_runs_evidence
+    ON identity_ocr_runs(evidence_id);
+CREATE TABLE IF NOT EXISTS identity_document_observations (
+    id TEXT PRIMARY KEY, person_id TEXT NOT NULL, evidence_id TEXT NOT NULL,
+    ocr_run_id TEXT NOT NULL UNIQUE, document_type TEXT NOT NULL,
+    issuing_country_declared TEXT, document_side TEXT NOT NULL,
+    page_number INTEGER NOT NULL, review_state TEXT NOT NULL,
+    observed_at TEXT NOT NULL, factual_notes TEXT,
+    FOREIGN KEY(person_id) REFERENCES entites(id) ON DELETE CASCADE,
+    FOREIGN KEY(evidence_id) REFERENCES preuves(id) ON DELETE CASCADE,
+    FOREIGN KEY(ocr_run_id) REFERENCES identity_ocr_runs(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS identity_field_observations (
+    id TEXT PRIMARY KEY, observation_id TEXT NOT NULL, field_code TEXT NOT NULL,
+    raw_value TEXT, corrected_value TEXT, normalized_value TEXT,
+    confidence REAL, review_status TEXT NOT NULL, origin TEXT NOT NULL
+      CHECK(origin IN ('ocr','mrz','manual_override','manual_entry')),
+    evidence_id TEXT NOT NULL, ocr_run_id TEXT NOT NULL,
+    page_number INTEGER NOT NULL, source_x INTEGER, source_y INTEGER,
+    source_width INTEGER, source_height INTEGER, source_image_width INTEGER,
+    source_image_height INTEGER, display_order INTEGER NOT NULL,
+    reviewed_at TEXT NOT NULL, review_note TEXT,
+    CHECK (
+      (origin = 'manual_entry' AND raw_value IS NULL
+       AND corrected_value IS NOT NULL AND confidence IS NULL)
+      OR
+      (origin <> 'manual_entry' AND raw_value IS NOT NULL)
+    ),
+    FOREIGN KEY(observation_id) REFERENCES identity_document_observations(id)
+      ON DELETE CASCADE,
+    FOREIGN KEY(evidence_id) REFERENCES preuves(id) ON DELETE CASCADE,
+    FOREIGN KEY(ocr_run_id) REFERENCES identity_ocr_runs(id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_identity_fields_observation
+    ON identity_field_observations(observation_id,display_order);

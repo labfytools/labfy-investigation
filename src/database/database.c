@@ -16,12 +16,12 @@
 /**
  * @brief Version actuelle du schéma SQLite.
  */
-#define DATABASE_SCHEMA_VERSION_CURRENT 14
+#define DATABASE_SCHEMA_VERSION_CURRENT 17
 
 /**
  * @brief Version actuelle sous forme textuelle pour metadata.
  */
-#define DATABASE_SCHEMA_VERSION_CURRENT_TEXT "14"
+#define DATABASE_SCHEMA_VERSION_CURRENT_TEXT "17"
 
 /**
  * @brief Nom de l'application enregistré dans les métadonnées.
@@ -872,6 +872,51 @@ rollback:
     return false;
 }
 
+static bool database_migrate_v14_to_v15(Database *database)
+{
+    bool transaction_started = false;
+    if (database == NULL || !database_transaction_begin(database)) return false;
+    transaction_started = true;
+    if (!schema_install_v15(database) ||
+        !database_update_schema_version(database, "15") ||
+        !database_transaction_commit(database)) goto rollback;
+    return true;
+rollback:
+    if (transaction_started && !database_transaction_rollback(database))
+        g_warning("Impossible d’annuler la migration SQLite V14 vers V15.");
+    return false;
+}
+
+static bool database_migrate_v15_to_v16(Database *database)
+{
+    bool transaction_started = false;
+    if (database == NULL || !database_transaction_begin(database)) return false;
+    transaction_started = true;
+    if (!schema_install_v16(database) ||
+        !database_update_schema_version(database, "16") ||
+        !database_transaction_commit(database)) goto rollback;
+    return true;
+rollback:
+    if (transaction_started && !database_transaction_rollback(database))
+        g_warning("Impossible d’annuler la migration SQLite V15 vers V16.");
+    return false;
+}
+
+static bool database_migrate_v16_to_v17(Database *database)
+{
+    bool transaction_started = false;
+    if (database == NULL || !database_transaction_begin(database)) return false;
+    transaction_started = true;
+    if (!schema_install_v17(database) ||
+        !database_update_schema_version(database, "17") ||
+        !database_transaction_commit(database)) goto rollback;
+    return true;
+rollback:
+    if (transaction_started && !database_transaction_rollback(database))
+        g_warning("Impossible d’annuler la migration SQLite V16 vers V17.");
+    return false;
+}
+
 /**
  * @brief Garantit atomiquement la présence des extensions du schéma courant.
  */
@@ -1116,6 +1161,18 @@ bool database_migrate_to_latest(
             case 13:
                 if (!database_migrate_v13_to_v14(database)) return false;
                 schema_version = 14;
+                break;
+            case 14:
+                if (!database_migrate_v14_to_v15(database)) return false;
+                schema_version = 15;
+                break;
+            case 15:
+                if (!database_migrate_v15_to_v16(database)) return false;
+                schema_version = 16;
+                break;
+            case 16:
+                if (!database_migrate_v16_to_v17(database)) return false;
+                schema_version = 17;
                 break;
 
             default:

@@ -5,10 +5,12 @@
 #ifndef LABFY_INVESTIGATION_MANAGE_ENTITY_EVIDENCE_DIALOG_H
 #define LABFY_INVESTIGATION_MANAGE_ENTITY_EVIDENCE_DIALOG_H
 #include "models/evidence_record.h"
+#include "core/task_manager.h"
 #include <gtk/gtk.h>
 G_BEGIN_DECLS
 typedef void (*ManageEntityEvidenceDialogCallback)(
     GPtrArray *selected_identifiers, gpointer user_data);
+typedef void (*ManageEntityEvidenceImportCallback)(gpointer user_data);
 /**
  * @brief Présente la sélection multiple de preuves avec aperçu.
  * @param parent Fenêtre parente.
@@ -23,7 +25,9 @@ typedef void (*ManageEntityEvidenceDialogCallback)(
 gboolean manage_entity_evidence_dialog_present(GtkWindow *parent,
     const GPtrArray *evidence_records, const GPtrArray *selected_identifiers,
     const char *investigation_root_path,
+    TaskManager *task_manager,
     ManageEntityEvidenceDialogCallback callback, gpointer user_data,
+    ManageEntityEvidenceImportCallback import_callback,
     GError **error);
 G_END_DECLS
 #endif

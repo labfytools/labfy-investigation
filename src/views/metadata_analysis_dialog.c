@@ -5,6 +5,15 @@
 
 #include "views/metadata_analysis_dialog.h"
 
+static gboolean metadata_analysis_dialog_on_escape(
+    GtkWidget *widget, GVariant *arguments, gpointer user_data)
+{
+    (void) widget;
+    (void) arguments;
+    gtk_window_destroy(GTK_WINDOW(user_data));
+    return TRUE;
+}
+
 void metadata_analysis_dialog_present(GtkWindow *parent, const char *summary,
     const char *json_path, const char *version)
 {
@@ -58,6 +67,18 @@ void metadata_analysis_dialog_present(GtkWindow *parent, const char *summary,
     gtk_widget_set_halign(close_button, GTK_ALIGN_END);
     g_signal_connect_swapped(close_button, "clicked",
         G_CALLBACK(gtk_window_destroy), window);
+    {
+        GtkShortcutController *shortcuts = GTK_SHORTCUT_CONTROLLER(
+            gtk_shortcut_controller_new());
+        gtk_shortcut_controller_set_scope(
+            shortcuts, GTK_SHORTCUT_SCOPE_LOCAL);
+        gtk_shortcut_controller_add_shortcut(shortcuts,
+            gtk_shortcut_new(
+                gtk_keyval_trigger_new(GDK_KEY_Escape, 0),
+                gtk_callback_action_new(
+                    metadata_analysis_dialog_on_escape, window, NULL)));
+        gtk_widget_add_controller(window, GTK_EVENT_CONTROLLER(shortcuts));
+    }
     gtk_box_append(GTK_BOX(content), close_button);
     gtk_window_set_child(GTK_WINDOW(window), content);
     gtk_window_present(GTK_WINDOW(window));

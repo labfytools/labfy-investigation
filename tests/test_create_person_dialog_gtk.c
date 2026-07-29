@@ -251,6 +251,9 @@ static gboolean click_cancel(gpointer data)
     button = find_button(GTK_WIDGET(dialog), "Suivant");
     g_signal_emit_by_name(button, "clicked");
     g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
+        "L’OCR produit des propositions à vérifier"));
+    g_signal_emit_by_name(button, "clicked");
+    g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
         "Désignation : SPECIMEN"));
     g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
         "SPECIMEN-recherche.png"));
@@ -300,7 +303,7 @@ static void activate(GtkApplication *application, gpointer data)
         gtk_application_window_new(application));
     gtk_window_present(context->main_window);
     g_assert_true(create_person_dialog_present(context->main_window,
-        records, "/tmp", context->task_manager, NULL, completed,
+        records, "/tmp", context->task_manager, NULL, NULL, completed,
         context, NULL));
     g_ptr_array_unref(records);
     g_idle_add(click_cancel, context);

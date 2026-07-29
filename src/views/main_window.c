@@ -119,6 +119,8 @@ struct MainWindow
     gpointer extract_metadata_user_data;
     MainWindowRecoverPdfPasswordCallback recover_pdf_password_callback;
     gpointer recover_pdf_password_user_data;
+    MainWindowIdentityOcrCallback identity_ocr_callback;
+    gpointer identity_ocr_user_data;
 
     MainWindowGraphNodeMovedCallback
         graph_node_moved_callback;
@@ -241,6 +243,15 @@ static void main_window_on_recover_pdf_password_requested(
     if (window != NULL && window->recover_pdf_password_callback != NULL)
         window->recover_pdf_password_callback(identifier,
             window->recover_pdf_password_user_data);
+}
+static void main_window_on_identity_ocr_requested(
+    const char *identifier, gboolean revise_existing,
+    const char *run_identifier, gpointer data)
+{
+    MainWindow *window = data;
+    if (window != NULL && window->identity_ocr_callback != NULL)
+        window->identity_ocr_callback(identifier, revise_existing,
+            run_identifier, window->identity_ocr_user_data);
 }
 
 /**
@@ -1043,6 +1054,8 @@ MainWindow *main_window_new(
         main_window_on_extract_metadata_requested, main_window);
     workspace_set_recover_pdf_password_callback(main_window->workspace,
         main_window_on_recover_pdf_password_requested, main_window);
+    workspace_set_identity_ocr_callback(main_window->workspace,
+        main_window_on_identity_ocr_requested, main_window);
 
     workspace_widget = workspace_get_widget(
         main_window->workspace
@@ -1628,6 +1641,14 @@ void main_window_set_recover_pdf_password_callback(MainWindow *main_window,
     main_window->recover_pdf_password_callback = callback;
     main_window->recover_pdf_password_user_data = user_data;
 }
+void main_window_set_identity_ocr_callback(
+    MainWindow *main_window, MainWindowIdentityOcrCallback callback,
+    gpointer user_data)
+{
+    if (main_window == NULL) return;
+    main_window->identity_ocr_callback = callback;
+    main_window->identity_ocr_user_data = user_data;
+}
 
 void main_window_set_tree_selection_callback(
     MainWindow *main_window,
@@ -1995,6 +2016,17 @@ void main_window_set_selected_evidence(
     );
 }
 
+void main_window_set_identity_ocr_runs(
+    MainWindow *main_window, GPtrArray *owned_records)
+{
+    if (main_window == NULL) {
+        g_clear_pointer(&owned_records, g_ptr_array_unref);
+        return;
+    }
+    workspace_set_identity_ocr_runs(
+        main_window->workspace, owned_records);
+}
+
 void main_window_set_evidence_observations(MainWindow *main_window,
     const GPtrArray *observations)
 {
@@ -2110,10 +2142,6 @@ void main_window_free(
      * Les structures qui manipulent encore leurs widgets doivent être
      * nettoyées avant gtk_window_destroy().
      */
-    sidebar_free(
-        main_window->sidebar
-    );
-
     if (main_window->workspace != NULL)
     {
         workspace_set_verify_evidence_callback(
@@ -2179,6 +2207,10 @@ void main_window_free(
             main_window
         );
     }
+
+    sidebar_free(
+        main_window->sidebar
+    );
 
     workspace_free(
         main_window->workspace

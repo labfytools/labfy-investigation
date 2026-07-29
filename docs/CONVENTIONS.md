@@ -437,6 +437,20 @@ interprétation ultérieure.
 
 Un résultat OCR ou OSINT est une proposition à vérifier, pas un fait confirmé.
 
+Pour un document d’identité, l’OCR est exclusivement explicite et chaque champ
+est révisé séparément. Il n’existe pas d’action « Tout accepter ». Une
+extraction décrit seulement ce qui est présenté sur le document : elle ne
+confirme pas son authenticité, ne fusionne aucune personne, ne change aucun
+statut d’identification et n’effectue aucune reconnaissance faciale.
+
+Une zone OCR affichée est une surimpression éphémère calculée depuis les
+coordonnées originales. Une zone absente est indiquée comme indisponible et
+n’est jamais reconstruite arbitrairement.
+
+Les enregistrements lus par `IdentityOcrDao` possèdent toutes leurs chaînes.
+Ils doivent être libérés avec la fonction `*_record_free()` correspondante ;
+les listes retournées possèdent leurs éléments.
+
 ### 7.4 Suppression
 
 La suppression logique est privilégiée pour les objets de traçabilité, mais la

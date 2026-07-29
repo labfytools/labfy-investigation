@@ -54,6 +54,13 @@ static void write_repeated(FILE *stream, char value, long count)
 
 int main(int argc, char **argv)
 {
+    if (has_argument(argc, argv, "--list-langs"))
+    {
+        puts("List of available languages in synthetic fixture (2):");
+        puts("eng");
+        puts("fra");
+        return 0;
+    }
     if (has_argument(argc, argv, "--emit"))
     {
         long stdout_size = argument_long(
@@ -141,7 +148,27 @@ int main(int argc, char **argv)
             write_repeated(stdout, 'T', 8192);
             return 0;
         }
-        if (strstr(argv[1], "page-2") != NULL)
+        if (getenv("LABFY_FAKE_IDENTITY_OCR") != NULL &&
+            has_argument(argc, argv, "tsv"))
+        {
+            puts("level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\t"
+                 "left\ttop\twidth\theight\tconf\ttext");
+            puts("5\t1\t1\t1\t1\t1\t10\t10\t80\t20\t95\tNOM");
+            puts("5\t1\t1\t1\t1\t2\t100\t10\t120\t20\t94\tSPECIMEN");
+            puts("5\t1\t1\t1\t2\t1\t10\t40\t100\t20\t93\tPRENOM");
+            puts("5\t1\t1\t1\t2\t2\t120\t40\t100\t20\t92\tALICE");
+            puts("5\t1\t1\t1\t3\t1\t10\t70\t100\t20\t91\tNUMERO");
+            puts("5\t1\t1\t1\t3\t2\t120\t70\t100\t20\t90\tABC123");
+            puts("5\t1\t1\t1\t4\t1\t10\t100\t110\t20\t89\tNATIONALITE");
+            puts("5\t1\t1\t1\t4\t2\t130\t100\t120\t20\t88\tFRANCAIS");
+        }
+        else if (getenv("LABFY_FAKE_IDENTITY_OCR") != NULL &&
+            strstr(argv[1], "page-2") != NULL)
+            puts("NOM : PAGEDEUX\nNOM : SPECIMEN\nNOM : PAGE2");
+        else if (getenv("LABFY_FAKE_IDENTITY_OCR") != NULL)
+            puts("NOM : SPECIMEN\nNOM : ALICE\nNOM : ABC123\n"
+                 "NATIONALITÉ : FRANCAIS");
+        else if (strstr(argv[1], "page-2") != NULL)
             puts("Texte OCR synthétique page deux.");
         else
             puts("Texte OCR synthétique page une.");

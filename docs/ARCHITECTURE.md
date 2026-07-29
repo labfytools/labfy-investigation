@@ -38,6 +38,25 @@ travaille hors du thread GTK ; la texture est créée sur le contexte principal.
 Le dialogue annule l’ancienne tâche et rejette les générations obsolètes.
 L’interface conserve une génération de session et les chemins stables du
 projet et de sa base. PDF, vidéo, EML avancé et OCR restent exclus.
+
+## OCR contrôlé d’identité — SQLite V15
+
+La V15 sépare l’exécution OCR, l’observation du document et les observations
+de champs. Le moteur reçoit uniquement une copie contrôlée ou une page PDF
+explicitement choisie, conserve texte brut, TSV, paramètres, langues, version,
+SHA-256, confiance et coordonnées, puis laisse la révision à l’utilisateur.
+Les widgets n’accèdent pas à SQLite : le coordinateur persiste les décisions
+acceptées ou modifiées dans la transaction finale et compense les fichiers en
+cas d’échec.
+
+La provenance visuelle est rendue par `OcrProvenanceOverlay`. La conversion
+des coordonnées source vers la zone affichée est indépendante de GTK et tient
+compte du ratio, de la réduction, de l’agrandissement et des marges. Le
+rectangle est transitoire : aucune annotation n’est écrite dans la preuve.
+Les langues proposées proviennent exclusivement de `tesseract --list-langs`.
+Le DAO V15 expose des lectures possédées pour les exécutions, observations de
+documents et observations de champs, ainsi que des listes ordonnées par preuve,
+personne ou observation documentaire.
 > **Statut :** architecture courante
 
 ---

@@ -142,6 +142,48 @@ static gboolean valid_dimensions(gint width, gint height, GError **error)
     }
     return TRUE;
 }
+static guint16 read_u16(const guint8*p,gboolean little)
+{return little?(guint16)(p[0]|p[1]<<8):(guint16)(p[0]<<8|p[1]);}
+static guint32 read_u32(const guint8*p,gboolean little)
+{return little?((guint32)p[0]|(guint32)p[1]<<8|(guint32)p[2]<<16|(guint32)p[3]<<24):
+ ((guint32)p[0]<<24|(guint32)p[1]<<16|(guint32)p[2]<<8|p[3]);}
+static gint jpeg_exif_orientation(const char*path)
+{
+ char*raw=NULL;gsize size=0;if(!g_file_get_contents(path,&raw,&size,NULL))return 1;
+ const guint8*d=(const guint8*)raw;gint orientation=1;
+ for(gsize p=2;p+4<size&&d[p]==0xff;){
+  guint8 marker=d[p+1];guint16 length=(guint16)(d[p+2]<<8|d[p+3]);
+  if(length<2||p+2+length>size)break;
+  if(marker==0xe1&&length>=16&&memcmp(d+p+4,"Exif\0\0",6)==0){
+   const guint8*t=d+p+10;gsize available=p+2+length-(p+10);
+   gboolean little=available>=8&&t[0]=='I'&&t[1]=='I';
+   if((little||(t[0]=='M'&&t[1]=='M'))&&read_u16(t+2,little)==42){
+    guint32 offset=read_u32(t+4,little);
+    if(offset+2<=available){guint16 count=read_u16(t+offset,little);
+     for(guint i=0;i<count&&offset+2+(i+1)*12<=available;i++){
+      const guint8*entry=t+offset+2+i*12;
+      if(read_u16(entry,little)==0x0112){
+       guint16 value=read_u16(entry+8,little);
+       if(value==1||value==3||value==6||value==8)orientation=value;
+      }}}
+   }break;
+  }p+=2+length;
+ }g_free(raw);return orientation;
+}
+static cairo_surface_t *orient_surface(cairo_surface_t*source,gint orientation,
+ gint width,gint height,gint*out_width,gint*out_height)
+{
+ if(orientation==1){*out_width=width;*out_height=height;return source;}
+ gboolean quarter=orientation==6||orientation==8;
+ *out_width=quarter?height:width;*out_height=quarter?width:height;
+ cairo_surface_t*out=cairo_image_surface_create(CAIRO_FORMAT_RGB24,
+  *out_width,*out_height);cairo_t*cr=cairo_create(out);
+ if(orientation==3){cairo_translate(cr,width,height);cairo_rotate(cr,G_PI);}
+ else if(orientation==6){cairo_translate(cr,height,0);cairo_rotate(cr,G_PI_2);}
+ else if(orientation==8){cairo_translate(cr,0,width);cairo_rotate(cr,-G_PI_2);}
+ cairo_set_source_surface(cr,source,0,0);cairo_paint(cr);cairo_destroy(cr);
+ cairo_surface_destroy(source);return out;
+}
 gboolean evidence_preview_dimensions_are_safe(gint width, gint height)
 {
     return width > 0 && height > 0 &&
@@ -204,6 +246,8 @@ static gboolean load_jpeg(const char *path, EvidencePreviewResult *result,
     if (cancelled(cancellable, error)) {
         cairo_surface_destroy(surface); return FALSE;
     }
+    surface=orient_surface(surface,jpeg_exif_orientation(path),width,height,
+        &width,&height);
     gboolean ok = surface_to_result(surface, width, height, result, error);
     cairo_surface_destroy(surface); return ok;
 invalid:

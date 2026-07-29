@@ -7,9 +7,15 @@
 #include "core/evidence_staging_task.h"
 #include "core/person_confirmation_summary.h"
 #include "core/person_dialog_lifecycle.h"
+#include "core/identity_ocr_preprocessor.h"
+#include "core/identity_ocr_workflow.h"
+#include "core/identity_field_extractor.h"
+#include "core/ocr_analysis.h"
 #include "models/evidence_selection_model.h"
 #include "models/person_evidence_selection.h"
+#include "models/identity_ocr.h"
 #include "widgets/evidence_preview_widget.h"
+#include "widgets/ocr_provenance_overlay.h"
 
 struct CreatePersonDialogResult
 {
@@ -23,6 +29,7 @@ struct CreatePersonDialogResult
     GPtrArray *role_assignments;
     PersonEvidenceSelection *evidence_selection;
     EvidenceStaging *staging;
+    GPtrArray *ocr_runs;
 };
 typedef struct
 {
@@ -49,6 +56,23 @@ typedef struct
     GtkButton *add_existing;
     GtkButton *remove_retained;
     GtkButton *import_files;
+    GtkButton *ocr_start;
+    GtkButton *ocr_cancel;
+    GtkDropDown *ocr_document_type;
+    GtkDropDown *ocr_document_side;
+    GtkDropDown *ocr_languages;
+    GtkDropDown *ocr_profile;
+    GtkSpinButton *ocr_page;
+    GtkTextView *ocr_text;
+    GtkTextView *ocr_corrected_text;
+    GtkStack *ocr_transcription_stack;
+    GtkBox *ocr_fields;
+    GtkDropDown *ocr_manual_code;
+    GtkEntry *ocr_manual_value;
+    GtkTextView *ocr_factual_notes;
+    GtkLabel *ocr_status;
+    OcrProvenanceOverlay *ocr_overlay;
+    GPtrArray *ocr_language_codes;
     GtkStringList *evidence_labels;
     GtkStringList *retained_labels;
     GtkStringList *type_filter_labels;
@@ -63,6 +87,12 @@ typedef struct
     char *investigation_root_path;
     TaskManager *task_manager;
     BackgroundTask *staging_task;
+    GTask *ocr_task;
+    GCancellable *ocr_cancellable;
+    GPtrArray *ocr_runs;
+    char *tesseract_path;
+    char *tesseract_version;
+    guint64 ocr_generation;
     PersonDialogLifecycle *lifecycle;
     CreatePersonDialogCallback callback;
     CreatePersonDialogSessionCheck session_check;
@@ -75,6 +105,21 @@ typedef struct
 } CreatePersonDialogState;
 
 typedef struct {
+    char *root, *identifier, *relative, *sha256, *mime;
+    char *document_type, *document_side, *languages, *profile;
+    char *executable, *version;
+    guint page;
+    guint profile_index;
+    guint64 generation;
+    GWeakRef window;
+} IdentityOcrJob;
+
+typedef struct {
+    char *executable;
+    GWeakRef window;
+} IdentityLanguageJob;
+
+typedef struct {
     GWeakRef window;
     guint64 generation;
 } CreatePersonStagingContext;
@@ -84,6 +129,102 @@ static void create_person_dialog_select_record(CreatePersonDialogState *state,
     const EvidenceRecord *record, const char *business_type);
 static void create_person_dialog_on_retained_changed(
     GtkDropDown *dropdown, GParamSpec *pspec, gpointer data);
+static void create_person_dialog_render_ocr_fields(
+    CreatePersonDialogState *state, IdentityOcrRun *run);
+
+static gboolean create_person_dialog_set_initial_ocr_paned_position(
+    gpointer data)
+{
+    GtkPaned *paned = GTK_PANED(data);
+    int width;
+    int position;
+    if (g_object_get_data(
+            G_OBJECT(paned), "create-person-ocr-position-set") != NULL)
+        return G_SOURCE_REMOVE;
+    width = gtk_widget_get_width(GTK_WIDGET(paned));
+    if (width <= 0) return G_SOURCE_CONTINUE;
+    position = MAX(500, (width * 2) / 3);
+    position = MIN(position, MAX(0, width - 180));
+    gtk_paned_set_position(paned, position);
+    g_object_set_data(G_OBJECT(paned),
+        "create-person-ocr-position-set", GINT_TO_POINTER(1));
+    return G_SOURCE_REMOVE;
+}
+
+static void identity_language_job_free(gpointer data)
+{
+    IdentityLanguageJob *job = data;
+    if (job == NULL) return;
+    g_free(job->executable);
+    g_weak_ref_clear(&job->window);
+    g_free(job);
+}
+
+static void identity_languages_worker(GTask *task, gpointer source,
+    gpointer task_data, GCancellable *cancellable)
+{
+    IdentityLanguageJob *job = task_data;
+    GError *error = NULL;
+    char *raw = ocr_analysis_list_languages(job->executable, cancellable,
+        &error);
+    GPtrArray *parsed = raw != NULL
+        ? ocr_analysis_parse_languages(raw) : NULL;
+    GPtrArray *choices = parsed != NULL
+        ? ocr_analysis_build_language_choices(parsed) : NULL;
+    g_free(raw);
+    g_clear_pointer(&parsed, g_ptr_array_unref);
+    (void) source;
+    if (choices != NULL) g_task_return_pointer(task, choices,
+        (GDestroyNotify) g_ptr_array_unref);
+    else g_task_return_error(task, error);
+}
+
+static const char *identity_language_label(const char *code)
+{
+    if (g_str_equal(code, "fra")) return "Français (fra)";
+    if (g_str_equal(code, "eng")) return "Anglais (eng)";
+    if (g_str_equal(code, "fra+eng")) return "Français + anglais (fra+eng)";
+    return code;
+}
+
+static void identity_languages_completed(GObject *source,
+    GAsyncResult *result, gpointer data)
+{
+    IdentityLanguageJob *job = data;
+    GtkWindow *window = g_weak_ref_get(&job->window);
+    CreatePersonDialogState *state = window != NULL
+        ? g_object_get_data(G_OBJECT(window), "person-dialog-state") : NULL;
+    GError *error = NULL;
+    GPtrArray *choices = g_task_propagate_pointer(G_TASK(result), &error);
+    (void) source;
+    if (state != NULL) {
+        g_clear_pointer(&state->ocr_language_codes, g_ptr_array_unref);
+        state->ocr_language_codes = choices;
+        choices = NULL;
+        GtkStringList *labels = gtk_string_list_new(NULL);
+        for (guint i = 0; state->ocr_language_codes != NULL &&
+             i < state->ocr_language_codes->len; i++) {
+            const char *code = g_ptr_array_index(state->ocr_language_codes, i);
+            gtk_string_list_append(labels, identity_language_label(code));
+        }
+        gtk_drop_down_set_model(state->ocr_languages, G_LIST_MODEL(labels));
+        gtk_drop_down_set_selected(state->ocr_languages,
+            state->ocr_language_codes != NULL &&
+            state->ocr_language_codes->len > 0 ? 0 :
+            GTK_INVALID_LIST_POSITION);
+        gtk_widget_set_sensitive(GTK_WIDGET(state->ocr_start),
+            state->ocr_language_codes != NULL &&
+            state->ocr_language_codes->len > 0);
+        if (state->ocr_language_codes == NULL ||
+            state->ocr_language_codes->len == 0)
+            gtk_label_set_text(state->ocr_status,
+                "Aucune langue Tesseract installée.");
+        g_object_unref(labels);
+    }
+    g_clear_pointer(&choices, g_ptr_array_unref);
+    g_clear_error(&error);
+    g_clear_object(&window);
+}
 
 /** @brief Copie et nettoie un texte facultatif. */
 static char *create_person_dialog_copy(const char *text)
@@ -102,6 +243,464 @@ static char *create_person_dialog_get_notes(CreatePersonDialogState *state)
     gtk_text_buffer_get_bounds(buffer, &start, &end);
     return gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
 }
+
+static void identity_ocr_job_free(gpointer data)
+{
+    IdentityOcrJob *job = data;
+    if (job == NULL) return;
+    g_free(job->root); g_free(job->identifier); g_free(job->relative);
+    g_free(job->sha256); g_free(job->mime); g_free(job->document_type);
+    g_free(job->document_side); g_free(job->languages); g_free(job->profile);
+    g_free(job->executable); g_free(job->version);
+    g_weak_ref_clear(&job->window); g_free(job);
+}
+
+static void create_person_dialog_ocr_worker(GTask *task, gpointer source,
+    gpointer task_data, GCancellable *cancellable)
+{
+    IdentityOcrJob *job = task_data;
+    IdentityOcrWorkflowRequest request = {
+        .root_path = job->root,
+        .evidence_identifier = job->identifier,
+        .relative_path = job->relative,
+        .expected_sha256 = job->sha256,
+        .mime_type = job->mime,
+        .document_type = job->document_type,
+        .document_side = job->document_side,
+        .languages = job->languages,
+        .preprocessing_profile = job->profile,
+        .tesseract_executable = job->executable,
+        .tesseract_version = job->version,
+        .page_number = job->page,
+        .profile = (IdentityOcrPreprocessProfile) job->profile_index,
+        .generation = job->generation
+    };
+    GError *error = NULL;
+    (void) source;
+    IdentityOcrRun *run = identity_ocr_workflow_execute(
+        &request, cancellable, &error);
+    if (run != NULL)
+        g_task_return_pointer(task, run,
+            (GDestroyNotify) identity_ocr_run_free);
+    else
+        g_task_return_error(task, error != NULL ? error :
+            g_error_new_literal(G_IO_ERROR, G_IO_ERROR_FAILED,
+                "L’OCR contrôlé a échoué."));
+}
+
+static void create_person_dialog_on_field_accept(GtkButton *button,
+    gpointer data)
+{
+    IdentityFieldObservation *field = g_object_get_data(
+        G_OBJECT(button), "identity-field");
+    (void) data;
+    identity_field_observation_accept(field);
+    gtk_button_set_label(button, "Acceptée");
+    gtk_widget_set_sensitive(GTK_WIDGET(button), FALSE);
+    GtkEntry *entry = g_object_get_data(
+        G_OBJECT(button), "identity-entry");
+    if (entry != NULL)
+        gtk_editable_set_editable(GTK_EDITABLE(entry), FALSE);
+}
+
+static void create_person_dialog_on_field_reedit(GtkButton *button,
+    gpointer data)
+{
+    GtkEntry *entry = g_object_get_data(
+        G_OBJECT(button), "identity-entry");
+    GtkButton *save = g_object_get_data(
+        G_OBJECT(button), "identity-save");
+    (void) data;
+    if (entry == NULL || save == NULL) return;
+    gtk_editable_set_editable(GTK_EDITABLE(entry), TRUE);
+    gtk_widget_set_sensitive(GTK_WIDGET(save), TRUE);
+    gtk_widget_grab_focus(GTK_WIDGET(entry));
+    gtk_editable_set_position(GTK_EDITABLE(entry), -1);
+}
+
+static void create_person_dialog_on_field_restore(GtkButton *button,
+    gpointer data)
+{
+    IdentityFieldObservation *field = g_object_get_data(
+        G_OBJECT(button), "identity-field");
+    GtkEntry *entry = g_object_get_data(
+        G_OBJECT(button), "identity-entry");
+    GtkButton *save = g_object_get_data(
+        G_OBJECT(button), "identity-save");
+    (void) data;
+    if (!identity_field_observation_restore_raw(field) || entry == NULL)
+        return;
+    gtk_editable_set_text(GTK_EDITABLE(entry),
+        identity_field_observation_get_raw_value(field));
+    gtk_editable_set_editable(GTK_EDITABLE(entry), TRUE);
+    if (save != NULL) {
+        gtk_button_set_label(save, "Enregistrer la correction");
+        gtk_widget_set_sensitive(GTK_WIDGET(save), TRUE);
+    }
+}
+
+static void create_person_dialog_on_field_modify(GtkButton *button,
+    gpointer data)
+{
+    IdentityFieldObservation *field = g_object_get_data(
+        G_OBJECT(button), "identity-field");
+    (void) data;
+    GtkEntry *entry = g_object_get_data(
+        G_OBJECT(button), "identity-entry");
+    const char *value = entry != NULL
+        ? gtk_editable_get_text(GTK_EDITABLE(entry))
+        : identity_field_observation_get_raw_value(field);
+    if (!identity_field_observation_modify(field, value,
+            "Valeur revue individuellement dans l’assistant.")) {
+        if (entry != NULL)
+            gtk_widget_add_css_class(GTK_WIDGET(entry), "error");
+        return;
+    }
+    if (entry != NULL) {
+        gtk_widget_remove_css_class(GTK_WIDGET(entry), "error");
+        gtk_editable_set_editable(GTK_EDITABLE(entry), FALSE);
+    }
+    gtk_button_set_label(button, "Modifiée");
+    gtk_widget_set_sensitive(GTK_WIDGET(button), FALSE);
+}
+
+static void create_person_dialog_on_field_reject(GtkButton *button,
+    gpointer data)
+{
+    IdentityFieldObservation *field = g_object_get_data(
+        G_OBJECT(button), "identity-field");
+    (void) data;
+    identity_field_observation_reject(field);
+    gtk_button_set_label(button, "Rejetée");
+}
+
+static void create_person_dialog_on_field_show(GtkButton *button,
+    gpointer data)
+{
+    CreatePersonDialogState *state = data;
+    IdentityFieldObservation *field = g_object_get_data(
+        G_OBJECT(button), "identity-field");
+    ocr_provenance_overlay_set_field(state->ocr_overlay, field,
+        state->ocr_generation);
+}
+
+static void create_person_dialog_on_add_manual_field(GtkButton *button,
+    gpointer data)
+{
+    static const char *const codes[] = {
+        "document_type","issuing_country","issuing_authority",
+        "document_number","surname","birth_name","given_names",
+        "sex_as_printed","nationality","birth_date","birth_place",
+        "issue_date","expiry_date","address_as_printed",
+        "mrz_line_1","mrz_line_2","mrz_line_3"};
+    CreatePersonDialogState *state = data;
+    guint selected = gtk_drop_down_get_selected(state->ocr_manual_code);
+    const char *value =
+        gtk_editable_get_text(GTK_EDITABLE(state->ocr_manual_value));
+    (void) button;
+    if (state->ocr_runs == NULL || state->ocr_runs->len == 0 ||
+        selected >= G_N_ELEMENTS(codes) || value[0] == '\0') return;
+    IdentityOcrRun *run = g_ptr_array_index(
+        state->ocr_runs, state->ocr_runs->len - 1);
+    IdentityFieldObservation *field =
+        identity_field_observation_new_manual(
+            codes[selected], value,
+            identity_ocr_run_get_fields(run)->len);
+    if (field == NULL) return;
+    identity_ocr_run_add_field(run, field);
+    gtk_editable_set_text(GTK_EDITABLE(state->ocr_manual_value), "");
+    create_person_dialog_render_ocr_fields(state, run);
+}
+
+static void create_person_dialog_capture_factual_notes(
+    CreatePersonDialogState *state)
+{
+    if (state == NULL || state->ocr_runs == NULL ||
+        state->ocr_runs->len == 0) return;
+    GtkTextBuffer *buffer =
+        gtk_text_view_get_buffer(state->ocr_factual_notes);
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    char *notes = gtk_text_buffer_get_text(
+        buffer, &start, &end, FALSE);
+    IdentityOcrRun *run = g_ptr_array_index(
+        state->ocr_runs, state->ocr_runs->len - 1);
+    identity_ocr_run_set_factual_notes(run,
+        notes[0] != '\0' ? notes : NULL);
+    g_free(notes);
+}
+
+static char *create_person_dialog_text_view_contents(GtkTextView *view)
+{
+    GtkTextIter start;
+    GtkTextIter end;
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(view);
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    return gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+}
+
+static void create_person_dialog_capture_corrected_transcription(
+    CreatePersonDialogState *state)
+{
+    if (state == NULL || state->ocr_corrected_text == NULL ||
+        state->ocr_runs == NULL || state->ocr_runs->len == 0) return;
+    IdentityOcrRun *run = g_ptr_array_index(
+        state->ocr_runs, state->ocr_runs->len - 1);
+    char *text = create_person_dialog_text_view_contents(
+        state->ocr_corrected_text);
+    const char *raw = identity_ocr_run_get_raw_text(run);
+    if (g_strcmp0(text, raw) == 0)
+        identity_ocr_run_reset_corrected_transcription(run);
+    else {
+        GDateTime *now = g_date_time_new_now_utc();
+        char *timestamp = g_date_time_format(
+            now, "%Y-%m-%dT%H:%M:%SZ");
+        identity_ocr_run_set_corrected_transcription(
+            run, text, timestamp);
+        g_free(timestamp);
+        g_date_time_unref(now);
+    }
+    g_free(text);
+}
+
+static void create_person_dialog_on_reset_transcription(
+    GtkButton *button, gpointer data)
+{
+    CreatePersonDialogState *state = data;
+    (void) button;
+    if (state->ocr_runs == NULL || state->ocr_runs->len == 0) return;
+    IdentityOcrRun *run = g_ptr_array_index(
+        state->ocr_runs, state->ocr_runs->len - 1);
+    identity_ocr_run_reset_corrected_transcription(run);
+    gtk_text_buffer_set_text(gtk_text_view_get_buffer(
+        state->ocr_corrected_text),
+        identity_ocr_run_get_raw_text(run), -1);
+    gtk_text_view_set_editable(state->ocr_corrected_text, TRUE);
+}
+
+static void create_person_dialog_render_ocr_fields(
+    CreatePersonDialogState *state, IdentityOcrRun *run)
+{
+    GtkWidget *child;
+    while ((child = gtk_widget_get_first_child(
+            GTK_WIDGET(state->ocr_fields))) != NULL)
+        gtk_box_remove(state->ocr_fields, child);
+    const GPtrArray *fields = identity_ocr_run_get_fields(run);
+    for (guint i = 0; fields != NULL && i < fields->len; i++) {
+        IdentityFieldObservation *field = g_ptr_array_index(
+            (GPtrArray *) fields, i);
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        const IdentitySourceBox *box =
+            identity_field_observation_get_box(field);
+        char *source = box != NULL && box->available
+            ? g_strdup_printf("page %d, zone %d,%d %dx%d, confiance %.1f",
+                box->page, box->x, box->y, box->width, box->height,
+                identity_field_observation_get_confidence(field))
+            : g_strdup("Zone source indisponible");
+        char *label = g_strdup_printf(
+            "%s\nValeur OCR brute : %s\nOrigine : %s — %s",
+            identity_field_observation_get_code(field),
+            identity_field_observation_get_raw_value(field) != NULL
+                ? identity_field_observation_get_raw_value(field)
+                : "absente",
+            identity_field_observation_get_origin(field), source);
+        GtkWidget *field_label = gtk_label_new(label);
+        gtk_label_set_wrap(GTK_LABEL(field_label), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(field_label), 0.0f);
+        gtk_box_append(GTK_BOX(row), field_label);
+        GtkWidget *entry = gtk_entry_new();
+        gtk_widget_set_hexpand(entry, TRUE);
+        gtk_widget_set_tooltip_text(entry,
+            "Modifiez la valeur puis choisissez « Modifier ».");
+        gtk_editable_set_text(GTK_EDITABLE(entry),
+            identity_field_observation_get_corrected_value(field) != NULL
+                ? identity_field_observation_get_corrected_value(field)
+                : identity_field_observation_get_raw_value(field));
+        gtk_box_append(GTK_BOX(row), entry);
+        GtkWidget *actions =
+            gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        GtkWidget *accept = gtk_button_new_with_label("Accepter");
+        GtkWidget *modify = gtk_button_new_with_label("Modifier");
+        GtkWidget *reedit = gtk_button_new_with_label("Modifier à nouveau");
+        GtkWidget *restore =
+            gtk_button_new_with_label("Revenir à la valeur OCR");
+        GtkWidget *reject = gtk_button_new_with_label("Rejeter");
+        GtkWidget *show = gtk_button_new_with_label("Voir la zone");
+        g_object_set_data(G_OBJECT(row), "identity-field-code",
+            (gpointer) identity_field_observation_get_code(field));
+        g_object_set_data(G_OBJECT(row), "identity-field-order",
+            GUINT_TO_POINTER(identity_field_observation_get_order(field) + 1));
+        g_object_set_data(G_OBJECT(row), "identity-value-entry", entry);
+        g_object_set_data(G_OBJECT(row), "identity-accept-button", accept);
+        g_object_set_data(G_OBJECT(row), "identity-modify-button", modify);
+        g_object_set_data(G_OBJECT(row), "identity-reedit-button", reedit);
+        g_object_set_data(G_OBJECT(row), "identity-restore-button", restore);
+        g_object_set_data(G_OBJECT(row), "identity-reject-button", reject);
+        g_object_set_data(G_OBJECT(accept), "identity-field", field);
+        g_object_set_data(G_OBJECT(accept), "identity-entry", entry);
+        g_object_set_data(G_OBJECT(modify), "identity-field", field);
+        g_object_set_data(G_OBJECT(modify), "identity-entry", entry);
+        g_object_set_data(G_OBJECT(reject), "identity-field", field);
+        g_object_set_data(G_OBJECT(reedit), "identity-entry", entry);
+        g_object_set_data(G_OBJECT(reedit), "identity-save", modify);
+        g_object_set_data(G_OBJECT(restore), "identity-field", field);
+        g_object_set_data(G_OBJECT(restore), "identity-entry", entry);
+        g_object_set_data(G_OBJECT(restore), "identity-save", modify);
+        g_object_set_data(G_OBJECT(show), "identity-field", field);
+        gtk_box_append(GTK_BOX(actions), show);
+        gtk_box_append(GTK_BOX(actions), accept);
+        gtk_box_append(GTK_BOX(actions), modify);
+        gtk_box_append(GTK_BOX(actions), reedit);
+        if (identity_field_observation_get_raw_value(field) != NULL)
+            gtk_box_append(GTK_BOX(actions), restore);
+        gtk_box_append(GTK_BOX(actions), reject);
+        gtk_box_append(GTK_BOX(row), actions);
+        g_signal_connect(accept, "clicked",
+            G_CALLBACK(create_person_dialog_on_field_accept), state);
+        g_signal_connect(modify, "clicked",
+            G_CALLBACK(create_person_dialog_on_field_modify), state);
+        g_signal_connect(reject, "clicked",
+            G_CALLBACK(create_person_dialog_on_field_reject), state);
+        g_signal_connect(reedit, "clicked",
+            G_CALLBACK(create_person_dialog_on_field_reedit), state);
+        g_signal_connect(restore, "clicked",
+            G_CALLBACK(create_person_dialog_on_field_restore), state);
+        g_signal_connect(show, "clicked",
+            G_CALLBACK(create_person_dialog_on_field_show), state);
+        gtk_box_append(state->ocr_fields, row);
+        g_free(source);
+        g_free(label);
+    }
+}
+
+static void create_person_dialog_ocr_completed(GObject *source,
+    GAsyncResult *result, gpointer data)
+{
+    IdentityOcrJob *job = data;
+    GtkWindow *window = g_weak_ref_get(&job->window);
+    CreatePersonDialogState *state = window != NULL
+        ? g_object_get_data(G_OBJECT(window), "person-dialog-state") : NULL;
+    GError *error = NULL;
+    IdentityOcrRun *run = g_task_propagate_pointer(G_TASK(result), &error);
+    (void) source;
+    if (state != NULL && state->ocr_generation == job->generation &&
+        (state->session_check == NULL ||
+         state->session_check(state->user_data))) {
+        if (run != NULL) {
+            gtk_text_buffer_set_text(gtk_text_view_get_buffer(state->ocr_text),
+                identity_ocr_run_get_raw_text(run), -1);
+            gtk_text_buffer_set_text(gtk_text_view_get_buffer(
+                state->ocr_corrected_text),
+                identity_ocr_run_get_raw_text(run), -1);
+            gtk_text_view_set_editable(state->ocr_corrected_text, TRUE);
+            gtk_stack_set_visible_child_name(
+                state->ocr_transcription_stack, "corrected");
+            create_person_dialog_render_ocr_fields(state, run);
+            ocr_provenance_overlay_set_image(state->ocr_overlay,
+                identity_ocr_run_get_preview(run), state->ocr_generation);
+            const GPtrArray *fields = identity_ocr_run_get_fields(run);
+            if (fields != NULL && fields->len > 0)
+                ocr_provenance_overlay_set_field(state->ocr_overlay,
+                    g_ptr_array_index((GPtrArray *) fields, 0),
+                    state->ocr_generation);
+            g_ptr_array_add(state->ocr_runs, run);
+            run = NULL;
+            gtk_label_set_text(state->ocr_status,
+                "OCR terminé. Chaque proposition reste À vérifier.");
+        } else
+            gtk_label_set_text(state->ocr_status,
+                error != NULL ? error->message : "OCR annulé.");
+        g_clear_object(&state->ocr_task);
+        g_clear_object(&state->ocr_cancellable);
+    }
+    identity_ocr_run_free(run);
+    g_clear_error(&error);
+    g_clear_object(&window);
+}
+
+static void create_person_dialog_on_ocr_cancel(GtkButton *button,
+    gpointer data)
+{
+    CreatePersonDialogState *state = data;
+    (void) button;
+    state->ocr_generation++;
+    if (state->ocr_cancellable != NULL)
+        g_cancellable_cancel(state->ocr_cancellable);
+    gtk_label_set_text(state->ocr_status, "Annulation de l’OCR…");
+    ocr_provenance_overlay_clear(state->ocr_overlay, state->ocr_generation);
+}
+
+static void create_person_dialog_on_ocr_start(GtkButton *button,
+    gpointer data)
+{
+    static const char *const types[] = {"identity_card","passport",
+        "driving_licence","residence_permit","other"};
+    static const char *const sides[] = {"front","back","identity_page",
+        "other_page"};
+    CreatePersonDialogState *state = data;
+    const PersonEvidenceSelectionItem *item =
+        person_evidence_selection_get_active(state->person_evidence_selection);
+    IdentityOcrJob *job;
+    const EvidenceRecord *record;
+    (void) button;
+    if (item == NULL || state->tesseract_path == NULL) {
+        gtk_label_set_text(state->ocr_status,
+            "Tesseract est absent ou aucune preuve compatible n’est retenue.");
+        return;
+    }
+    job = g_new0(IdentityOcrJob, 1);
+    job->root = g_strdup(state->investigation_root_path);
+    job->identifier = g_strdup(
+        person_evidence_selection_item_get_identifier(item));
+    job->sha256 = g_strdup(person_evidence_selection_item_get_sha256(item));
+    job->mime = g_strdup(person_evidence_selection_item_get_mime_type(item));
+    if (person_evidence_selection_item_get_origin(item) ==
+        PERSON_EVIDENCE_ORIGIN_EXISTING) {
+        record = person_evidence_selection_item_get_record(item);
+        job->relative = g_strdup(evidence_record_get_relative_path(record));
+    } else {
+        g_free(job->root);
+        job->root = g_path_get_dirname(
+            person_evidence_selection_item_get_staging_path(item));
+        job->relative = g_path_get_basename(
+            person_evidence_selection_item_get_staging_path(item));
+    }
+    guint selected = gtk_drop_down_get_selected(state->ocr_document_type);
+    job->document_type = g_strdup(types[MIN(selected,
+        G_N_ELEMENTS(types)-1)]);
+    selected = gtk_drop_down_get_selected(state->ocr_document_side);
+    job->document_side = g_strdup(sides[MIN(selected,
+        G_N_ELEMENTS(sides)-1)]);
+    selected = gtk_drop_down_get_selected(state->ocr_languages);
+    if (selected == GTK_INVALID_LIST_POSITION ||
+        state->ocr_language_codes == NULL ||
+        selected >= state->ocr_language_codes->len) {
+        identity_ocr_job_free(job);
+        gtk_label_set_text(state->ocr_status,
+            "Aucune langue Tesseract disponible.");
+        return;
+    }
+    job->languages = g_strdup(g_ptr_array_index(
+        state->ocr_language_codes, selected));
+    static const char *const profiles[] = {
+        "none", "orientation", "grayscale", "upscale"};
+    job->profile_index = gtk_drop_down_get_selected(state->ocr_profile);
+    job->profile = g_strdup(profiles[MIN(job->profile_index,
+        G_N_ELEMENTS(profiles)-1)]);
+    job->page = (guint) gtk_spin_button_get_value_as_int(state->ocr_page);
+    job->executable = g_strdup(state->tesseract_path);
+    job->version = g_strdup(state->tesseract_version);
+    job->generation = ++state->ocr_generation;
+    g_weak_ref_init(&job->window, G_OBJECT(state->window));
+    g_clear_object(&state->ocr_cancellable);
+    state->ocr_cancellable = g_cancellable_new();
+    state->ocr_task = g_task_new(NULL, state->ocr_cancellable,
+        create_person_dialog_ocr_completed, job);
+    g_task_set_task_data(state->ocr_task, job, identity_ocr_job_free);
+    gtk_label_set_text(state->ocr_status,
+        "OCR contrôlé en cours… Aucune donnée n’est encore persistée.");
+    g_task_run_in_thread(state->ocr_task, create_person_dialog_ocr_worker);
+}
 /** @brief Libère l'état attaché à la fenêtre. */
 static void create_person_dialog_state_free(gpointer data)
 {
@@ -112,6 +711,14 @@ static void create_person_dialog_state_free(gpointer data)
         background_task_cancel(state->staging_task);
         background_task_unref(state->staging_task);
     }
+    state->ocr_generation++;
+    if (state->ocr_cancellable != NULL)
+        g_cancellable_cancel(state->ocr_cancellable);
+    g_clear_object(&state->ocr_task);
+    g_clear_object(&state->ocr_cancellable);
+    g_clear_pointer(&state->ocr_runs, g_ptr_array_unref);
+    g_clear_pointer(&state->ocr_language_codes, g_ptr_array_unref);
+    g_clear_pointer(&state->ocr_overlay, ocr_provenance_overlay_free);
     person_dialog_lifecycle_cancel(state->lifecycle);
     g_clear_pointer(&state->evidence_identifiers, g_ptr_array_unref);
     g_clear_pointer(&state->visible_records, g_ptr_array_unref);
@@ -125,6 +732,8 @@ static void create_person_dialog_state_free(gpointer data)
     g_clear_object(&state->retained_labels);
     g_clear_object(&state->type_filter_labels);
     g_free(state->investigation_root_path);
+    g_free(state->tesseract_path);
+    g_free(state->tesseract_version);
     if (state->user_data_destroy != NULL)
         state->user_data_destroy(state->user_data);
     g_free(state);
@@ -211,8 +820,33 @@ static void create_person_dialog_on_retained_changed(
     (void) pspec;
     if (state->updating_retained ||
         selected == GTK_INVALID_LIST_POSITION || item == NULL) return;
+    if (state->ocr_start != NULL) {
+        const char *mime =
+            person_evidence_selection_item_get_mime_type(item);
+        const char *name =
+            person_evidence_selection_item_get_original_name(item);
+        char *lower = name != NULL ? g_ascii_strdown(name, -1) : NULL;
+        gboolean compatible =
+            g_strcmp0(mime, "image/png") == 0 ||
+            g_strcmp0(mime, "image/jpeg") == 0 ||
+            g_strcmp0(mime, "image/heic") == 0 ||
+            g_strcmp0(mime, "image/heif") == 0 ||
+            g_strcmp0(mime, "application/pdf") == 0 ||
+            (lower != NULL && (g_str_has_suffix(lower, ".png") ||
+             g_str_has_suffix(lower, ".jpg") ||
+             g_str_has_suffix(lower, ".jpeg") ||
+             g_str_has_suffix(lower, ".heic") ||
+             g_str_has_suffix(lower, ".heif") ||
+             g_str_has_suffix(lower, ".pdf")));
+        gtk_widget_set_sensitive(GTK_WIDGET(state->ocr_start),
+            compatible && state->tesseract_path != NULL);
+        g_free(lower);
+    }
     person_evidence_selection_set_active(state->person_evidence_selection,
         person_evidence_selection_item_get_identifier(item));
+    if (state->ocr_overlay != NULL)
+        ocr_provenance_overlay_clear(state->ocr_overlay,
+            ++state->ocr_generation);
     static const char *const types[] = {
         "screenshot", "photo", "video", "document", "email",
         "archive", "audio", "text", "other"};
@@ -292,6 +926,26 @@ static void create_person_dialog_on_remove_retained(
         : NULL;
     (void) button;
     if (identifier != NULL) {
+        state->ocr_generation++;
+        if (state->ocr_cancellable != NULL)
+            g_cancellable_cancel(state->ocr_cancellable);
+        for (guint i = state->ocr_runs != NULL ? state->ocr_runs->len : 0;
+             i > 0; i--) {
+            IdentityOcrRun *run = g_ptr_array_index(state->ocr_runs, i - 1);
+            if (g_strcmp0(identity_ocr_run_get_evidence_id(run),
+                    identifier) == 0)
+                g_ptr_array_remove_index(state->ocr_runs, i - 1);
+        }
+        while (gtk_widget_get_first_child(GTK_WIDGET(state->ocr_fields)) !=
+               NULL)
+            gtk_box_remove(state->ocr_fields,
+                gtk_widget_get_first_child(GTK_WIDGET(state->ocr_fields)));
+        gtk_text_buffer_set_text(gtk_text_view_get_buffer(state->ocr_text),
+            "", -1);
+        gtk_label_set_text(state->ocr_status,
+            "Aucune session OCR active pour la preuve retirée.");
+        ocr_provenance_overlay_clear(state->ocr_overlay,
+            state->ocr_generation);
         person_evidence_selection_remove(
             state->person_evidence_selection, identifier);
         if (staging_path != NULL)
@@ -678,6 +1332,8 @@ static void create_person_dialog_on_create(GtkButton *button, gpointer data)
     state->person_evidence_selection = NULL;
     result->staging = state->staging;
     state->staging = NULL;
+    result->ocr_runs = state->ocr_runs;
+    state->ocr_runs = NULL;
     if (!person_dialog_lifecycle_complete(state->lifecycle)) {
         create_person_dialog_result_free(result);
         g_free(notes);
@@ -690,9 +1346,11 @@ static void create_person_dialog_on_create(GtkButton *button, gpointer data)
 
 static void create_person_dialog_update_navigation(CreatePersonDialogState *state)
 {
-    static const char *const pages[] = {"person", "roles", "evidence", "summary"};
+    static const char *const pages[] = {
+        "person", "roles", "evidence", "identity-ocr", "summary"};
     static const char *const steps[] = {
-        "1 Personne", "2 Rôles", "3 Preuves", "4 Confirmation"};
+        "1 Personne", "2 Rôles", "3 Preuves", "4 OCR identité",
+        "5 Confirmation"};
     GString *progress = g_string_new(NULL);
     gtk_stack_set_visible_child_name(state->stack, pages[state->step]);
     for (guint i = 0; i < G_N_ELEMENTS(steps); i++) {
@@ -706,7 +1364,7 @@ static void create_person_dialog_update_navigation(CreatePersonDialogState *stat
     }
     gtk_label_set_markup(state->progress, progress->str);
     g_string_free(progress, TRUE);
-    if (state->step == 3) {
+    if (state->step == 4) {
         static const char *const status_labels[] = {
             "Inconnu", "Présumé", "Confirmé"};
         GPtrArray *role_labels = g_ptr_array_new();
@@ -726,16 +1384,62 @@ static void create_person_dialog_update_navigation(CreatePersonDialogState *stat
                 : "Non renseigné",
             gtk_spin_button_get_value_as_int(state->confidence), notes,
             role_labels, state->person_evidence_selection);
-        gtk_label_set_text(state->summary, text);
+        GString *confirmation = g_string_new(text);
+        g_string_append(confirmation,
+            "\n\nOCR identité\nL’OCR peut contenir des erreurs. Ces "
+            "informations sont seulement présentées sur le document ; "
+            "l’authenticité n’est pas établie et aucune fusion de personne "
+            "ne sera effectuée. Aucune écriture n’a encore eu lieu.");
+        for (guint run_index = 0;
+             state->ocr_runs != NULL && run_index < state->ocr_runs->len;
+             run_index++) {
+            IdentityOcrRun *run = g_ptr_array_index(
+                state->ocr_runs, run_index);
+            g_string_append_printf(confirmation,
+                "\n• %s — %s — page %u — Tesseract %s — %s",
+                identity_ocr_run_get_document_type(run),
+                identity_ocr_run_get_document_side(run),
+                identity_ocr_run_get_page(run),
+                identity_ocr_run_get_version(run) != NULL
+                    ? identity_ocr_run_get_version(run) : "version inconnue",
+                identity_ocr_run_get_languages(run));
+            if (identity_ocr_run_get_factual_notes(run) != NULL)
+                g_string_append_printf(confirmation,
+                    "\n  Notes factuelles : %s",
+                    identity_ocr_run_get_factual_notes(run));
+            const GPtrArray *fields = identity_ocr_run_get_fields(run);
+            for (guint field_index = 0;
+                 fields != NULL && field_index < fields->len; field_index++) {
+                IdentityFieldObservation *field =
+                    g_ptr_array_index((GPtrArray *) fields, field_index);
+                IdentityReviewStatus review =
+                    identity_field_observation_get_status(field);
+                if (review == IDENTITY_REVIEW_ACCEPTED ||
+                    review == IDENTITY_REVIEW_MODIFIED)
+                    g_string_append_printf(confirmation,
+                        "\n  - %s : %s (brut : %s ; origine : %s)",
+                        identity_field_observation_get_code(field),
+                        identity_field_observation_get_corrected_value(field)
+                            != NULL
+                            ? identity_field_observation_get_corrected_value(field)
+                            : identity_field_observation_get_raw_value(field),
+                        identity_field_observation_get_raw_value(field) != NULL
+                            ? identity_field_observation_get_raw_value(field)
+                            : "absente",
+                        identity_field_observation_get_origin(field));
+            }
+        }
+        gtk_label_set_text(state->summary, confirmation->str);
+        g_string_free(confirmation, TRUE);
         g_free(text);
         g_free(notes);
         g_ptr_array_unref(role_labels);
     }
     gtk_widget_set_sensitive(GTK_WIDGET(state->previous), state->step > 0);
-    gtk_widget_set_visible(GTK_WIDGET(state->next), state->step < 3);
-    gtk_widget_set_visible(GTK_WIDGET(state->create), state->step == 3);
+    gtk_widget_set_visible(GTK_WIDGET(state->next), state->step < 4);
+    gtk_widget_set_visible(GTK_WIDGET(state->create), state->step == 4);
     gtk_widget_set_sensitive(GTK_WIDGET(state->create),
-        state->step == 3 &&
+        state->step == 4 &&
         person_evidence_selection_is_confirmable(
             state->person_evidence_selection));
 }
@@ -755,8 +1459,12 @@ static void create_person_dialog_on_next(GtkButton *button, gpointer data)
         gtk_widget_set_visible(GTK_WIDGET(state->error), TRUE);
         return;
     }
+    if (state->step == 3)
+        create_person_dialog_capture_corrected_transcription(state);
+    if (state->step == 3)
+        create_person_dialog_capture_factual_notes(state);
     gtk_widget_set_visible(GTK_WIDGET(state->error), FALSE);
-    if (state->step < 3) state->step++;
+    if (state->step < 4) state->step++;
     create_person_dialog_update_navigation(state);
 }
 /** @brief Ajoute une ligne libellée au formulaire. */
@@ -771,14 +1479,16 @@ static void create_person_dialog_add_row(GtkGrid *grid, int row,
 }
 gboolean create_person_dialog_present(GtkWindow *parent,
     const GPtrArray *records, const char *investigation_root_path,
-    TaskManager *task_manager, CreatePersonDialogSessionCheck session_check,
+    TaskManager *task_manager, const ToolInfo *tesseract_tool,
+    CreatePersonDialogSessionCheck session_check,
     CreatePersonDialogCallback callback, gpointer data,
     GDestroyNotify data_destroy)
 {
     static const char *const statuses[] = {"Inconnu", "Présumé", "Confirmé", NULL};
     CreatePersonDialogState *state = NULL;
     GtkWidget *box = NULL, *grid = NULL, *actions = NULL, *cancel = NULL;
-    GtkWidget *roles_box = NULL, *evidence_box = NULL, *summary = NULL;
+    GtkWidget *roles_box = NULL, *evidence_box = NULL, *ocr_box = NULL;
+    GtkWidget *summary = NULL;
     if (parent == NULL || investigation_root_path == NULL ||
         task_manager == NULL) return FALSE;
     state = g_new0(CreatePersonDialogState, 1);
@@ -799,6 +1509,16 @@ gboolean create_person_dialog_present(GtkWindow *parent,
         evidence_selection_model_list_type_codes(state->selection_model);
     state->investigation_root_path = g_strdup(investigation_root_path);
     state->task_manager = task_manager;
+    state->ocr_runs = g_ptr_array_new_with_free_func(
+        (GDestroyNotify) identity_ocr_run_free);
+    if (tesseract_tool != NULL &&
+        tool_info_get_availability(tesseract_tool) ==
+            TOOL_AVAILABILITY_AVAILABLE) {
+        state->tesseract_path = g_strdup(
+            tool_info_get_resolved_path(tesseract_tool));
+        state->tesseract_version = g_strdup(
+            tool_info_get_detected_version(tesseract_tool));
+    }
     state->lifecycle = person_dialog_lifecycle_new();
     state->window = GTK_WINDOW(gtk_window_new());
     gtk_window_set_application(state->window,
@@ -806,7 +1526,7 @@ gboolean create_person_dialog_present(GtkWindow *parent,
     gtk_window_set_title(state->window, "Ajouter une personne");
     gtk_window_set_transient_for(state->window, parent);
     gtk_window_set_modal(state->window, TRUE);
-    gtk_window_set_default_size(state->window, 820, 680);
+    gtk_window_set_default_size(state->window, 960, 700);
     box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_widget_set_margin_start(box, 16); gtk_widget_set_margin_end(box, 16);
     gtk_widget_set_margin_top(box, 16); gtk_widget_set_margin_bottom(box, 16);
@@ -930,17 +1650,198 @@ gboolean create_person_dialog_present(GtkWindow *parent,
         create_person_dialog_state_free(state);
         return FALSE;
     }
-    gtk_box_append(GTK_BOX(evidence_box),
-        evidence_preview_widget_get_widget(state->preview));
-    gtk_stack_add_titled(state->stack, evidence_box, "evidence", "3 — Preuves");
+    {
+        GtkWidget *evidence_paned =
+            gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+        gtk_widget_set_name(evidence_paned, "create-person-evidence-paned");
+        gtk_widget_set_size_request(evidence_box, 320, -1);
+        gtk_paned_set_start_child(GTK_PANED(evidence_paned), evidence_box);
+        gtk_paned_set_end_child(GTK_PANED(evidence_paned),
+            evidence_preview_widget_get_widget(state->preview));
+        gtk_paned_set_position(GTK_PANED(evidence_paned), 420);
+        gtk_paned_set_resize_start_child(
+            GTK_PANED(evidence_paned), FALSE);
+        gtk_paned_set_resize_end_child(GTK_PANED(evidence_paned), TRUE);
+        gtk_stack_add_titled(state->stack, evidence_paned,
+            "evidence", "3 — Preuves");
+    }
+    ocr_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_set_name(ocr_box, "create-person-ocr-review-content");
+    GtkWidget *ocr_warning = gtk_label_new(
+        "L’OCR produit des propositions à vérifier. Il ne confirme ni "
+        "l’identité ni l’authenticité du document.");
+    gtk_label_set_wrap(GTK_LABEL(ocr_warning), TRUE);
+    static const char *const document_types[] = {
+        "Carte nationale d’identité", "Passeport", "Permis de conduire",
+        "Titre de séjour", "Autre document d’identité", NULL};
+    static const char *const document_sides[] = {
+        "Recto", "Verso", "Page d’identité", "Autre page", NULL};
+    static const char *const profile_labels[] = {
+        "Aucun prétraitement", "Orientation normalisée",
+        "Niveaux de gris et contraste modéré",
+        "Agrandissement contrôlé", NULL};
+    state->ocr_document_type = GTK_DROP_DOWN(
+        gtk_drop_down_new_from_strings(document_types));
+    state->ocr_document_side = GTK_DROP_DOWN(
+        gtk_drop_down_new_from_strings(document_sides));
+    {
+        static const char *const pending_languages[] = {
+            "Détection des langues…", NULL};
+        state->ocr_languages = GTK_DROP_DOWN(
+            gtk_drop_down_new_from_strings(pending_languages));
+    }
+    state->ocr_profile = GTK_DROP_DOWN(
+        gtk_drop_down_new_from_strings(profile_labels));
+    state->ocr_page = GTK_SPIN_BUTTON(
+        gtk_spin_button_new_with_range(1, 999, 1));
+    state->ocr_start = GTK_BUTTON(
+        gtk_button_new_with_label("Analyser comme document d’identité"));
+    state->ocr_cancel = GTK_BUTTON(
+        gtk_button_new_with_label("Annuler l’OCR"));
+    gtk_widget_set_sensitive(GTK_WIDGET(state->ocr_start), FALSE);
+    gtk_widget_set_tooltip_text(GTK_WIDGET(state->ocr_start),
+        state->tesseract_path != NULL
+            ? "Lancer explicitement Tesseract sur la copie contrôlée"
+            : "Tesseract est absent du registre d’outils");
+    gtk_box_append(GTK_BOX(ocr_box), GTK_WIDGET(state->ocr_document_type));
+    gtk_box_append(GTK_BOX(ocr_box), GTK_WIDGET(state->ocr_document_side));
+    gtk_box_append(GTK_BOX(ocr_box), GTK_WIDGET(state->ocr_page));
+    gtk_box_append(GTK_BOX(ocr_box), GTK_WIDGET(state->ocr_languages));
+    gtk_box_append(GTK_BOX(ocr_box), GTK_WIDGET(state->ocr_profile));
+    GtkWidget *ocr_actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_append(GTK_BOX(ocr_actions), GTK_WIDGET(state->ocr_start));
+    gtk_box_append(GTK_BOX(ocr_actions), GTK_WIDGET(state->ocr_cancel));
+    gtk_box_append(GTK_BOX(ocr_box), ocr_actions);
+    state->ocr_status = GTK_LABEL(gtk_label_new(
+        state->tesseract_path != NULL ? "OCR facultatif, non lancé."
+            : "Tesseract absent : OCR indisponible."));
+    gtk_box_append(GTK_BOX(ocr_box), GTK_WIDGET(state->ocr_status));
+    state->ocr_overlay = ocr_provenance_overlay_new();
+    state->ocr_fields = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+    GtkWidget *field_scroll = gtk_scrolled_window_new();
+    gtk_widget_set_size_request(field_scroll, -1, 180);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(field_scroll),
+        GTK_WIDGET(state->ocr_fields));
+    gtk_box_append(GTK_BOX(ocr_box), field_scroll);
+    {
+        static const char *const field_codes[] = {
+            "Type de document", "Pays émetteur", "Autorité émettrice",
+            "Numéro du document", "Nom", "Nom de naissance", "Prénoms",
+            "Sexe imprimé", "Nationalité", "Date de naissance",
+            "Lieu de naissance", "Date de délivrance", "Date d’expiration",
+            "Adresse imprimée", "Ligne MRZ 1", "Ligne MRZ 2",
+            "Ligne MRZ 3", NULL};
+        GtkWidget *manual_box =
+            gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        state->ocr_manual_code = GTK_DROP_DOWN(
+            gtk_drop_down_new_from_strings(field_codes));
+        state->ocr_manual_value = GTK_ENTRY(gtk_entry_new());
+        gtk_entry_set_placeholder_text(state->ocr_manual_value,
+            "Valeur réellement visible dans la preuve");
+        gtk_widget_set_hexpand(GTK_WIDGET(state->ocr_manual_value), TRUE);
+        GtkWidget *add_manual =
+            gtk_button_new_with_label("Ajouter un champ manquant");
+        gtk_box_append(GTK_BOX(manual_box),
+            GTK_WIDGET(state->ocr_manual_code));
+        gtk_box_append(GTK_BOX(manual_box),
+            GTK_WIDGET(state->ocr_manual_value));
+        gtk_box_append(GTK_BOX(manual_box), add_manual);
+        gtk_box_append(GTK_BOX(ocr_box), manual_box);
+        g_signal_connect(add_manual, "clicked",
+            G_CALLBACK(create_person_dialog_on_add_manual_field), state);
+    }
+    gtk_box_append(GTK_BOX(ocr_box), gtk_label_new(
+        "Notes factuelles sur le document "
+        "(tronqué, flou, masqué ou incomplet)"));
+    state->ocr_factual_notes = GTK_TEXT_VIEW(gtk_text_view_new());
+    gtk_widget_set_name(GTK_WIDGET(state->ocr_factual_notes),
+        "create-person-ocr-factual-notes");
+    gtk_text_view_set_wrap_mode(
+        state->ocr_factual_notes, GTK_WRAP_WORD_CHAR);
+    gtk_widget_set_size_request(
+        GTK_WIDGET(state->ocr_factual_notes), -1, 90);
+    gtk_box_append(GTK_BOX(ocr_box),
+        GTK_WIDGET(state->ocr_factual_notes));
+    state->ocr_text = GTK_TEXT_VIEW(gtk_text_view_new());
+    gtk_widget_set_name(GTK_WIDGET(state->ocr_text),
+        "create-person-ocr-raw-text");
+    gtk_text_view_set_editable(state->ocr_text, FALSE);
+    gtk_text_view_set_monospace(state->ocr_text, TRUE);
+    GtkWidget *ocr_text_scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(ocr_text_scroll),
+        GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(ocr_text_scroll),
+        GTK_WIDGET(state->ocr_text));
+    state->ocr_corrected_text = GTK_TEXT_VIEW(gtk_text_view_new());
+    gtk_widget_set_name(GTK_WIDGET(state->ocr_corrected_text),
+        "identity-corrected-transcription");
+    gtk_text_view_set_wrap_mode(
+        state->ocr_corrected_text, GTK_WRAP_WORD_CHAR);
+    GtkWidget *corrected_scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(corrected_scroll),
+        GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(corrected_scroll),
+        GTK_WIDGET(state->ocr_corrected_text));
+    state->ocr_transcription_stack = GTK_STACK(gtk_stack_new());
+    gtk_widget_set_name(GTK_WIDGET(state->ocr_transcription_stack),
+        "create-person-ocr-transcription-stack");
+    gtk_widget_set_size_request(
+        GTK_WIDGET(state->ocr_transcription_stack), -1, 150);
+    gtk_stack_add_titled(state->ocr_transcription_stack, ocr_text_scroll,
+        "raw", "OCR brut");
+    gtk_stack_add_titled(
+        state->ocr_transcription_stack, corrected_scroll,
+        "corrected", "Transcription corrigée");
+    GtkWidget *transcription_switcher = gtk_stack_switcher_new();
+    gtk_widget_set_name(transcription_switcher,
+        "create-person-ocr-transcription-switcher");
+    gtk_stack_switcher_set_stack(
+        GTK_STACK_SWITCHER(transcription_switcher),
+        state->ocr_transcription_stack);
+    gtk_box_append(GTK_BOX(ocr_box), transcription_switcher);
+    gtk_box_append(GTK_BOX(ocr_box),
+        GTK_WIDGET(state->ocr_transcription_stack));
+    GtkWidget *reset_transcription = gtk_button_new_with_label(
+        "Réinitialiser depuis l’OCR brut");
+    gtk_widget_set_halign(reset_transcription, GTK_ALIGN_START);
+    g_signal_connect(reset_transcription, "clicked",
+        G_CALLBACK(create_person_dialog_on_reset_transcription), state);
+    gtk_box_append(GTK_BOX(ocr_box), reset_transcription);
+    GtkWidget *ocr_left = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_set_name(ocr_left, "create-person-ocr-left-panel");
+    gtk_widget_set_size_request(ocr_left, 500, -1);
+    gtk_box_append(GTK_BOX(ocr_left), ocr_warning);
+    GtkWidget *ocr_scroll = gtk_scrolled_window_new();
+    gtk_widget_set_name(ocr_scroll, "create-person-ocr-scroll");
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(ocr_scroll),
+        GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_propagate_natural_height(
+        GTK_SCROLLED_WINDOW(ocr_scroll), FALSE);
+    gtk_widget_set_vexpand(ocr_scroll, TRUE);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(ocr_scroll), ocr_box);
+    gtk_box_append(GTK_BOX(ocr_left), ocr_scroll);
+    GtkWidget *ocr_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_name(ocr_paned, "create-person-ocr-paned");
+    gtk_paned_set_start_child(GTK_PANED(ocr_paned), ocr_left);
+    GtkWidget *ocr_preview =
+        ocr_provenance_overlay_get_widget(state->ocr_overlay);
+    gtk_widget_set_name(ocr_preview, "create-person-ocr-preview");
+    gtk_widget_set_size_request(ocr_preview, 180, -1);
+    gtk_paned_set_end_child(GTK_PANED(ocr_paned), ocr_preview);
+    gtk_paned_set_resize_start_child(GTK_PANED(ocr_paned), FALSE);
+    gtk_paned_set_resize_end_child(GTK_PANED(ocr_paned), TRUE);
+    gtk_stack_add_titled(state->stack, ocr_paned, "identity-ocr",
+        "4 — OCR identité");
     state->summary = GTK_LABEL(gtk_label_new(""));
     summary = GTK_WIDGET(state->summary);
     gtk_label_set_wrap(state->summary, TRUE);
     gtk_label_set_xalign(state->summary, 0.0f);
     gtk_label_set_selectable(state->summary, TRUE);
-    gtk_stack_add_titled(state->stack, summary, "summary", "4 — Confirmation");
+    gtk_stack_add_titled(state->stack, summary, "summary", "5 — Confirmation");
     state->error = GTK_LABEL(gtk_label_new(NULL)); gtk_widget_set_visible(GTK_WIDGET(state->error), FALSE);
-    actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8); gtk_widget_set_halign(actions, GTK_ALIGN_END);
+    actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_name(actions, "create-person-actions");
+    gtk_widget_set_halign(actions, GTK_ALIGN_END);
     cancel = gtk_button_new_with_label("Annuler");
     state->previous = GTK_BUTTON(gtk_button_new_with_label("Précédent"));
     state->next = GTK_BUTTON(gtk_button_new_with_label("Suivant"));
@@ -953,6 +1854,7 @@ gboolean create_person_dialog_present(GtkWindow *parent,
     state->progress = GTK_LABEL(gtk_label_new(NULL));
     gtk_label_set_xalign(state->progress, 0.0f);
     gtk_box_append(GTK_BOX(box), GTK_WIDGET(state->progress));
+    gtk_widget_set_vexpand(GTK_WIDGET(state->stack), TRUE);
     gtk_box_append(GTK_BOX(box), GTK_WIDGET(state->stack));
     gtk_box_append(GTK_BOX(box), GTK_WIDGET(state->error));
     gtk_box_append(GTK_BOX(box), actions); gtk_window_set_child(state->window, box);
@@ -964,6 +1866,10 @@ gboolean create_person_dialog_present(GtkWindow *parent,
         G_CALLBACK(create_person_dialog_on_next), state);
     g_signal_connect(state->create, "clicked",
         G_CALLBACK(create_person_dialog_on_create), state);
+    g_signal_connect(state->ocr_start, "clicked",
+        G_CALLBACK(create_person_dialog_on_ocr_start), state);
+    g_signal_connect(state->ocr_cancel, "clicked",
+        G_CALLBACK(create_person_dialog_on_ocr_cancel), state);
     g_signal_connect(state->search, "changed",
         G_CALLBACK(create_person_dialog_on_search_changed), state);
     g_signal_connect(state->type_filter, "notify::selected",
@@ -985,7 +1891,20 @@ gboolean create_person_dialog_present(GtkWindow *parent,
     create_person_dialog_update_navigation(state);
     g_object_set_data_full(G_OBJECT(state->window), "person-dialog-state", state,
         create_person_dialog_state_free);
-    gtk_window_present(state->window); return TRUE;
+    if (state->tesseract_path != NULL) {
+        IdentityLanguageJob *job = g_new0(IdentityLanguageJob, 1);
+        job->executable = g_strdup(state->tesseract_path);
+        g_weak_ref_init(&job->window, G_OBJECT(state->window));
+        GTask *task = g_task_new(NULL, NULL, identity_languages_completed, job);
+        g_task_set_task_data(task, job, identity_language_job_free);
+        g_task_run_in_thread(task, identity_languages_worker);
+        g_object_unref(task);
+    }
+    gtk_window_present(state->window);
+    g_idle_add_full(G_PRIORITY_DEFAULT_IDLE,
+        create_person_dialog_set_initial_ocr_paned_position,
+        g_object_ref(ocr_paned), g_object_unref);
+    return TRUE;
 }
 void create_person_dialog_result_free(CreatePersonDialogResult *result)
 {
@@ -997,6 +1916,7 @@ void create_person_dialog_result_free(CreatePersonDialogResult *result)
     g_clear_pointer(&result->evidence_selection,
         person_evidence_selection_free);
     g_clear_pointer(&result->staging, evidence_staging_free);
+    g_clear_pointer(&result->ocr_runs, g_ptr_array_unref);
     g_free(result);
 }
 const PersonEntityInput *create_person_dialog_result_get_input(
@@ -1016,4 +1936,22 @@ EvidenceStaging *create_person_dialog_result_steal_staging(
     EvidenceStaging *staging = result != NULL ? result->staging : NULL;
     if (result != NULL) result->staging = NULL;
     return staging;
+}
+const GPtrArray *create_person_dialog_result_get_ocr_runs(
+    const CreatePersonDialogResult *result)
+{
+    return result != NULL ? result->ocr_runs : NULL;
+}
+gboolean create_person_dialog_test_overlay_has_region(GtkWindow *window)
+{
+    CreatePersonDialogState *state = window != NULL
+        ? g_object_get_data(G_OBJECT(window), "person-dialog-state") : NULL;
+    return state != NULL &&
+        ocr_provenance_overlay_has_region(state->ocr_overlay);
+}
+guint64 create_person_dialog_test_ocr_generation(GtkWindow *window)
+{
+    CreatePersonDialogState *state = window != NULL
+        ? g_object_get_data(G_OBJECT(window), "person-dialog-state") : NULL;
+    return state != NULL ? state->ocr_generation : 0;
 }

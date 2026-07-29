@@ -377,6 +377,36 @@ bool schema_install_v14(Database *database)
         "la migration SQLite V14");
 }
 
+bool schema_install_v15(Database *database)
+{
+    return schema_execute_file(database, "database/schema_v15.sql",
+        "la migration SQLite V15");
+}
+
+bool schema_install_v16(Database *database)
+{
+    return schema_execute_file(database, "database/schema_v16.sql",
+        "la migration SQLite V16");
+}
+
+bool schema_install_v17(Database *database)
+{
+    sqlite3_stmt *statement = NULL;
+    sqlite3 *handle = database_get_handle(database);
+    if (handle != NULL &&
+        sqlite3_prepare_v2(handle,
+            "SELECT corrected_transcription, transcription_is_human, "
+            "transcription_corrected_at, transcription_origin "
+            "FROM identity_ocr_runs LIMIT 0",
+            -1, &statement, NULL) == SQLITE_OK) {
+        sqlite3_finalize(statement);
+        return true;
+    }
+    sqlite3_finalize(statement);
+    return schema_execute_file(database, "database/schema_v17.sql",
+        "la migration SQLite V17");
+}
+
 bool schema_ensure_current(
     Database *database
 )

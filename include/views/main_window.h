@@ -104,6 +104,9 @@ typedef void (*MainWindowAnalyzeEmlCallback)(const char *evidence_identifier,
 /** @brief Callback appelé pour analyser un RIB par OCR. */
 typedef void (*MainWindowAnalyzeRibCallback)(const char *evidence_identifier,
     gpointer user_data);
+typedef void (*MainWindowIdentityOcrCallback)(
+    const char *evidence_identifier, gboolean revise_existing,
+    const char *ocr_run_identifier, gpointer user_data);
 /** @brief Callback appelé pour extraire les métadonnées d'une preuve. */
 typedef void (*MainWindowExtractMetadataCallback)(const char *evidence_identifier,
     gpointer user_data);
@@ -237,6 +240,9 @@ void main_window_set_extract_metadata_callback(MainWindow *main_window,
 /** @brief Définit le callback de récupération d'un mot de passe PDF. */
 void main_window_set_recover_pdf_password_callback(MainWindow *main_window,
     MainWindowRecoverPdfPasswordCallback callback, gpointer user_data);
+void main_window_set_identity_ocr_callback(
+    MainWindow *main_window, MainWindowIdentityOcrCallback callback,
+    gpointer user_data);
 
 /**
  * @brief Définit le callback de fin de déplacement d'un nœud.
@@ -497,6 +503,8 @@ void main_window_set_selected_evidence(
     MainWindow *main_window,
     const EvidenceRecord *evidence_record
 );
+void main_window_set_identity_ocr_runs(
+    MainWindow *main_window, GPtrArray *owned_records);
 void main_window_set_evidence_observations(MainWindow *main_window,
     const GPtrArray *observations);
 void main_window_set_observation_remove_callback(MainWindow *main_window,

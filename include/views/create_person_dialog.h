@@ -9,6 +9,7 @@
 #include "models/evidence_record.h"
 #include "models/person_evidence_selection.h"
 #include "core/task_manager.h"
+#include "core/tool_registry.h"
 #include <gtk/gtk.h>
 G_BEGIN_DECLS
 /** @brief Résultat opaque possédé par le callback. */
@@ -27,7 +28,8 @@ typedef gboolean (*CreatePersonDialogSessionCheck)(gpointer user_data);
  */
 gboolean create_person_dialog_present(GtkWindow *parent,
     const GPtrArray *evidence_records, const char *investigation_root_path,
-    TaskManager *task_manager, CreatePersonDialogSessionCheck session_check,
+    TaskManager *task_manager, const ToolInfo *tesseract_tool,
+    CreatePersonDialogSessionCheck session_check,
     CreatePersonDialogCallback callback, gpointer user_data,
     GDestroyNotify user_data_destroy);
 /** @brief Libère un résultat. */
@@ -39,5 +41,9 @@ const PersonEvidenceSelection *create_person_dialog_result_get_evidence_selectio
     const CreatePersonDialogResult *result);
 EvidenceStaging *create_person_dialog_result_steal_staging(
     CreatePersonDialogResult *result);
+const GPtrArray *create_person_dialog_result_get_ocr_runs(
+    const CreatePersonDialogResult *result);
+gboolean create_person_dialog_test_overlay_has_region(GtkWindow *window);
+guint64 create_person_dialog_test_ocr_generation(GtkWindow *window);
 G_END_DECLS
 #endif

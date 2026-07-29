@@ -4,6 +4,7 @@
 #include "dao/evidence_dao.h"
 #include "dao/evidence_entity_dao.h"
 #include "dao/person_role_assignment_dao.h"
+#include "dao/identity_ocr_dao.h"
 #include "database/transaction.h"
 #include <errno.h>
 #include <glib/gstdio.h>
@@ -12,6 +13,29 @@
 static GQuark coordinator_error(void)
 {
     return g_quark_from_static_string("person-creation-coordinator-error");
+}
+typedef struct {
+    const PersonCreationCoordinatorOptions *options;
+    guint occurrences[PERSON_CREATION_FAILURE_COMPENSATION + 1];
+} FailureControl;
+static gboolean fail_at(FailureControl *control,
+    PersonCreationFailurePoint point, GError **error)
+{
+    guint occurrence;
+    if (control == NULL || control->options == NULL ||
+        control->options->failure_point != point) return FALSE;
+    occurrence = control->occurrences[point]++;
+    if (occurrence != control->options->failure_occurrence) return FALSE;
+    if (error != NULL && *error == NULL)
+        g_set_error(error, coordinator_error(), 100 + point,
+            "Échec injecté au point %u, occurrence %u.",
+            (guint) point, occurrence);
+    return TRUE;
+}
+static gboolean session_valid(const PersonCreationCoordinatorOptions *options)
+{
+    return options == NULL || options->session_check == NULL ||
+        options->session_check(options->session_check_data);
 }
 static gboolean cancelled(GCancellable *cancellable, GError **error)
 {
@@ -140,9 +164,110 @@ static gboolean validate_selection_files(const char *root,
     }
     return TRUE;
 }
-PersonCreationCoordinatorResult *person_creation_coordinator_execute(
+
+static gboolean persist_ocr_runs(IdentityOcrDao *dao, const char *root,
+    const char *person_identifier, const PersonEvidenceSelection *selection,
+    const GPtrArray *evidence_identifiers, const GPtrArray *runs,
+    const char *timestamp, GPtrArray *created_paths,
+    GPtrArray *created_directories,
+    FailureControl *failure,
+    GCancellable *cancellable, GError **error)
+{
+    for (guint i = 0; runs != NULL && i < runs->len; i++) {
+        IdentityOcrRun *run = g_ptr_array_index((GPtrArray *) runs, i);
+        const char *evidence_identifier = NULL;
+        for (guint j = 0; j < person_evidence_selection_get_count(selection);
+             j++) {
+            const PersonEvidenceSelectionItem *item =
+                person_evidence_selection_get(selection, j);
+            if (g_strcmp0(person_evidence_selection_item_get_identifier(item),
+                    identity_ocr_run_get_evidence_id(run)) == 0) {
+                evidence_identifier = g_ptr_array_index(
+                    (GPtrArray *) evidence_identifiers, j);
+                break;
+            }
+        }
+        if (evidence_identifier == NULL) {
+            g_set_error_literal(error, coordinator_error(), 4,
+                "La preuve source de l’OCR n’est plus retenue.");
+            return FALSE;
+        }
+        char *parent = g_build_filename(root, "02_Preuves_Traitees",
+            "OCR", NULL);
+        char *directory = g_build_filename(parent,
+            identity_ocr_run_get_identifier(run), NULL);
+        gboolean parent_existed = g_file_test(parent, G_FILE_TEST_IS_DIR);
+        gboolean directory_existed =
+            g_file_test(directory, G_FILE_TEST_IS_DIR);
+        char *text_absolute = g_build_filename(directory, "ocr.txt", NULL);
+        char *tsv_absolute = g_build_filename(directory, "ocr.tsv", NULL);
+        char *text_relative = g_build_filename("02_Preuves_Traitees", "OCR",
+            identity_ocr_run_get_identifier(run), "ocr.txt", NULL);
+        char *tsv_relative = g_build_filename("02_Preuves_Traitees", "OCR",
+            identity_ocr_run_get_identifier(run), "ocr.tsv", NULL);
+        char *text_sha = NULL, *tsv_sha = NULL;
+        guint64 artifact_size = 0;
+        gboolean ok =
+            !fail_at(failure,
+                PERSON_CREATION_FAILURE_CREATE_OCR_DIRECTORY, error) &&
+            g_mkdir_with_parents(directory, 0700) == 0 &&
+            !fail_at(failure, PERSON_CREATION_FAILURE_COPY_OCR_TEXT, error) &&
+            g_file_set_contents(text_absolute,
+                identity_ocr_run_get_raw_text(run), -1, error) &&
+            !fail_at(failure, PERSON_CREATION_FAILURE_COPY_OCR_TSV, error) &&
+            g_file_set_contents(tsv_absolute,
+                identity_ocr_run_get_tsv(run), -1, error) &&
+            !fail_at(failure, PERSON_CREATION_FAILURE_HASH_OCR_TEXT, error) &&
+            file_hash_compute_sha256(text_absolute, cancellable,
+                &text_sha, &artifact_size, error) &&
+            !fail_at(failure, PERSON_CREATION_FAILURE_HASH_OCR_TSV, error) &&
+            file_hash_compute_sha256(tsv_absolute, cancellable,
+                &tsv_sha, &artifact_size, error);
+        const GPtrArray *fields = identity_ocr_run_get_fields(run);
+        ok = ok && !fail_at(failure,
+            PERSON_CREATION_FAILURE_INSERT_OCR_RUN, error) &&
+            !fail_at(failure,
+                PERSON_CREATION_FAILURE_INSERT_DOCUMENT_OBSERVATION, error);
+        for (guint field_index = 0; ok && fields != NULL &&
+             field_index < fields->len; field_index++) {
+            IdentityFieldObservation *field =
+                g_ptr_array_index((GPtrArray *) fields, field_index);
+            IdentityReviewStatus status =
+                identity_field_observation_get_status(field);
+            if (status != IDENTITY_REVIEW_ACCEPTED &&
+                status != IDENTITY_REVIEW_MODIFIED) continue;
+            ok = !fail_at(failure,
+                PERSON_CREATION_FAILURE_INSERT_FIELD, error) &&
+                !fail_at(failure,
+                    PERSON_CREATION_FAILURE_CREATE_SOURCE, error);
+        }
+        ok = ok &&
+            identity_ocr_dao_insert(dao, person_identifier,
+                evidence_identifier, run, text_relative, text_sha,
+                tsv_relative, tsv_sha, timestamp, error);
+        if (g_file_test(text_absolute, G_FILE_TEST_IS_REGULAR))
+            g_ptr_array_add(created_paths, g_strdup(text_absolute));
+        if (g_file_test(tsv_absolute, G_FILE_TEST_IS_REGULAR))
+            g_ptr_array_add(created_paths, g_strdup(tsv_absolute));
+        if (!parent_existed && g_file_test(parent, G_FILE_TEST_IS_DIR))
+            g_ptr_array_add(created_directories, g_strdup(parent));
+        if (!directory_existed && g_file_test(directory, G_FILE_TEST_IS_DIR))
+            g_ptr_array_add(created_directories, g_strdup(directory));
+        g_free(parent); g_free(directory); g_free(text_absolute); g_free(tsv_absolute);
+        g_free(text_relative); g_free(tsv_relative);
+        g_free(text_sha); g_free(tsv_sha);
+        if (!ok) return FALSE;
+    }
+    return TRUE;
+}
+
+static PersonCreationCoordinatorResult *person_creation_coordinator_execute_internal(
     Database *database, const char *root, const PersonEntityInput *person,
-    const PersonEvidenceSelection *selection, GCancellable *cancellable,
+    const char *existing_person_identifier,
+    const PersonEvidenceSelection *selection, const GPtrArray *ocr_runs,
+    const PersonCreationCoordinatorEvidenceMetadata *metadata,
+    const PersonCreationCoordinatorOptions *options,
+    GCancellable *cancellable,
     GError **error)
 {
     PersonCreationCoordinatorResult *result = NULL;
@@ -150,39 +275,72 @@ PersonCreationCoordinatorResult *person_creation_coordinator_execute(
     EvidenceDao *evidence_dao = NULL;
     EvidenceEntityDao *link_dao = NULL;
     PersonRoleAssignmentDao *role_dao = NULL;
+    IdentityOcrDao *ocr_dao = NULL;
     EntityRecord *person_record = NULL;
     GPtrArray *created_paths = g_ptr_array_new_with_free_func(g_free);
+    GPtrArray *created_directories = g_ptr_array_new_with_free_func(g_free);
     char *timestamp = NULL;
     gboolean transaction_active = FALSE, success = FALSE;
-    if (database == NULL || root == NULL || person == NULL ||
-        person->designation == NULL || person->designation[0] == '\0' ||
+    gboolean create_person = existing_person_identifier == NULL;
+    FailureControl failure = {.options = options};
+    if (fail_at(&failure, PERSON_CREATION_FAILURE_VALIDATE, error))
+        goto cleanup;
+    if (database == NULL || root == NULL ||
+        (create_person && (person == NULL ||
+         person->designation == NULL || person->designation[0] == '\0')) ||
+        (!create_person && (existing_person_identifier[0] == '\0' ||
+         !g_uuid_string_is_valid(existing_person_identifier))) ||
         !person_evidence_selection_is_confirmable(selection)) {
         g_set_error_literal(error, coordinator_error(), 1,
             "La création de personne ou la sélection est invalide.");
         goto cleanup;
     }
+    if (!session_valid(options) ||
+        fail_at(&failure, PERSON_CREATION_FAILURE_SESSION_BEFORE_START,
+            error)) {
+        if (error != NULL && *error == NULL)
+            g_set_error_literal(error, coordinator_error(), 6,
+                "La session d’enquête a changé avant la création.");
+        goto cleanup;
+    }
     if (cancelled(cancellable, error)) goto cleanup;
+    if (fail_at(&failure, PERSON_CREATION_FAILURE_SOURCE_HASH, error))
+        goto cleanup;
     if (!validate_selection_files(root, selection, cancellable, error))
         goto cleanup;
     timestamp = timestamp_now();
     result = g_new0(PersonCreationCoordinatorResult, 1);
-    result->person_identifier = g_uuid_string_random();
+    result->person_identifier = create_person
+        ? g_uuid_string_random() : g_strdup(existing_person_identifier);
     result->evidence_identifiers =
         g_ptr_array_new_with_free_func(g_free);
     entity_dao = entity_dao_new(database, error);
     evidence_dao = evidence_dao_new(database, error);
     link_dao = evidence_entity_dao_new(database, error);
     role_dao = person_role_assignment_dao_new(database, error);
-    person_record = build_person(person, result->person_identifier,
-        timestamp, error);
+    ocr_dao = identity_ocr_dao_new(database);
+    person_record = entity_dao == NULL ? NULL : create_person
+        ? build_person(person, result->person_identifier, timestamp, error)
+        : entity_dao_find_by_identifier(
+            entity_dao, result->person_identifier, error);
     if (timestamp == NULL || entity_dao == NULL || evidence_dao == NULL ||
-        link_dao == NULL || role_dao == NULL || person_record == NULL ||
+        link_dao == NULL || role_dao == NULL || ocr_dao == NULL ||
+        person_record == NULL ||
+        g_strcmp0(entity_record_get_type_identifier(person_record),
+            "person") != 0 ||
         !database_transaction_begin(database)) goto cleanup;
     transaction_active = TRUE;
-    if (!entity_dao_insert(entity_dao, person_record, error) ||
-        !person_role_assignment_dao_insert_all(role_dao,
-            result->person_identifier, person->role_assignments, error))
+    if (create_person &&
+        (fail_at(&failure, PERSON_CREATION_FAILURE_CREATE_PERSON, error) ||
+         !entity_dao_insert(entity_dao, person_record, error)))
         goto cleanup;
+    for (guint i = 0; create_person && person->role_assignments != NULL &&
+         i < person->role_assignments->len; i++)
+        if (fail_at(&failure, PERSON_CREATION_FAILURE_CREATE_ROLE, error) ||
+            !person_role_assignment_dao_insert(role_dao,
+                result->person_identifier,
+                g_ptr_array_index(person->role_assignments, i), error))
+            goto cleanup;
     for (guint i = 0; i < person_evidence_selection_get_count(selection);
          i++) {
         const PersonEvidenceSelectionItem *item =
@@ -193,6 +351,8 @@ PersonCreationCoordinatorResult *person_creation_coordinator_execute(
         char *absolute = NULL, *duplicate_identifier = NULL;
         EvidenceRecord *record = NULL;
         if (cancelled(cancellable, error)) goto cleanup;
+        if (fail_at(&failure, PERSON_CREATION_FAILURE_IMPORT_EVIDENCE,
+                error)) goto cleanup;
         if (person_evidence_selection_item_get_origin(item) ==
             PERSON_EVIDENCE_ORIGIN_STAGED) {
             duplicate_identifier = evidence_dao_find_identifier_by_sha256(
@@ -215,11 +375,19 @@ PersonCreationCoordinatorResult *person_creation_coordinator_execute(
             record = evidence_record_new(identifier,
                 person_evidence_selection_item_get_original_name(item),
                 internal, relative,
-                person_evidence_selection_item_get_type_identifier(item),
+                metadata != NULL && metadata->type_identifier != NULL
+                    ? metadata->type_identifier
+                    : person_evidence_selection_item_get_type_identifier(item),
                 person_evidence_selection_item_get_size_bytes(item),
-                person_evidence_selection_item_get_sha256(item), timestamp,
-                NULL, "Import depuis l’assistant de création d’une personne",
-                person_evidence_selection_item_get_description(item),
+                person_evidence_selection_item_get_sha256(item),
+                metadata != NULL && metadata->collected_at != NULL
+                    ? metadata->collected_at : timestamp,
+                metadata != NULL ? metadata->source : NULL, create_person
+                    ? "Import depuis l’assistant de création d’une personne"
+                    : "Import OCR rattaché à une personne existante",
+                metadata != NULL && metadata->description != NULL
+                    ? metadata->description
+                    : person_evidence_selection_item_get_description(item),
                 EVIDENCE_INTEGRITY_STATUS_VALID, error);
             if (record == NULL ||
                 !evidence_dao_insert(evidence_dao, record, error)) {
@@ -230,7 +398,9 @@ PersonCreationCoordinatorResult *person_creation_coordinator_execute(
             evidence_identifier = identifier;
             }
         }
-        if (!evidence_entity_dao_link(link_dao, evidence_identifier,
+        if (fail_at(&failure, PERSON_CREATION_FAILURE_LINK_EVIDENCE,
+                error) ||
+            !evidence_entity_dao_link(link_dao, evidence_identifier,
                 result->person_identifier, error)) {
             evidence_record_free(record); g_free(identifier);
             g_free(duplicate_identifier);
@@ -244,7 +414,61 @@ PersonCreationCoordinatorResult *person_creation_coordinator_execute(
         g_free(identifier); g_free(relative); g_free(internal);
         g_free(absolute);
     }
-    if (!database_transaction_commit(database)) goto cleanup;
+    if (!persist_ocr_runs(ocr_dao, root, result->person_identifier,
+            selection, result->evidence_identifiers, ocr_runs, timestamp,
+            created_paths, created_directories, &failure,
+            cancellable, error))
+        goto cleanup;
+    for (guint i = 0; ocr_runs != NULL && i < ocr_runs->len; i++) {
+        IdentityOcrRun *run = g_ptr_array_index((GPtrArray *) ocr_runs, i);
+        char *directory = g_build_filename(root, "02_Preuves_Traitees",
+            "OCR", identity_ocr_run_get_identifier(run), NULL);
+        char *text_path = g_build_filename(directory, "ocr.txt", NULL);
+        char *tsv_path = g_build_filename(directory, "ocr.tsv", NULL);
+        gboolean alter_text = fail_at(&failure,
+            PERSON_CREATION_FAILURE_ARTIFACT_TEXT_CHANGED, error);
+        gboolean alter_tsv = fail_at(&failure,
+            PERSON_CREATION_FAILURE_ARTIFACT_TSV_CHANGED, error);
+        if (alter_text || alter_tsv) {
+            g_clear_error(error);
+            if (!g_file_set_contents(alter_text ? text_path : tsv_path,
+                    "SPECIMEN MODIFIÉ APRÈS COPIE", -1, error)) {
+                g_free(directory); g_free(text_path); g_free(tsv_path);
+                goto cleanup;
+            }
+        }
+        char *text_sha = NULL, *tsv_sha = NULL;
+        guint64 size = 0;
+        char *expected_text = g_compute_checksum_for_string(
+            G_CHECKSUM_SHA256, identity_ocr_run_get_raw_text(run), -1);
+        char *expected_tsv = g_compute_checksum_for_string(
+            G_CHECKSUM_SHA256, identity_ocr_run_get_tsv(run), -1);
+        gboolean verified = file_hash_compute_sha256(text_path, cancellable,
+                &text_sha, &size, error) &&
+            file_hash_compute_sha256(tsv_path, cancellable,
+                &tsv_sha, &size, error) &&
+            g_strcmp0(text_sha, expected_text) == 0 &&
+            g_strcmp0(tsv_sha, expected_tsv) == 0;
+        g_free(directory); g_free(text_path); g_free(tsv_path);
+        g_free(text_sha); g_free(tsv_sha);
+        g_free(expected_text); g_free(expected_tsv);
+        if (!verified) {
+            if (error != NULL && *error == NULL)
+                g_set_error_literal(error, coordinator_error(), 7,
+                    "Un artefact OCR a changé avant la validation.");
+            goto cleanup;
+        }
+    }
+    if (!session_valid(options) ||
+        fail_at(&failure, PERSON_CREATION_FAILURE_SESSION_BEFORE_COMMIT,
+            error)) {
+        if (error != NULL && *error == NULL)
+            g_set_error_literal(error, coordinator_error(), 8,
+                "La session d’enquête a changé avant la validation.");
+        goto cleanup;
+    }
+    if (fail_at(&failure, PERSON_CREATION_FAILURE_COMMIT, error) ||
+        !database_transaction_commit(database)) goto cleanup;
     transaction_active = FALSE;
     success = TRUE;
 cleanup:
@@ -253,18 +477,78 @@ cleanup:
     if (!success)
         for (guint i = 0; i < created_paths->len; i++)
             g_unlink(g_ptr_array_index(created_paths, i));
+    if (!success)
+        for (guint i = created_directories->len; i > 0; i--) {
+            const char *directory =
+                g_ptr_array_index(created_directories, i - 1);
+            gboolean compensation_failure =
+                failure.options != NULL &&
+                failure.options->inject_compensation_failure &&
+                failure.occurrences[PERSON_CREATION_FAILURE_COMPENSATION]++ == 0;
+            if (compensation_failure ||
+                fail_at(&failure, PERSON_CREATION_FAILURE_COMPENSATION,
+                    error)) {
+                if (error != NULL && *error != NULL) {
+                    char *message = g_strdup_printf(
+                        "%s Compensation incomplète : suppression injectée "
+                        "du dossier « %s ».", (*error)->message, directory);
+                    g_clear_error(error);
+                    g_set_error_literal(error, coordinator_error(), 9,
+                        message);
+                    g_free(message);
+                }
+                continue;
+            }
+            if (g_rmdir(directory) != 0 && errno != ENOENT &&
+                errno != ENOTEMPTY && error != NULL && *error == NULL)
+                g_set_error(error, coordinator_error(), 5,
+                    "Impossible de nettoyer le dossier OCR : %s.",
+                    g_strerror(errno));
+        }
     g_ptr_array_unref(created_paths);
+    g_ptr_array_unref(created_directories);
     entity_record_free(person_record);
     entity_dao_free(entity_dao);
     evidence_dao_free(evidence_dao);
     evidence_entity_dao_free(link_dao);
     person_role_assignment_dao_free(role_dao);
+    identity_ocr_dao_free(ocr_dao);
     g_free(timestamp);
     if (!success) {
         person_creation_coordinator_result_free(result);
         result = NULL;
     }
     return result;
+}
+PersonCreationCoordinatorResult *person_creation_coordinator_execute_with_options(
+    Database *database, const char *root, const PersonEntityInput *person,
+    const PersonEvidenceSelection *selection, const GPtrArray *ocr_runs,
+    const PersonCreationCoordinatorOptions *options,
+    GCancellable *cancellable, GError **error)
+{
+    return person_creation_coordinator_execute_internal(database, root,
+        person, NULL, selection, ocr_runs, NULL, options,
+        cancellable, error);
+}
+PersonCreationCoordinatorResult *
+person_creation_coordinator_attach_to_existing_person(
+    Database *database, const char *root, const char *person_identifier,
+    const PersonEvidenceSelection *selection, const GPtrArray *ocr_runs,
+    const PersonCreationCoordinatorEvidenceMetadata *metadata,
+    const PersonCreationCoordinatorOptions *options,
+    GCancellable *cancellable, GError **error)
+{
+    return person_creation_coordinator_execute_internal(database, root,
+        NULL, person_identifier, selection, ocr_runs, metadata, options,
+        cancellable, error);
+}
+PersonCreationCoordinatorResult *person_creation_coordinator_execute(
+    Database *database, const char *root, const PersonEntityInput *person,
+    const PersonEvidenceSelection *selection, const GPtrArray *ocr_runs,
+    GCancellable *cancellable, GError **error)
+{
+    return person_creation_coordinator_execute_with_options(database, root,
+        person, selection, ocr_runs, NULL, cancellable, error);
 }
 void person_creation_coordinator_result_free(
     PersonCreationCoordinatorResult *result)

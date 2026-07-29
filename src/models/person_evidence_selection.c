@@ -88,11 +88,16 @@ PersonEvidenceSelection *person_evidence_selection_copy(
                     copy, item->record, NULL))
                 person_evidence_selection_set_type(copy, item->identifier,
                     item->type_identifier);
-        } else
+        } else {
             person_evidence_selection_add_staged(copy, item->source_path,
                 item->staging_path, item->original_name, item->mime_type,
                 item->type_identifier, item->size_bytes, item->sha256,
                 item->description, item->prepared_at, NULL);
+            PersonEvidenceSelectionItem *copied_item =
+                g_ptr_array_index(copy->items, copy->items->len - 1);
+            g_free(copied_item->identifier);
+            copied_item->identifier = g_strdup(item->identifier);
+        }
     }
     if (source != NULL && source->active_identifier != NULL) {
         PersonEvidenceSelectionItem *active =

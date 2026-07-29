@@ -94,6 +94,13 @@ sudo pacman -S python python-pip
 
 ## Vérification dans l’application
 
+Tesseract est optionnel. L’étape OCR d’identité reste visible mais son lancement
+est désactivé lorsque le registre d’outils ne fournit pas un exécutable vérifié.
+Les langues réellement installées sont interrogées avec `--list-langs`; aucun
+téléchargement n’est effectué par l’application.
+Les choix sont triés et dédupliqués. `fra+eng` n’est proposé que lorsque les
+deux packs sont réellement installés.
+
 Au démarrage, le catalogue des outils indique le nombre d’exécutables
 disponibles et leurs versions. Une commande non détectée doit d’abord être
 vérifiée avec `command -v`, puis avec son option de version (`--version` ou

@@ -20,6 +20,7 @@
 #include "views/create_investigation_dialog.h"
 #include "views/folder_dialog.h"
 #include "views/main_window.h"
+#include "widgets/workspace.h"
 #include "views/application_message_dialog.h"
 #include "core/task_manager.h"
 #include "core/background_task.h"
@@ -30,6 +31,7 @@
 #include "core/evidence_reclassification.h"
 #include "views/file_dialog.h"
 #include "core/evidence_import_task.h"
+#include "core/evidence_identity_import_task.h"
 #include "models/evidence_record.h"
 #include "dao/evidence_type_dao.h"
 #include "dao/graph_node_position_dao.h"
@@ -37,11 +39,13 @@
 #include "models/relation_type.h"
 #include "core/relation_type_service.h"
 #include "views/evidence_import_dialog.h"
+#include "views/evidence_identity_ocr_dialog.h"
 #include "views/evidence_metadata_dialog.h"
 #include "views/create_relation_dialog.h"
 #include "views/osint_dns_review_dialog.h"
 #include "views/osint_execution_history_dialog.h"
 #include "dao/evidence_dao.h"
+#include "dao/identity_ocr_dao.h"
 #include "dao/evidence_entity_dao.h"
 #include "dao/entity_dao.h"
 #include "dao/relation_dao.h"
@@ -146,12 +150,14 @@ struct Application
     InvestigationGraphLayout *graph_layout;
     guint64 graph_load_generation;
     guint64 session_generation;
+    gint identity_import_session_generation;
     gboolean graph_viewport_restored;
     guint graph_viewport_save_source_id;
 
     char *selected_evidence_identifier;
     char *pending_relation_selection_identifier;
     char *pending_entity_selection_identifier;
+    char *pending_evidence_import_person_identifier;
 };
 
 typedef struct
@@ -201,6 +207,13 @@ static void application_observation_removal_context_free(
     g_free(context);
 }
 
+/** @brief Garde immuable d'une tâche d'import OCR. */
+typedef struct
+{
+    Application *application;
+    gint generation;
+} ApplicationEvidenceIdentitySessionGuard;
+
 /**
  * @brief Contexte ApplicationOpenErrorconservé jusqu’à la fin d’un import.
  */
@@ -209,8 +222,9 @@ typedef struct
     Application *application;
     char *investigation_root_path;
     gpointer batch_context;
+    GtkWindow *identity_dialog;
+    ApplicationEvidenceIdentitySessionGuard identity_session_guard;
 } ApplicationEvidenceImportContext;
-
 /** @brief État d'un import groupé traité séquentiellement. */
 typedef struct
 {
@@ -242,7 +256,29 @@ typedef struct
 {
     Application *application;
     char *file_path;
+    char *type_identifier;
+    char *collected_at;
+    char *source;
+    char *description;
+    char *root_path;
+    char *preselected_person_identifier;
 } ApplicationEvidenceDialogContext;
+
+static gboolean application_session_matches_root(
+    const Application *application, const char *expected_root_path);
+static gboolean application_refresh_investigation_tree(
+    Application *application, const char *investigation_root_path);
+static gboolean application_refresh_evidence_models(
+    Application *application, GError **error);
+static void application_start_evidence_import(
+    Application *application, const char *file_path,
+    const char *type_identifier, const char *collected_at,
+    const char *source, const char *description,
+    ApplicationEvidenceBatchContext *batch_context);
+static void application_evidence_import_context_free(gpointer user_data);
+static gboolean application_evidence_identity_session_check(gpointer data);
+static void application_on_edit_evidence_requested(
+    const char *evidence_identifier, gpointer user_data);
 
 /** @brief Contexte possédé pendant l'édition d'une preuve. */
 typedef struct
@@ -250,6 +286,17 @@ typedef struct
     Application *application;
     char *evidence_identifier;
 } ApplicationEvidenceMetadataContext;
+
+typedef struct
+{
+    Application *application;
+    char *evidence_identifier;
+    char *root_path;
+    char *database_path;
+    GtkWindow *dialog;
+    char *ocr_run_identifier;
+    gboolean revision;
+} ApplicationExistingEvidenceOcrContext;
 
 /** @brief Données d'actualisation différée après reclassement. */
 typedef struct
@@ -855,10 +902,173 @@ static void application_evidence_dialog_context_free(
     g_free(
         context->file_path
     );
+    g_free(context->type_identifier);
+    g_free(context->collected_at);
+    g_free(context->source);
+    g_free(context->description);
+    g_free(context->root_path);
+    g_free(context->preselected_person_identifier);
 
     g_free(
         context
     );
+}
+
+/** @brief Vérifie que le dialogue OCR appartient toujours à la session active. */
+static gboolean application_evidence_ocr_session_is_current(gpointer user_data)
+{
+    ApplicationEvidenceDialogContext *context = user_data;
+    return context != NULL &&
+        application_session_matches_root(context->application,
+            context->root_path);
+}
+
+/** @brief Actualise l'interface après l'import atomique d'une preuve OCR. */
+static void application_on_evidence_identity_import_completed(
+    BackgroundTask *task, gpointer user_data)
+{
+    ApplicationEvidenceImportContext *context = user_data;
+    Application *application =
+        context != NULL ? context->application : NULL;
+    GError *refresh_error = NULL;
+    if (task == NULL || application == NULL ||
+        application->main_window == NULL) return;
+    if (background_task_get_state(task) == BACKGROUND_TASK_STATE_COMPLETED)
+    {
+        if (application_session_matches_root(
+                application, context->investigation_root_path))
+        {
+            application_refresh_investigation_tree(
+                application, context->investigation_root_path);
+            application_refresh_evidence_models(application, &refresh_error);
+            PersonCreationCoordinatorResult *result =
+                background_task_get_result(task);
+            if (result != NULL &&
+                result->evidence_identifiers != NULL &&
+                result->evidence_identifiers->len > 0)
+                application_on_evidence_selected(
+                    g_ptr_array_index(result->evidence_identifiers, 0),
+                    application);
+            main_window_set_status(application->main_window,
+                "Preuve et observations OCR importées.");
+            evidence_identity_ocr_dialog_finish_import(
+                context->identity_dialog, NULL);
+        }
+        else
+        {
+            GError *session_error = g_error_new_literal(
+                G_IO_ERROR, G_IO_ERROR_CANCELLED,
+                "La session d’enquête a changé avant la fin de l’import.");
+            evidence_identity_ocr_dialog_finish_import(
+                context->identity_dialog, session_error);
+            g_error_free(session_error);
+        }
+    }
+    else
+    {
+        GError *task_error = background_task_dup_error(task);
+        application_present_error(application, "Import OCR impossible",
+            task_error != NULL ? task_error->message :
+            "L’import atomique de la preuve a échoué.");
+        GError *display_error = task_error != NULL
+            ? g_error_copy(task_error)
+            : g_error_new_literal(G_IO_ERROR, G_IO_ERROR_FAILED,
+                "L’import atomique de la preuve a échoué.");
+        evidence_identity_ocr_dialog_finish_import(
+            context->identity_dialog, display_error);
+        g_error_free(display_error);
+        g_clear_error(&task_error);
+    }
+    g_clear_error(&refresh_error);
+}
+
+/** @brief Traite le choix facultatif effectué dans l'étape OCR. */
+static void application_on_evidence_identity_ocr_completed(
+    EvidenceIdentityOcrDialogResult *result, gpointer user_data)
+{
+    ApplicationEvidenceDialogContext *context = user_data;
+    Application *application =
+        context != NULL ? context->application : NULL;
+    if (result == NULL || application == NULL) return;
+    if (!evidence_identity_ocr_dialog_result_has_ocr(result))
+    {
+        application_start_evidence_import(application, context->file_path,
+            context->type_identifier, context->collected_at,
+            context->source, context->description, NULL);
+    }
+    else
+    {
+        const InvestigationProject *project =
+            investigation_session_get_project(application->session);
+        GtkWindow *identity_dialog =
+            evidence_identity_ocr_dialog_result_get_dialog(result);
+        IdentityOcrRun *run =
+            evidence_identity_ocr_dialog_result_steal_run(result);
+        EvidenceIdentityImportTaskRequest *request = NULL;
+        ApplicationEvidenceImportContext *task_context = NULL;
+        BackgroundTask *task = NULL;
+        GError *error = NULL;
+        if (project == NULL) {
+            GError *session_error = g_error_new_literal(
+                G_IO_ERROR, G_IO_ERROR_CANCELLED,
+                "La session d’enquête n’est plus active.");
+            evidence_identity_ocr_dialog_finish_import(
+                identity_dialog, session_error);
+            g_error_free(session_error);
+            identity_ocr_run_free(run);
+            evidence_identity_ocr_dialog_result_free(result);
+            return;
+        }
+        request = evidence_identity_import_task_request_new(
+            investigation_project_get_database_path(project),
+            investigation_project_get_root_path(project), context->file_path,
+            evidence_identity_ocr_dialog_result_get_person_identifier(result),
+            context->type_identifier, context->collected_at,
+            context->source, context->description, run);
+        task_context = g_new0(ApplicationEvidenceImportContext, 1);
+        task_context->application = application;
+        task_context->investigation_root_path =
+            g_strdup(context->root_path);
+        task_context->identity_dialog = identity_dialog != NULL
+            ? g_object_ref(identity_dialog) : NULL;
+        task_context->identity_session_guard.application = application;
+        task_context->identity_session_guard.generation = g_atomic_int_get(
+            &application->identity_import_session_generation);
+        if (request != NULL) {
+            evidence_identity_import_task_request_set_session_check(
+                request, application_evidence_identity_session_check,
+                &task_context->identity_session_guard);
+            task = evidence_identity_import_task_start(
+                application->task_manager, request,
+                application_on_evidence_identity_import_completed,
+                task_context, application_evidence_import_context_free,
+                &error);
+        }
+        if (task == NULL)
+        {
+            GError *display_error = error != NULL
+                ? g_error_copy(error)
+                : g_error_new_literal(G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "La tâche d’import OCR n’a pas pu démarrer.");
+            evidence_identity_ocr_dialog_finish_import(
+                identity_dialog, display_error);
+            g_error_free(display_error);
+            application_evidence_import_context_free(task_context);
+            application_present_error(application, "Import OCR impossible",
+                error != NULL ? error->message :
+                "La tâche d’import OCR n’a pas pu démarrer.");
+        }
+        else
+        {
+            main_window_set_status(application->main_window,
+                "Import atomique de la preuve et des observations OCR…");
+            background_task_unref(task);
+        }
+        evidence_identity_import_task_request_free(request);
+        identity_ocr_run_free(run);
+        g_clear_error(&error);
+    }
+    evidence_identity_ocr_dialog_result_free(result);
 }
 
 /**
@@ -879,10 +1089,20 @@ static void application_evidence_import_context_free(
     g_free(
         context->investigation_root_path
     );
+    g_clear_object(&context->identity_dialog);
 
     g_free(
         context
     );
+}
+
+static gboolean application_evidence_identity_session_check(gpointer data)
+{
+    ApplicationEvidenceIdentitySessionGuard *guard = data;
+    return guard != NULL && guard->application != NULL &&
+        g_atomic_int_get(
+            &guard->application->identity_import_session_generation) ==
+            guard->generation;
 }
 
 /** @brief Libère l'état possédé d'un import groupé. */
@@ -2763,6 +2983,7 @@ static gboolean application_install_session(
     application->tree_model = new_tree_model;
     application->session = new_session;
     application->session_generation++;
+    g_atomic_int_inc(&application->identity_import_session_generation);
     application->graph_viewport_restored = FALSE;
 
     main_window_set_tree_model(
@@ -3683,6 +3904,309 @@ static void application_evidence_metadata_context_free(
     g_free(context->evidence_identifier); g_free(context);
 }
 
+static void application_existing_evidence_ocr_context_free(gpointer data)
+{
+    ApplicationExistingEvidenceOcrContext *context = data;
+    if (context == NULL) return;
+    g_free(context->evidence_identifier);
+    g_free(context->root_path);
+    g_free(context->database_path);
+    g_clear_object(&context->dialog);
+    g_free(context->ocr_run_identifier);
+    g_free(context);
+}
+
+static gboolean application_existing_evidence_ocr_session_is_current(
+    gpointer data)
+{
+    ApplicationExistingEvidenceOcrContext *context = data;
+    return context != NULL &&
+        application_session_matches_root(
+            context->application, context->root_path);
+}
+
+static void application_on_existing_evidence_ocr_persisted(
+    BackgroundTask *task, gpointer data)
+{
+    ApplicationExistingEvidenceOcrContext *context = data;
+    Application *application =
+        context != NULL ? context->application : NULL;
+    if (application == NULL || application->main_window == NULL) return;
+    if (background_task_get_state(task) == BACKGROUND_TASK_STATE_COMPLETED &&
+        application_session_matches_root(application, context->root_path)) {
+        main_window_set_status(application->main_window,
+            "Analyse OCR enregistrée sur la preuve existante.");
+        application_on_evidence_selected(
+            context->evidence_identifier, application);
+    } else {
+        GError *error = background_task_dup_error(task);
+        application_present_error(application,
+            "Analyse OCR impossible",
+            error != NULL ? error->message :
+            "L’analyse n’a pas pu être liée à la preuve existante.");
+        g_clear_error(&error);
+    }
+}
+
+static void application_on_existing_evidence_ocr_reviewed(
+    BackgroundTask *task, gpointer data)
+{
+    ApplicationExistingEvidenceOcrContext *context = data;
+    Application *application =
+        context != NULL ? context->application : NULL;
+    GError *error = NULL;
+    gboolean success = FALSE;
+    if (application == NULL || application->main_window == NULL ||
+        context->dialog == NULL) return;
+    if (background_task_get_state(task) == BACKGROUND_TASK_STATE_COMPLETED &&
+        application_session_matches_root(application, context->root_path)) {
+        IdentityOcrRun *verified = background_task_get_result(task);
+        success = verified != NULL &&
+            g_strcmp0(identity_ocr_run_get_identifier(verified),
+                context->ocr_run_identifier) == 0;
+        if (success) {
+            application_on_evidence_selected(
+                context->evidence_identifier, application);
+            main_window_set_status(application->main_window,
+                "Révision OCR enregistrée sans relancer Tesseract.");
+            evidence_identity_ocr_dialog_finish_import(
+                context->dialog, NULL);
+            gtk_window_present(
+                main_window_get_window(application->main_window));
+        }
+    }
+    if (!success) {
+        error = background_task_dup_error(task);
+        if (error == NULL)
+            error = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_FAILED,
+                "La révision OCR n’a pas pu être validée.");
+        evidence_identity_ocr_dialog_finish_import(
+            context->dialog, error);
+        application_present_error(application,
+            "Révision OCR impossible", error->message);
+    }
+    g_clear_error(&error);
+}
+
+static void application_on_existing_evidence_ocr_completed(
+    EvidenceIdentityOcrDialogResult *result, gpointer data)
+{
+    ApplicationExistingEvidenceOcrContext *context = data;
+    Application *application =
+        context != NULL ? context->application : NULL;
+    EvidenceIdentityImportTaskRequest *request = NULL;
+    ApplicationExistingEvidenceOcrContext *task_context = NULL;
+    BackgroundTask *task = NULL;
+    IdentityOcrRun *run = NULL;
+    GError *error = NULL;
+    if (result == NULL || application == NULL ||
+        !evidence_identity_ocr_dialog_result_has_ocr(result))
+        goto cleanup;
+    run = evidence_identity_ocr_dialog_result_steal_run(result);
+    if (context->revision) {
+        GtkWindow *dialog =
+            evidence_identity_ocr_dialog_result_get_dialog(result);
+        task_context = g_new0(ApplicationExistingEvidenceOcrContext, 1);
+        task_context->application = application;
+        task_context->evidence_identifier =
+            g_strdup(context->evidence_identifier);
+        task_context->root_path = g_strdup(context->root_path);
+        task_context->database_path = g_strdup(context->database_path);
+        task_context->dialog = dialog != NULL
+            ? g_object_ref(dialog) : NULL;
+        task_context->ocr_run_identifier = g_strdup(
+            identity_ocr_run_get_identifier(run));
+        task_context->revision = TRUE;
+        request = evidence_identity_import_task_request_new_review(
+            context->database_path, context->root_path,
+            context->evidence_identifier, run);
+        if (request != NULL)
+            evidence_identity_import_task_request_set_session_check(
+                request,
+                application_existing_evidence_ocr_session_is_current,
+                task_context);
+        if (request != NULL)
+            task = evidence_identity_import_task_start(
+                application->task_manager, request,
+                application_on_existing_evidence_ocr_reviewed,
+                task_context, application_existing_evidence_ocr_context_free,
+                &error);
+        if (task == NULL) {
+            GError *display_error = error != NULL
+                ? g_error_copy(error)
+                : g_error_new_literal(G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "La tâche de révision OCR n’a pas pu démarrer.");
+            evidence_identity_ocr_dialog_finish_import(
+                dialog, display_error);
+            application_present_error(application,
+                "Révision OCR impossible", display_error->message);
+            g_error_free(display_error);
+        } else {
+            evidence_identity_ocr_dialog_set_submission_task(dialog, task);
+            task_context = NULL;
+            background_task_unref(task);
+            main_window_set_status(application->main_window,
+                "Enregistrement de la révision OCR…");
+        }
+        goto cleanup;
+    }
+    task_context = g_new0(ApplicationExistingEvidenceOcrContext, 1);
+    task_context->application = application;
+    task_context->evidence_identifier =
+        g_strdup(context->evidence_identifier);
+    task_context->root_path = g_strdup(context->root_path);
+    task_context->database_path = g_strdup(context->database_path);
+    request = evidence_identity_import_task_request_new_existing(
+        context->database_path, context->root_path,
+        context->evidence_identifier,
+        evidence_identity_ocr_dialog_result_get_person_identifier(result),
+        run);
+    if (request != NULL)
+        evidence_identity_import_task_request_set_session_check(
+            request, application_existing_evidence_ocr_session_is_current,
+            task_context);
+    if (request != NULL)
+        task = evidence_identity_import_task_start(
+            application->task_manager, request,
+            application_on_existing_evidence_ocr_persisted,
+            task_context, application_existing_evidence_ocr_context_free,
+            &error);
+    if (task == NULL) {
+        application_present_error(application, "Analyse OCR impossible",
+            error != NULL ? error->message :
+            "La conservation de l’analyse n’a pas pu démarrer.");
+        goto cleanup;
+    }
+    task_context = NULL;
+    main_window_set_status(application->main_window,
+        "Conservation de l’analyse OCR sur la preuve existante…");
+cleanup:
+    evidence_identity_import_task_request_free(request);
+    identity_ocr_run_free(run);
+    evidence_identity_ocr_dialog_result_free(result);
+    application_existing_evidence_ocr_context_free(task_context);
+    g_clear_error(&error);
+}
+
+static void application_on_analyze_existing_evidence(
+    GtkWindow *parent, const char *evidence_identifier,
+    gboolean revise_existing, const char *ocr_run_identifier,
+    gpointer data)
+{
+    ApplicationEvidenceMetadataContext *metadata_context = data;
+    Application *application = metadata_context != NULL
+        ? metadata_context->application : NULL;
+    Database *database = NULL;
+    EvidenceDao *evidence_dao = NULL;
+    EntityDao *entity_dao = NULL;
+    EvidenceRecord *record = NULL;
+    GPtrArray *persons = NULL;
+    ApplicationExistingEvidenceOcrContext *context = NULL;
+    const InvestigationProject *project = NULL;
+    const ToolInfo *tesseract = NULL;
+    ToolRegistry *registry = NULL;
+    char *path = NULL;
+    IdentityOcrRun *persisted_run = NULL;
+    char *persisted_person = NULL;
+    GError *error = NULL;
+    if (application == NULL || application->session == NULL ||
+        evidence_identifier == NULL) return;
+    database = investigation_session_get_database(application->session);
+    project = investigation_session_get_project(application->session);
+    evidence_dao = evidence_dao_new(database, &error);
+    entity_dao = entity_dao_new(database, &error);
+    if (evidence_dao != NULL)
+        record = evidence_dao_find_by_identifier(
+            evidence_dao, evidence_identifier, &error);
+    if (entity_dao != NULL)
+        persons = entity_dao_list_all(entity_dao, &error);
+    if (record != NULL && project != NULL)
+        path = g_build_filename(
+            investigation_project_get_root_path(project),
+            evidence_record_get_relative_path(record), NULL);
+    registry = tool_initializer_get_registry(application->tool_initializer);
+    if (registry != NULL)
+        tesseract = tool_registry_find(registry, "ocr.tesseract");
+    context = g_new0(ApplicationExistingEvidenceOcrContext, 1);
+    context->application = application;
+    context->evidence_identifier = g_strdup(evidence_identifier);
+    context->root_path = project != NULL
+        ? g_strdup(investigation_project_get_root_path(project)) : NULL;
+    context->database_path = project != NULL
+        ? g_strdup(investigation_project_get_database_path(project)) : NULL;
+    context->revision = revise_existing;
+    if (revise_existing && record != NULL && project != NULL) {
+        IdentityOcrDao *ocr_dao = identity_ocr_dao_new(database);
+        GPtrArray *runs = identity_ocr_dao_list_runs_by_evidence(
+            ocr_dao, evidence_identifier, &error);
+        if (runs != NULL && ocr_run_identifier != NULL) {
+            IdentityOcrRunRecord *selected = NULL;
+            for (guint index = 0; index < runs->len; index++) {
+                IdentityOcrRunRecord *candidate =
+                    g_ptr_array_index(runs, index);
+                if (g_strcmp0(candidate->id,
+                        ocr_run_identifier) == 0) {
+                    selected = candidate;
+                    break;
+                }
+            }
+            if (selected != NULL)
+            persisted_run = identity_ocr_dao_load_run(
+                ocr_dao, investigation_project_get_root_path(project),
+                selected->id, &persisted_person, &error);
+        }
+        g_clear_pointer(&runs, g_ptr_array_unref);
+        identity_ocr_dao_free(ocr_dao);
+    }
+    if (record == NULL || persons == NULL || path == NULL ||
+        (revise_existing ? persisted_run == NULL ||
+         g_strcmp0(identity_ocr_run_get_evidence_id(persisted_run),
+             evidence_identifier) != 0 ||
+         g_strcmp0(identity_ocr_run_get_expected_sha256(persisted_run),
+             evidence_record_get_sha256(record)) != 0 ||
+         !evidence_identity_ocr_dialog_present_review(
+            parent, path, persons, persisted_person, persisted_run,
+            application_existing_evidence_ocr_session_is_current,
+            application_on_existing_evidence_ocr_completed,
+            context, application_existing_evidence_ocr_context_free,
+            &error)
+        : !evidence_identity_ocr_dialog_present(
+            parent, path, persons, NULL, tesseract,
+            application_existing_evidence_ocr_session_is_current,
+            application_on_existing_evidence_ocr_completed,
+            context, application_existing_evidence_ocr_context_free,
+            &error))) {
+        application_present_error(application, "Étape OCR indisponible",
+            error != NULL ? error->message :
+            "La preuve ou la liste des personnes est indisponible.");
+        application_existing_evidence_ocr_context_free(context);
+    }
+    g_free(path);
+    g_free(persisted_person);
+    identity_ocr_run_free(persisted_run);
+    g_clear_pointer(&persons, g_ptr_array_unref);
+    evidence_record_free(record);
+    entity_dao_free(entity_dao);
+    evidence_dao_free(evidence_dao);
+    g_clear_error(&error);
+}
+
+static void application_on_workspace_identity_ocr(
+    const char *evidence_identifier, gboolean revise_existing,
+    const char *ocr_run_identifier, gpointer data)
+{
+    Application *application = data;
+    if (application == NULL || application->main_window == NULL) return;
+    ApplicationEvidenceMetadataContext context = {
+        .application = application,
+        .evidence_identifier = (char *) evidence_identifier
+    };
+    application_on_analyze_existing_evidence(
+        main_window_get_window(application->main_window),
+        evidence_identifier, revise_existing, ocr_run_identifier,
+        &context);
+}
+
 /** @brief Actualise les vues après la destruction du dialogue d'édition. */
 static gboolean application_refresh_after_evidence_reclassification(
     gpointer user_data
@@ -3784,8 +4308,12 @@ static void application_on_edit_evidence_requested(
     context = g_new0(ApplicationEvidenceMetadataContext, 1);
     context->application = application;
     context->evidence_identifier = g_strdup(evidence_identifier);
-    if (!evidence_metadata_dialog_present(
+    const InvestigationProject *project =
+        investigation_session_get_project(application->session);
+    if (!evidence_metadata_dialog_present_with_ocr(
             main_window_get_window(application->main_window), record, types,
+            database, investigation_project_get_root_path(project),
+            application_on_analyze_existing_evidence,
             application_on_evidence_metadata_edited, context))
     {
         application_evidence_metadata_context_free(context);
@@ -4874,6 +5402,12 @@ static void application_on_evidence_metadata_completed(
         user_data;
 
     Application *application = NULL;
+    const InvestigationProject *project = NULL;
+    EntityDao *entity_dao = NULL;
+    GPtrArray *persons = NULL;
+    ToolRegistry *registry = NULL;
+    const ToolInfo *tesseract = NULL;
+    GError *error = NULL;
 
     if (context == NULL)
     {
@@ -4918,31 +5452,53 @@ static void application_on_evidence_metadata_completed(
         return;
     }
 
-    application_start_evidence_import(
-        application,
-        context->file_path,
-        evidence_import_dialog_result_get_type_identifier(
-            result
-        ),
-        evidence_import_dialog_result_get_collected_at(
-            result
-        ),
-        evidence_import_dialog_result_get_source(
-            result
-        ),
-        evidence_import_dialog_result_get_description(
-            result
-        ),
-        NULL
-    );
+    context->type_identifier = g_strdup(
+        evidence_import_dialog_result_get_type_identifier(result));
+    context->collected_at = g_strdup(
+        evidence_import_dialog_result_get_collected_at(result));
+    context->source = g_strdup(
+        evidence_import_dialog_result_get_source(result));
+    context->description = g_strdup(
+        evidence_import_dialog_result_get_description(result));
+    project = investigation_session_get_project(application->session);
+    context->root_path = project != NULL ? g_strdup(
+        investigation_project_get_root_path(project)) : NULL;
 
     evidence_import_dialog_result_free(
         result
     );
 
-    application_evidence_dialog_context_free(
-        context
-    );
+    if (!evidence_identity_ocr_dialog_file_is_compatible(context->file_path))
+    {
+        application_start_evidence_import(application, context->file_path,
+            context->type_identifier, context->collected_at,
+            context->source, context->description, NULL);
+        application_evidence_dialog_context_free(context);
+        return;
+    }
+    entity_dao = entity_dao_new(
+        investigation_session_get_database(application->session), &error);
+    if (entity_dao != NULL) persons = entity_dao_list_all(entity_dao, &error);
+    registry = tool_initializer_get_registry(application->tool_initializer);
+    if (registry != NULL) tesseract =
+        tool_registry_find(registry, "ocr.tesseract");
+    if (persons == NULL ||
+        !evidence_identity_ocr_dialog_present(
+            main_window_get_window(application->main_window),
+            context->file_path, persons,
+            context->preselected_person_identifier, tesseract,
+            application_evidence_ocr_session_is_current,
+            application_on_evidence_identity_ocr_completed,
+            context, application_evidence_dialog_context_free, &error))
+    {
+        application_present_error(application, "Étape OCR indisponible",
+            error != NULL ? error->message :
+            "La liste des personnes ou le dialogue OCR est indisponible.");
+        application_evidence_dialog_context_free(context);
+    }
+    g_clear_pointer(&persons, g_ptr_array_unref);
+    entity_dao_free(entity_dao);
+    g_clear_error(&error);
 }
 
 /**
@@ -5127,6 +5683,10 @@ static void application_on_evidence_file_selected(
         g_strdup(
             file_path
         );
+    dialog_context->preselected_person_identifier = g_strdup(
+        application->pending_evidence_import_person_identifier);
+    g_clear_pointer(
+        &application->pending_evidence_import_person_identifier, g_free);
 
     if (dialog_context->file_path == NULL)
     {
@@ -5290,7 +5850,10 @@ static void application_on_evidence_files_selected(
     {
         char *message = g_strdup_printf(
             "%u fichiers ont été sélectionnés. Chaque fichier sera révisé "
-            "puis importé séparément avec sa propre empreinte SHA-256.",
+            "puis importé séparément avec sa propre empreinte SHA-256.\n\n"
+            "L’analyse OCR contrôlée traite actuellement une preuve à la "
+            "fois. Importez les fichiers puis analysez-les séparément.\n\n"
+            "L’import groupé reste disponible sans OCR.",
             paths->len);
         application_message_dialog_present_confirmation(
             main_window_get_window(application->main_window),
@@ -5319,6 +5882,8 @@ static void application_on_import_evidence_requested(
     {
         return;
     }
+    g_clear_pointer(
+        &application->pending_evidence_import_person_identifier, g_free);
 
     if (application->session == NULL)
     {
@@ -5437,7 +6002,20 @@ static void application_on_person_creation_task_completed(
         return;
     }
     main_window_set_status(application->main_window,
-        "Personne et preuves ajoutées. Actualisation du graphe…");
+        "Personne et preuves ajoutées. Actualisation des vues…");
+    {
+        GError *refresh_error = NULL;
+        application_refresh_investigation_tree(
+            application, context->root_path);
+        if (!application_refresh_evidence_models(
+                application, &refresh_error)) {
+            application_present_error(application,
+                "Actualisation incomplète",
+                refresh_error != NULL ? refresh_error->message :
+                "La liste des preuves n’a pas pu être actualisée.");
+        }
+        g_clear_error(&refresh_error);
+    }
     application_start_graph_loading(application, context->database_path);
 }
 static void application_on_person_completed(
@@ -5465,7 +6043,8 @@ static void application_on_person_completed(
             application->session_generation, active_root, active_database))
         goto changed_session;
     request = person_creation_task_request_new(active_database, active_root,
-        input, create_person_dialog_result_get_evidence_selection(result));
+        input, create_person_dialog_result_get_evidence_selection(result),
+        create_person_dialog_result_get_ocr_runs(result));
     task_context = g_new0(ApplicationPersonCreationTaskContext, 1);
     task_context->application = application;
     task_context->generation = application->session_generation;
@@ -5532,9 +6111,13 @@ static void application_on_add_person_requested(gpointer user_data)
             application->session_generation,
             investigation_project_get_root_path(project),
             investigation_project_get_database_path(project));
+        const ToolRegistry *registry =
+            tool_initializer_get_registry(application->tool_initializer);
+        const ToolInfo *tesseract =
+            tool_registry_find(registry, "ocr.tesseract");
         create_person_dialog_present(main_window_get_window(application->main_window),
             records, investigation_project_get_root_path(project),
-            application->task_manager,
+            application->task_manager, tesseract,
             application_person_dialog_session_matches,
             application_on_person_completed, context,
             (GDestroyNotify) application_person_dialog_context_free);
@@ -5828,6 +6411,45 @@ static void application_on_evidence_selected(
     project = investigation_session_get_project(application->session);
     investigation_root = project != NULL
         ? investigation_project_get_root_path(project) : NULL;
+    if (investigation_root != NULL) {
+        IdentityOcrDao *ocr_dao = identity_ocr_dao_new(database);
+        GPtrArray *run_records =
+            identity_ocr_dao_list_runs_by_evidence(
+                ocr_dao, evidence_identifier, &error);
+        GPtrArray *workspace_records = g_ptr_array_new_with_free_func(
+            (GDestroyNotify) workspace_identity_ocr_record_free);
+        for (guint index = 0;
+             error == NULL && run_records != NULL &&
+             index < run_records->len; index++) {
+            IdentityOcrRunRecord *record =
+                g_ptr_array_index(run_records, index);
+            char *person_identifier = NULL;
+            IdentityOcrRun *run = identity_ocr_dao_load_run(
+                ocr_dao, investigation_root, record->id,
+                &person_identifier, &error);
+            if (run != NULL) {
+                WorkspaceIdentityOcrRecord *workspace_record =
+                    workspace_identity_ocr_record_new(
+                        run, person_identifier, record->executed_at,
+                        record->text_relative_path, record->text_sha256,
+                        record->tsv_relative_path, record->tsv_sha256);
+                if (workspace_record != NULL)
+                    g_ptr_array_add(workspace_records, workspace_record);
+                else
+                    identity_ocr_run_free(run);
+            }
+            g_free(person_identifier);
+        }
+        if (error != NULL) {
+            g_warning("Analyse OCR de la preuve indisponible : %s",
+                error->message);
+            g_clear_error(&error);
+        }
+        main_window_set_identity_ocr_runs(application->main_window,
+            workspace_records);
+        g_clear_pointer(&run_records, g_ptr_array_unref);
+        identity_ocr_dao_free(ocr_dao);
+    }
     gboolean eml_analysis_available = FALSE;
     if (investigation_root != NULL) {
         const char *selected_name =
@@ -6527,6 +7149,25 @@ cleanup:
     evidence_entity_dao_free(dao);
     application_person_evidence_context_free(context);
 }
+/** @brief Lance l'import normal avec la personne de la fiche présélectionnée. */
+static void application_on_person_evidence_import_requested(gpointer user_data)
+{
+    ApplicationPersonEvidenceContext *context = user_data;
+    Application *application =
+        context != NULL ? context->application : NULL;
+    if (application == NULL || application->main_window == NULL ||
+        application->session == NULL) {
+        application_person_evidence_context_free(context);
+        return;
+    }
+    g_free(application->pending_evidence_import_person_identifier);
+    application->pending_evidence_import_person_identifier =
+        g_strdup(context->entity_identifier);
+    application_person_evidence_context_free(context);
+    file_dialog_select_files(
+        main_window_get_window(application->main_window),
+        application_on_evidence_files_selected, application);
+}
 /** @brief Ouvre le gestionnaire des preuves de la personne sélectionnée. */
 static void application_on_person_evidence_requested(
     const char *entity_identifier, gpointer user_data)
@@ -6553,7 +7194,9 @@ static void application_on_person_evidence_requested(
         !manage_entity_evidence_dialog_present(main_window_get_window(
             application->main_window), records, selected,
             investigation_project_get_root_path(project),
-            application_on_person_evidences_selected, context, &error))
+            application->task_manager,
+            application_on_person_evidences_selected, context,
+            application_on_person_evidence_import_requested, &error))
         goto failure;
     context = NULL; goto cleanup;
 failure:
@@ -8306,6 +8949,8 @@ static void application_on_activate(
         application_on_extract_metadata_requested, application);
     main_window_set_recover_pdf_password_callback(application->main_window,
         application_on_recover_pdf_password_requested, application);
+    main_window_set_identity_ocr_callback(application->main_window,
+        application_on_workspace_identity_ocr, application);
 
     main_window_set_graph_node_moved_callback(
         application->main_window,
@@ -8670,6 +9315,8 @@ void application_free(
     g_clear_pointer(&application->pending_relation_selection_identifier,
         g_free);
     g_clear_pointer(&application->pending_entity_selection_identifier, g_free);
+    g_clear_pointer(
+        &application->pending_evidence_import_person_identifier, g_free);
 
     g_free(
         application

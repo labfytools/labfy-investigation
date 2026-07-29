@@ -5,6 +5,9 @@
 
 #include "views/evidence_import_dialog.h"
 #include "models/evidence_type.h"
+#include "core/file_hash.h"
+#include "core/task_manager.h"
+#include "widgets/evidence_preview_widget.h"
 
 #include <string.h>
 
@@ -33,6 +36,8 @@ typedef struct
     GtkEntry *source_entry;
     GtkTextView *description_text_view;
     GtkLabel *error_label;
+    TaskManager *preview_task_manager;
+    EvidencePreviewWidget *preview;
 
     char *file_path;
     GPtrArray *type_codes;
@@ -391,6 +396,8 @@ static void evidence_import_dialog_state_free(
     g_ptr_array_unref(
         state->type_codes
     );
+    g_clear_pointer(&state->preview, evidence_preview_widget_free);
+    g_clear_pointer(&state->preview_task_manager, task_manager_free);
 
     g_free(
         state
@@ -752,6 +759,7 @@ gboolean evidence_import_dialog_present(
     GtkWidget *button_box = NULL;
     GtkWidget *cancel_button = NULL;
     GtkWidget *import_button = NULL;
+    GtkWidget *paned = NULL;
 
     GDateTime *current_date_time = NULL;
     char *current_date_time_iso8601 = NULL;
@@ -971,6 +979,13 @@ gboolean evidence_import_dialog_present(
         parent
     );
 
+    gtk_window_set_application(
+        state->window,
+        gtk_window_get_application(
+            parent
+        )
+    );
+
     gtk_window_set_modal(
         state->window,
         TRUE
@@ -983,8 +998,8 @@ gboolean evidence_import_dialog_present(
 
     gtk_window_set_default_size(
         state->window,
-        620,
-        520
+        1200,
+        800
     );
 
     root_box =
@@ -1396,10 +1411,24 @@ gboolean evidence_import_dialog_present(
         button_box
     );
 
-    gtk_window_set_child(
-        state->window,
-        root_box
-    );
+    paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_name(paned, "evidence-import-paned");
+    gtk_paned_set_start_child(GTK_PANED(paned), root_box);
+    gtk_widget_set_size_request(root_box, 320, -1);
+    state->preview_task_manager = task_manager_new();
+    state->preview = evidence_preview_widget_new(
+        state->preview_task_manager, NULL, NULL);
+    if (state->preview == NULL) {
+        gtk_window_destroy(state->window);
+        evidence_import_dialog_state_free(state);
+        return FALSE;
+    }
+    gtk_paned_set_end_child(GTK_PANED(paned),
+        evidence_preview_widget_get_widget(state->preview));
+    gtk_paned_set_position(GTK_PANED(paned), 420);
+    gtk_paned_set_resize_start_child(GTK_PANED(paned), FALSE);
+    gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);
+    gtk_window_set_child(state->window, paned);
 
     g_object_set_data_full(
         G_OBJECT(
@@ -1418,6 +1447,35 @@ gboolean evidence_import_dialog_present(
         ),
         state
     );
+
+    {
+        char *directory = g_path_get_dirname(state->file_path);
+        char *basename = g_path_get_basename(state->file_path);
+        char *sha256 = NULL;
+        guint64 size = 0U;
+        gboolean uncertain = FALSE;
+        char *content_type = g_content_type_guess(
+            state->file_path, NULL, 0U, &uncertain);
+        char *mime = content_type != NULL
+            ? g_content_type_get_mime_type(content_type) : NULL;
+        if (file_hash_compute_sha256(
+                state->file_path, NULL, &sha256, &size, NULL)) {
+            EvidencePreviewRequest *request = evidence_preview_request_new(
+                directory, "00000000-0000-4000-8000-000000000001",
+                basename, sha256,
+                mime != NULL ? mime : "application/octet-stream", 1U);
+            evidence_preview_widget_show(
+                state->preview, request, "Aperçu SPECIMEN contrôlé");
+            evidence_preview_request_free(request);
+        }
+        g_free(mime);
+        g_free(content_type);
+        g_free(sha256);
+        g_free(basename);
+        g_free(directory);
+        (void) size;
+        (void) uncertain;
+    }
 
     g_signal_connect(
         cancel_button,

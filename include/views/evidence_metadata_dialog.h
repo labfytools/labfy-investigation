@@ -7,6 +7,7 @@
 #define LABFY_INVESTIGATION_EVIDENCE_METADATA_DIALOG_H
 
 #include "models/evidence_record.h"
+#include "database/database.h"
 
 #include <gtk/gtk.h>
 
@@ -19,6 +20,10 @@ typedef struct EvidenceMetadataDialogResult EvidenceMetadataDialogResult;
 typedef void (*EvidenceMetadataDialogCallback)(
     EvidenceMetadataDialogResult *result, gpointer user_data
 );
+typedef void (*EvidenceMetadataDialogAnalyzeCallback)(
+    GtkWindow *dialog, const char *evidence_identifier,
+    gboolean revise_existing, const char *ocr_run_identifier,
+    gpointer user_data);
 
 /**
  * @brief Présente le dialogue prérempli de modification des métadonnées.
@@ -36,6 +41,12 @@ gboolean evidence_metadata_dialog_present(
     EvidenceMetadataDialogCallback callback,
     gpointer user_data
 );
+gboolean evidence_metadata_dialog_present_with_ocr(
+    GtkWindow *parent, const EvidenceRecord *record,
+    const GPtrArray *evidence_types, Database *database,
+    const char *investigation_root,
+    EvidenceMetadataDialogAnalyzeCallback analyze_callback,
+    EvidenceMetadataDialogCallback callback, gpointer user_data);
 
 /** @brief Libère un résultat, ou accepte NULL. */
 void evidence_metadata_dialog_result_free(EvidenceMetadataDialogResult *result);

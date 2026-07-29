@@ -13,6 +13,8 @@
 #include "widgets/entity_details_panel.h"
 #include "widgets/investigation_graph_view.h"
 #include "widgets/evidence_preview_widget.h"
+#include "widgets/ocr_provenance_overlay.h"
+#include "views/evidence_identity_ocr_dialog.h"
 
 #include <glib.h>
 #include <gio/gio.h>
@@ -98,6 +100,20 @@ struct Workspace
     GtkWidget *analyze_rib_button;
     GtkWidget *extract_metadata_button;
     GtkWidget *recover_pdf_password_button;
+    GtkWidget *analyze_identity_button;
+    GtkWidget *identity_ocr_section;
+    GtkDropDown *identity_ocr_selector;
+    GtkStringList *identity_ocr_labels;
+    GtkLabel *identity_ocr_summary;
+    GtkTextBuffer *identity_ocr_raw;
+    GtkTextBuffer *identity_ocr_corrected;
+    GtkBox *identity_ocr_fields;
+    GtkWidget *revise_identity_button;
+    GtkWidget *rerun_identity_button;
+    OcrProvenanceOverlay *identity_ocr_overlay;
+    GPtrArray *identity_ocr_records;
+    WorkspaceIdentityOcrCallback identity_ocr_callback;
+    gpointer identity_ocr_user_data;
     EvidencePreviewWidget *evidence_preview;
 
     char *selected_evidence_identifier;
@@ -1106,6 +1122,152 @@ static void workspace_on_recover_pdf_password_clicked(GtkButton *button,
             workspace->recover_pdf_password_user_data);
 }
 
+WorkspaceIdentityOcrRecord *workspace_identity_ocr_record_new(
+    IdentityOcrRun *owned_run, const char *person_identifier,
+    const char *executed_at, const char *text_relative_path,
+    const char *text_sha256, const char *tsv_relative_path,
+    const char *tsv_sha256)
+{
+    if (owned_run == NULL) return NULL;
+    WorkspaceIdentityOcrRecord *record =
+        g_new0(WorkspaceIdentityOcrRecord, 1);
+    record->run = owned_run;
+    record->person_identifier = g_strdup(person_identifier);
+    record->executed_at = g_strdup(executed_at);
+    record->text_relative_path = g_strdup(text_relative_path);
+    record->text_sha256 = g_strdup(text_sha256);
+    record->tsv_relative_path = g_strdup(tsv_relative_path);
+    record->tsv_sha256 = g_strdup(tsv_sha256);
+    return record;
+}
+
+void workspace_identity_ocr_record_free(WorkspaceIdentityOcrRecord *record)
+{
+    if (record == NULL) return;
+    identity_ocr_run_free(record->run);
+    g_free(record->person_identifier);
+    g_free(record->executed_at);
+    g_free(record->text_relative_path);
+    g_free(record->text_sha256);
+    g_free(record->tsv_relative_path);
+    g_free(record->tsv_sha256);
+    g_free(record);
+}
+
+static void workspace_clear_box(GtkBox *box)
+{
+    GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(box));
+    while (child != NULL) {
+        GtkWidget *next = gtk_widget_get_next_sibling(child);
+        gtk_box_remove(box, child);
+        child = next;
+    }
+}
+
+static void workspace_render_identity_ocr(Workspace *workspace)
+{
+    guint selected = gtk_drop_down_get_selected(
+        workspace->identity_ocr_selector);
+    workspace_clear_box(workspace->identity_ocr_fields);
+    gtk_text_buffer_set_text(workspace->identity_ocr_raw, "", -1);
+    gtk_text_buffer_set_text(workspace->identity_ocr_corrected, "", -1);
+    ocr_provenance_overlay_clear(workspace->identity_ocr_overlay,
+        selected + 1U);
+    if (workspace->identity_ocr_records == NULL ||
+        selected >= workspace->identity_ocr_records->len) {
+        gtk_label_set_text(workspace->identity_ocr_summary,
+            "Aucune analyse OCR sélectionnée.");
+        gtk_widget_set_sensitive(workspace->revise_identity_button, FALSE);
+        return;
+    }
+    WorkspaceIdentityOcrRecord *record = g_ptr_array_index(
+        workspace->identity_ocr_records, selected);
+    IdentityOcrRun *run = record->run;
+    char *summary = g_strdup_printf(
+        "Run actif : %s\nUTC : %s\nPersonne liée : %s\n"
+        "Document : %s — %s — page %u\nLangues : %s\n"
+        "Notes : %s\nArtefact texte : %s\nSHA-256 texte : %s\n"
+        "Artefact TSV : %s\nSHA-256 TSV : %s\nSHA-256 preuve : %s",
+        identity_ocr_run_get_identifier(run),
+        record->executed_at != NULL ? record->executed_at : "inconnue",
+        record->person_identifier != NULL
+            ? record->person_identifier : "indisponible",
+        identity_ocr_run_get_document_type(run),
+        identity_ocr_run_get_document_side(run),
+        identity_ocr_run_get_page(run),
+        identity_ocr_run_get_languages(run),
+        identity_ocr_run_get_factual_notes(run) != NULL
+            ? identity_ocr_run_get_factual_notes(run) : "Aucune note",
+        record->text_relative_path, record->text_sha256,
+        record->tsv_relative_path, record->tsv_sha256,
+        identity_ocr_run_get_expected_sha256(run));
+    gtk_label_set_text(workspace->identity_ocr_summary, summary);
+    g_free(summary);
+    gtk_text_buffer_set_text(workspace->identity_ocr_raw,
+        identity_ocr_run_get_raw_text(run), -1);
+    gtk_text_buffer_set_text(workspace->identity_ocr_corrected,
+        identity_ocr_run_get_corrected_transcription(run) != NULL
+            ? identity_ocr_run_get_corrected_transcription(run)
+            : "Aucune transcription corrigée", -1);
+    const GPtrArray *fields = identity_ocr_run_get_fields(run);
+    for (guint index = 0; fields != NULL && index < fields->len; index++) {
+        IdentityFieldObservation *field = g_ptr_array_index(
+            (GPtrArray *) fields, index);
+        char *field_text = g_strdup_printf(
+            "%s — brut : %s — corrigé : %s — origine : %s — statut : %d",
+            identity_field_observation_get_code(field),
+            identity_field_observation_get_raw_value(field) != NULL
+                ? identity_field_observation_get_raw_value(field) : "absent",
+            identity_field_observation_get_corrected_value(field) != NULL
+                ? identity_field_observation_get_corrected_value(field)
+                : "absente",
+            identity_field_observation_get_origin(field),
+            identity_field_observation_get_status(field));
+        GtkWidget *label = gtk_label_new(field_text);
+        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+        gtk_box_append(workspace->identity_ocr_fields, label);
+        g_free(field_text);
+        if (!ocr_provenance_overlay_has_region(
+                workspace->identity_ocr_overlay))
+            ocr_provenance_overlay_set_field(
+                workspace->identity_ocr_overlay, field, selected + 1U);
+    }
+    gtk_widget_set_sensitive(workspace->revise_identity_button, TRUE);
+}
+
+static void workspace_on_identity_ocr_selected(
+    GObject *object, GParamSpec *pspec, gpointer data)
+{
+    (void) object;
+    (void) pspec;
+    workspace_render_identity_ocr(data);
+}
+
+static void workspace_on_identity_ocr_action(
+    GtkButton *button, gpointer data)
+{
+    Workspace *workspace = data;
+    gboolean revise = button ==
+        GTK_BUTTON(workspace->revise_identity_button);
+    const char *run_identifier = NULL;
+    if (revise && workspace->identity_ocr_records != NULL) {
+        guint selected = gtk_drop_down_get_selected(
+            workspace->identity_ocr_selector);
+        if (selected < workspace->identity_ocr_records->len) {
+            WorkspaceIdentityOcrRecord *record = g_ptr_array_index(
+                workspace->identity_ocr_records, selected);
+            run_identifier =
+                identity_ocr_run_get_identifier(record->run);
+        }
+    }
+    if (workspace->identity_ocr_callback != NULL &&
+        (!revise || run_identifier != NULL))
+        workspace->identity_ocr_callback(
+            workspace->selected_evidence_identifier,
+            revise, run_identifier, workspace->identity_ocr_user_data);
+}
+
 Workspace *workspace_new(TaskManager *task_manager)
 {
     GtkWidget *evidence_content = NULL;
@@ -1479,6 +1641,91 @@ Workspace *workspace_new(TaskManager *task_manager)
         G_CALLBACK(workspace_on_recover_pdf_password_clicked), workspace);
     gtk_box_append(GTK_BOX(evidence_content),
         workspace->recover_pdf_password_button);
+    workspace->analyze_identity_button = gtk_button_new_with_label(
+        "Analyser comme document d’identité");
+    gtk_widget_set_name(workspace->analyze_identity_button,
+        "workspace-analyze-identity");
+    gtk_widget_set_halign(workspace->analyze_identity_button,
+        GTK_ALIGN_START);
+    gtk_widget_set_sensitive(workspace->analyze_identity_button, FALSE);
+    g_signal_connect(workspace->analyze_identity_button, "clicked",
+        G_CALLBACK(workspace_on_identity_ocr_action), workspace);
+    gtk_box_append(GTK_BOX(evidence_content),
+        workspace->analyze_identity_button);
+
+    workspace->identity_ocr_section =
+        gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_set_name(workspace->identity_ocr_section,
+        "workspace-identity-ocr-section");
+    gtk_box_append(GTK_BOX(workspace->identity_ocr_section),
+        gtk_label_new("Analyse OCR d’identité"));
+    workspace->identity_ocr_labels = gtk_string_list_new(NULL);
+    workspace->identity_ocr_selector = GTK_DROP_DOWN(
+        gtk_drop_down_new(G_LIST_MODEL(g_object_ref(
+            workspace->identity_ocr_labels)), NULL));
+    gtk_widget_set_name(GTK_WIDGET(workspace->identity_ocr_selector),
+        "workspace-identity-ocr-selector");
+    gtk_box_append(GTK_BOX(workspace->identity_ocr_section),
+        GTK_WIDGET(workspace->identity_ocr_selector));
+    workspace->identity_ocr_summary = GTK_LABEL(gtk_label_new(NULL));
+    gtk_widget_set_name(GTK_WIDGET(workspace->identity_ocr_summary),
+        "workspace-identity-ocr-active-run");
+    gtk_label_set_wrap(workspace->identity_ocr_summary, TRUE);
+    gtk_label_set_xalign(workspace->identity_ocr_summary, 0.0f);
+    gtk_box_append(GTK_BOX(workspace->identity_ocr_section),
+        GTK_WIDGET(workspace->identity_ocr_summary));
+    GtkWidget *raw_view = gtk_text_view_new();
+    gtk_widget_set_name(raw_view, "workspace-identity-ocr-raw");
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(raw_view), FALSE);
+    workspace->identity_ocr_raw =
+        gtk_text_view_get_buffer(GTK_TEXT_VIEW(raw_view));
+    gtk_box_append(GTK_BOX(workspace->identity_ocr_section),
+        gtk_label_new("Texte OCR brut"));
+    gtk_box_append(GTK_BOX(workspace->identity_ocr_section), raw_view);
+    GtkWidget *corrected_view = gtk_text_view_new();
+    gtk_widget_set_name(corrected_view,
+        "workspace-identity-ocr-corrected");
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(corrected_view), FALSE);
+    workspace->identity_ocr_corrected =
+        gtk_text_view_get_buffer(GTK_TEXT_VIEW(corrected_view));
+    gtk_box_append(GTK_BOX(workspace->identity_ocr_section),
+        gtk_label_new("Transcription corrigée"));
+    gtk_box_append(GTK_BOX(workspace->identity_ocr_section),
+        corrected_view);
+    workspace->identity_ocr_fields = GTK_BOX(
+        gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+    gtk_box_append(GTK_BOX(workspace->identity_ocr_section),
+        GTK_WIDGET(workspace->identity_ocr_fields));
+    workspace->identity_ocr_overlay = ocr_provenance_overlay_new();
+    gtk_box_append(GTK_BOX(workspace->identity_ocr_section),
+        ocr_provenance_overlay_get_widget(
+            workspace->identity_ocr_overlay));
+    GtkWidget *identity_actions =
+        gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    workspace->revise_identity_button =
+        gtk_button_new_with_label("Réviser l’analyse OCR");
+    workspace->rerun_identity_button =
+        gtk_button_new_with_label("Relancer une nouvelle analyse OCR");
+    gtk_widget_set_name(workspace->revise_identity_button,
+        "workspace-revise-identity-ocr");
+    gtk_widget_set_name(workspace->rerun_identity_button,
+        "workspace-rerun-identity-ocr");
+    g_signal_connect(workspace->revise_identity_button, "clicked",
+        G_CALLBACK(workspace_on_identity_ocr_action), workspace);
+    g_signal_connect(workspace->rerun_identity_button, "clicked",
+        G_CALLBACK(workspace_on_identity_ocr_action), workspace);
+    gtk_box_append(GTK_BOX(identity_actions),
+        workspace->revise_identity_button);
+    gtk_box_append(GTK_BOX(identity_actions),
+        workspace->rerun_identity_button);
+    gtk_box_append(GTK_BOX(workspace->identity_ocr_section),
+        identity_actions);
+    gtk_widget_set_visible(workspace->identity_ocr_section, FALSE);
+    gtk_box_append(GTK_BOX(evidence_content),
+        workspace->identity_ocr_section);
+    g_signal_connect(workspace->identity_ocr_selector,
+        "notify::selected",
+        G_CALLBACK(workspace_on_identity_ocr_selected), workspace);
 
     evidence_separator =
         gtk_separator_new(
@@ -2686,6 +2933,7 @@ void workspace_set_selected_evidence(
     }
 
     workspace_clear_evidence_preview(workspace);
+    workspace_set_identity_ocr_runs(workspace, NULL);
 
     g_clear_pointer(
         &workspace->selected_evidence_identifier,
@@ -2747,6 +2995,10 @@ void workspace_set_selected_evidence(
             g_str_has_suffix(lower, ".pdf")));
         gtk_widget_set_sensitive(workspace->recover_pdf_password_button,
             lower != NULL && g_str_has_suffix(lower, ".pdf"));
+        gtk_widget_set_sensitive(workspace->analyze_identity_button,
+            evidence_identity_ocr_dialog_file_is_compatible(name) ||
+            evidence_identity_ocr_dialog_file_is_compatible(
+                evidence_record_get_internal_name(evidence_record)));
         g_free(lower);
     }
 
@@ -2887,6 +3139,56 @@ void workspace_set_eml_analysis_available(
     if (workspace != NULL && workspace->analyze_eml_button != NULL)
         gtk_widget_set_sensitive(
             workspace->analyze_eml_button, available);
+}
+
+void workspace_set_identity_ocr_runs(
+    Workspace *workspace, GPtrArray *owned_records)
+{
+    if (workspace == NULL) {
+        g_clear_pointer(&owned_records, g_ptr_array_unref);
+        return;
+    }
+    g_clear_pointer(&workspace->identity_ocr_records, g_ptr_array_unref);
+    workspace->identity_ocr_records = owned_records;
+    guint old_count = g_list_model_get_n_items(
+        G_LIST_MODEL(workspace->identity_ocr_labels));
+    gtk_string_list_splice(workspace->identity_ocr_labels,
+        0, old_count, NULL);
+    for (guint index = 0;
+         owned_records != NULL && index < owned_records->len; index++) {
+        WorkspaceIdentityOcrRecord *record =
+            g_ptr_array_index(owned_records, index);
+        char *short_id = g_strndup(
+            identity_ocr_run_get_identifier(record->run), 8);
+        char *label = g_strdup_printf(
+            "%s — %s/%s — page %u — %s",
+            record->executed_at != NULL ? record->executed_at : "UTC inconnue",
+            identity_ocr_run_get_document_type(record->run),
+            identity_ocr_run_get_document_side(record->run),
+            identity_ocr_run_get_page(record->run), short_id);
+        gtk_string_list_append(workspace->identity_ocr_labels, label);
+        g_free(label);
+        g_free(short_id);
+    }
+    gboolean available =
+        owned_records != NULL && owned_records->len > 0;
+    gtk_widget_set_visible(workspace->identity_ocr_section, available);
+    gtk_widget_set_sensitive(workspace->revise_identity_button, available);
+    gtk_widget_set_sensitive(workspace->rerun_identity_button, available);
+    if (available)
+        gtk_drop_down_set_selected(workspace->identity_ocr_selector,
+            owned_records->len - 1);
+    else
+        workspace_render_identity_ocr(workspace);
+}
+
+void workspace_set_identity_ocr_callback(
+    Workspace *workspace, WorkspaceIdentityOcrCallback callback,
+    gpointer user_data)
+{
+    if (workspace == NULL) return;
+    workspace->identity_ocr_callback = callback;
+    workspace->identity_ocr_user_data = user_data;
 }
 
 void workspace_set_evidence_preview(Workspace *workspace,
@@ -3758,6 +4060,10 @@ void workspace_free(Workspace *workspace)
         &workspace->selected_evidence_identifier,
         g_free
     );
+    g_clear_pointer(&workspace->identity_ocr_records, g_ptr_array_unref);
+    g_clear_object(&workspace->identity_ocr_labels);
+    g_clear_pointer(&workspace->identity_ocr_overlay,
+        ocr_provenance_overlay_free);
 
     g_free(workspace);
 }

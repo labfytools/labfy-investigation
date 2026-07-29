@@ -123,6 +123,21 @@ Les outils externes sont lancés avec `GSubprocess` et des arguments séparés. 
 
 ## Fonctionnalités déjà présentes
 
+La création d’une personne propose une étape facultative d’OCR contrôlé des
+documents d’identité. Elle ne démarre que sur action explicite, travaille sur
+une copie vérifiée PNG, JPEG, HEIC, HEIF ou sur une page PDF choisie, et laisse
+chaque champ à l’état « À vérifier ». L’acceptation, la modification ou le rejet
+s’effectuent champ par champ, sans verdict d’authenticité, reconnaissance
+faciale, fusion de personne ni changement automatique du statut
+d’identification.
+
+Ce parcours est également disponible lors de l’import normal d’une preuve,
+avec sélection explicite ou présélection de la personne. Il traite une seule
+preuve par opération. L’import multiple sans OCR reste disponible ; plusieurs
+preuves doivent être OCRisées successivement, chacune dans son propre
+parcours. Les dialogues concernés affichent la liste à gauche et un grand
+aperçu redimensionnable à droite.
+
 Le socle actuel comprend notamment :
 
 - création et ouverture d’enquêtes ;

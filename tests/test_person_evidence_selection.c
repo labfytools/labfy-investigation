@@ -106,6 +106,38 @@ static void test_deep_copy_survives_sources(void)
         person_evidence_selection_item_get_identifier(item)));
     person_evidence_selection_free(copy);
 }
+static void test_staged_copy_keeps_selection_identity(void)
+{
+    PersonEvidenceSelection *source = person_evidence_selection_new();
+    g_assert_true(person_evidence_selection_add_staged(source,
+        "/tmp/SPECIMEN-source.png", "/tmp/SPECIMEN-stage.png",
+        "SPECIMEN.png", "image/png", "identity", 24,
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "SPECIMEN synthétique", "2026-07-28T10:00:00Z", NULL));
+    const PersonEvidenceSelectionItem *source_item =
+        person_evidence_selection_get(source, 0);
+    char *selection_identifier = g_strdup(
+        person_evidence_selection_item_get_identifier(source_item));
+    g_assert_true(person_evidence_selection_set_active(
+        source, selection_identifier));
+
+    PersonEvidenceSelection *copy = person_evidence_selection_copy(source);
+    const PersonEvidenceSelectionItem *copied_item =
+        person_evidence_selection_get(copy, 0);
+    g_assert_cmpstr(person_evidence_selection_item_get_identifier(copied_item),
+        ==, selection_identifier);
+    g_assert_cmpstr(person_evidence_selection_item_get_identifier(
+        person_evidence_selection_get_active(copy)), ==,
+        selection_identifier);
+    g_assert_cmpint(person_evidence_selection_item_get_origin(copied_item),
+        ==, PERSON_EVIDENCE_ORIGIN_STAGED);
+    g_assert_cmpint(person_evidence_selection_item_get_state(copied_item),
+        ==, PERSON_EVIDENCE_STATE_READY);
+
+    g_free(selection_identifier);
+    person_evidence_selection_free(copy);
+    person_evidence_selection_free(source);
+}
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -113,5 +145,7 @@ int main(int argc, char **argv)
     g_test_add_func("/person-evidence/duplicates", test_duplicates);
     g_test_add_func("/person-evidence/deep-copy",
         test_deep_copy_survives_sources);
+    g_test_add_func("/person-evidence/staged-copy-selection-identity",
+        test_staged_copy_keeps_selection_identity);
     return g_test_run();
 }

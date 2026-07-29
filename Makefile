@@ -135,6 +135,7 @@ TEST_EVIDENCE_SELECTION_MODEL := tests/test_evidence_selection_model
 TEST_PERSON_CREATION_GUARD := tests/test_person_creation_guard
 TEST_PERSON_DIALOG_LIFECYCLE := tests/test_person_dialog_lifecycle
 TEST_CREATE_PERSON_DIALOG_GTK := tests/test_create_person_dialog_gtk
+TEST_CREATE_PERSON_DIALOG_OCR_GTK := tests/test_create_person_dialog_ocr_gtk
 TEST_EVIDENCE_PREVIEW_WIDGET_GTK := tests/test_evidence_preview_widget_gtk
 TEST_PERSON_CONFIRMATION_SUMMARY := tests/test_person_confirmation_summary
 TEST_PERSON_ROLE_ASSIGNMENT_DAO := tests/test_person_role_assignment_dao
@@ -157,6 +158,12 @@ TEST_EXIFTOOL_ANALYSIS := tests/test_exiftool_analysis
 TEST_OCR_ANALYSIS := tests/test_ocr_analysis
 TEST_PDF_ANALYSIS := tests/test_pdf_analysis
 TEST_DOCUMENT_TOOL_RUNNER := tests/test_document_tool_runner
+TEST_IDENTITY_OCR := tests/test_identity_ocr
+TEST_IDENTITY_OCR_PREPROCESSOR := tests/test_identity_ocr_preprocessor
+TEST_OCR_PROVENANCE_OVERLAY_GTK := tests/test_ocr_provenance_overlay_gtk
+TEST_EVIDENCE_METADATA_DIALOG_GTK := tests/test_evidence_metadata_dialog_gtk
+TEST_EVIDENCE_IDENTITY_IMPORT_GTK := tests/test_evidence_identity_import_gtk
+TEST_WORKSPACE_IDENTITY_OCR_GTK := tests/test_workspace_identity_ocr_gtk
 FAKE_DOCUMENT_TOOL := tests/fake_document_tool
 
 DOCUMENT_ANALYSIS_TEST_SOURCES := \
@@ -172,6 +179,42 @@ $(TEST_DOCUMENT_TOOL_RUNNER): tests/test_document_tool_runner.c \
 		$(DOCUMENT_ANALYSIS_TEST_SOURCES) -o $@ $(TEST_LDFLAGS)
 
 all: $(TARGET)
+
+$(TEST_IDENTITY_OCR): tests/test_identity_ocr.c \
+	src/models/identity_ocr.c src/core/identity_field_extractor.c \
+	src/core/mrz_parser.c src/core/ocr_region_geometry.c \
+	src/core/ocr_analysis.c $(DOCUMENT_ANALYSIS_TEST_SOURCES)
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_IDENTITY_OCR_PREPROCESSOR): tests/test_identity_ocr_preprocessor.c \
+	src/core/identity_ocr_preprocessor.c src/core/evidence_preview.c \
+	src/core/eml_analyzer.c src/core/eml_mime_extractor.c \
+	src/core/evidence_integrity_verifier.c src/core/file_hash.c \
+	src/core/ocr_analysis.c src/core/document_analysis.c \
+	src/core/document_tool_runner.c src/core/tool_process.c \
+	src/core/tool_registry.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+$(TEST_OCR_PROVENANCE_OVERLAY_GTK): \
+	tests/test_ocr_provenance_overlay_gtk.c \
+	src/widgets/ocr_provenance_overlay.c src/core/ocr_region_geometry.c \
+	src/models/identity_ocr.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+$(TEST_EVIDENCE_METADATA_DIALOG_GTK): \
+	tests/test_evidence_metadata_dialog_gtk.c \
+	$(filter-out src/main.c,$(SRC))
+	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@ $(LDFLAGS)
+
+$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK): \
+	tests/test_evidence_identity_import_gtk.c \
+	$(filter-out src/main.c,$(SRC)) $(FAKE_DOCUMENT_TOOL)
+	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@ $(LDFLAGS)
+
+$(TEST_WORKSPACE_IDENTITY_OCR_GTK): \
+	tests/test_workspace_identity_ocr_gtk.c \
+	$(filter-out src/main.c,$(SRC))
+	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@ $(LDFLAGS)
 
 $(TEST_BANK_PROPOSAL): \
 	tests/test_bank_proposal.c \
@@ -528,10 +571,16 @@ $(TEST_EVIDENCE_TYPE_DAO): \
 $(TEST_EVIDENCE_IMPORT_DIALOG): \
 	tests/test_evidence_import_dialog.c \
 	src/views/evidence_import_dialog.c \
-	src/models/evidence_type.c
-	$(CC) $(EVIDENCE_IMPORT_DIALOG_TEST_CFLAGS) $^ \
+	src/models/evidence_type.c \
+	src/widgets/evidence_preview_widget.c \
+	src/core/evidence_preview_task.c src/core/evidence_preview.c \
+	src/core/evidence_video_preview_controller.c \
+	src/core/evidence_integrity_verifier.c src/core/file_hash.c \
+	src/core/background_task.c src/core/task_manager.c \
+	src/core/eml_analyzer.c src/core/eml_mime_extractor.c
+	$(CC) $(CFLAGS) $^ \
 		-o $@ \
-		$(EVIDENCE_IMPORT_DIALOG_TEST_LDFLAGS)
+		$(LDFLAGS)
 
 $(TEST_EVIDENCE_CATEGORY_ITEM): \
 	tests/test_evidence_category_item.c \
@@ -840,6 +889,13 @@ $(TEST_CREATE_PERSON_DIALOG_GTK): tests/test_create_person_dialog_gtk.c \
 	src/core/evidence_preview_task.c src/core/evidence_preview.c \
 	src/core/eml_analyzer.c src/core/eml_mime_extractor.c \
 	src/core/evidence_video_preview_controller.c \
+	src/core/identity_ocr_preprocessor.c \
+	src/core/identity_ocr_workflow.c \
+	src/core/identity_field_extractor.c src/core/ocr_analysis.c \
+	src/core/document_analysis.c src/core/document_tool_runner.c \
+	src/core/tool_registry.c \
+	src/models/identity_ocr.c \
+	src/widgets/ocr_provenance_overlay.c src/core/ocr_region_geometry.c \
 	src/widgets/evidence_preview_widget.c \
 	src/core/evidence_integrity_verifier.c src/core/file_hash.c \
 	src/core/background_task.c src/core/task_manager.c \
@@ -847,6 +903,36 @@ $(TEST_CREATE_PERSON_DIALOG_GTK): tests/test_create_person_dialog_gtk.c \
 	src/models/person_role_assignment.c \
 	src/models/person_evidence_selection.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+$(TEST_CREATE_PERSON_DIALOG_OCR_GTK): \
+	tests/test_create_person_dialog_ocr_gtk.c \
+	src/views/create_person_dialog.c src/core/person_dialog_lifecycle.c \
+	src/core/person_confirmation_summary.c \
+	src/core/evidence_staging.c src/core/evidence_staging_task.c \
+	src/core/evidence_preview_task.c src/core/evidence_preview.c \
+	src/core/eml_analyzer.c src/core/eml_mime_extractor.c \
+	src/core/evidence_video_preview_controller.c \
+	src/core/identity_ocr_preprocessor.c \
+	src/core/identity_ocr_workflow.c \
+	src/core/identity_field_extractor.c src/core/ocr_analysis.c \
+	src/core/person_creation_coordinator.c \
+	src/core/document_analysis.c src/core/document_tool_runner.c \
+	src/core/tool_registry.c src/models/identity_ocr.c \
+	src/dao/identity_ocr_dao.c src/dao/entity_dao.c \
+	src/dao/evidence_dao.c src/dao/evidence_entity_dao.c \
+	src/dao/person_role_assignment_dao.c \
+	src/models/entity_record.c src/models/evidence_observation.c \
+	src/widgets/ocr_provenance_overlay.c src/core/ocr_region_geometry.c \
+	src/widgets/evidence_preview_widget.c \
+	src/core/evidence_integrity_verifier.c src/core/file_hash.c \
+	src/core/background_task.c src/core/task_manager.c \
+	src/models/evidence_selection_model.c src/models/evidence_record.c \
+	src/models/person_role_assignment.c \
+	src/models/person_evidence_selection.c \
+	src/database/database.c src/database/schema.c src/database/statement.c \
+	src/database/transaction.c src/database/error.c \
+	src/core/relation_type_normalizer.c $(FAKE_DOCUMENT_TOOL)
+	$(CC) $(CFLAGS) $(filter %.c,$^) -o $@ $(LDFLAGS)
 
 $(TEST_EVIDENCE_PREVIEW_WIDGET_GTK): \
 	tests/test_evidence_preview_widget_gtk.c \
@@ -886,6 +972,7 @@ $(TEST_PERSON_CREATION_COORDINATOR): \
 	tests/test_person_creation_coordinator.c \
 	src/core/person_creation_coordinator.c src/core/evidence_staging.c \
 	src/core/file_hash.c \
+	src/models/identity_ocr.c src/dao/identity_ocr_dao.c \
 	src/models/person_evidence_selection.c src/models/evidence_record.c \
 	src/models/person_role_assignment.c src/models/entity_record.c \
 	src/models/evidence_observation.c \
@@ -1007,6 +1094,7 @@ test: \
 	$(TEST_PERSON_CREATION_GUARD) \
 	$(TEST_PERSON_DIALOG_LIFECYCLE) \
 	$(TEST_CREATE_PERSON_DIALOG_GTK) \
+	$(TEST_CREATE_PERSON_DIALOG_OCR_GTK) \
 	$(TEST_EVIDENCE_PREVIEW_WIDGET_GTK) \
 	$(TEST_PERSON_CONFIRMATION_SUMMARY) \
 	$(TEST_PERSON_ROLE_ASSIGNMENT_DAO) \
@@ -1028,7 +1116,13 @@ test: \
 	$(TEST_EXIFTOOL_ANALYSIS) \
 	$(TEST_OCR_ANALYSIS) \
 	$(TEST_PDF_ANALYSIS) \
-	$(TEST_DOCUMENT_TOOL_RUNNER)
+	$(TEST_DOCUMENT_TOOL_RUNNER) \
+	$(TEST_IDENTITY_OCR) \
+	$(TEST_IDENTITY_OCR_PREPROCESSOR) \
+	$(TEST_OCR_PROVENANCE_OVERLAY_GTK) \
+	$(TEST_EVIDENCE_METADATA_DIALOG_GTK) \
+	$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK) \
+	$(TEST_WORKSPACE_IDENTITY_OCR_GTK)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -1093,6 +1187,7 @@ test: \
 	@$(TEST_PERSON_CREATION_GUARD)
 	@$(TEST_PERSON_DIALOG_LIFECYCLE)
 	@$(TEST_CREATE_PERSON_DIALOG_GTK)
+	@$(TEST_CREATE_PERSON_DIALOG_OCR_GTK)
 	@$(TEST_EVIDENCE_PREVIEW_WIDGET_GTK)
 	@$(TEST_PERSON_CONFIRMATION_SUMMARY)
 	@$(TEST_PERSON_ROLE_ASSIGNMENT_DAO)
@@ -1115,6 +1210,12 @@ test: \
 	@$(TEST_OCR_ANALYSIS)
 	@$(TEST_PDF_ANALYSIS)
 	@$(TEST_DOCUMENT_TOOL_RUNNER)
+	@$(TEST_IDENTITY_OCR)
+	@$(TEST_IDENTITY_OCR_PREPROCESSOR)
+	@$(TEST_OCR_PROVENANCE_OVERLAY_GTK)
+	@$(TEST_EVIDENCE_METADATA_DIALOG_GTK)
+	@$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK)
+	@$(TEST_WORKSPACE_IDENTITY_OCR_GTK)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -1186,6 +1287,7 @@ clean:
 		$(TEST_PERSON_CREATION_GUARD) \
 		$(TEST_PERSON_DIALOG_LIFECYCLE) \
 		$(TEST_CREATE_PERSON_DIALOG_GTK) \
+		$(TEST_CREATE_PERSON_DIALOG_OCR_GTK) \
 		$(TEST_EVIDENCE_PREVIEW_WIDGET_GTK) \
 		$(TEST_PERSON_CONFIRMATION_SUMMARY) \
 		$(TEST_PERSON_ROLE_ASSIGNMENT_DAO) \
@@ -1205,6 +1307,12 @@ clean:
 		$(TEST_OCR_ANALYSIS) \
 		$(TEST_PDF_ANALYSIS) \
 		$(TEST_DOCUMENT_TOOL_RUNNER) \
+	$(TEST_IDENTITY_OCR) \
+	$(TEST_IDENTITY_OCR_PREPROCESSOR) \
+	$(TEST_OCR_PROVENANCE_OVERLAY_GTK) \
+	$(TEST_EVIDENCE_METADATA_DIALOG_GTK) \
+	$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK) \
+	$(TEST_WORKSPACE_IDENTITY_OCR_GTK) \
 		$(FAKE_DOCUMENT_TOOL)
 
 

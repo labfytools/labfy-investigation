@@ -11,6 +11,7 @@
 #include "models/evidence_observation.h"
 #include "models/entity_record.h"
 #include "models/osint_action_catalog.h"
+#include "models/identity_ocr.h"
 #include "core/task_manager.h"
 
 #include <gtk/gtk.h>
@@ -157,6 +158,26 @@ typedef void (*WorkspaceRecoverPdfPasswordCallback)(
     const char *evidence_identifier, gpointer user_data);
 typedef void (*WorkspaceObservationRemoveCallback)(
     const char *observation_identifier, gpointer user_data);
+typedef void (*WorkspaceIdentityOcrCallback)(
+    const char *evidence_identifier, gboolean revise_existing,
+    const char *ocr_run_identifier, gpointer user_data);
+
+typedef struct {
+    IdentityOcrRun *run;
+    char *person_identifier;
+    char *executed_at;
+    char *text_relative_path;
+    char *text_sha256;
+    char *tsv_relative_path;
+    char *tsv_sha256;
+} WorkspaceIdentityOcrRecord;
+
+WorkspaceIdentityOcrRecord *workspace_identity_ocr_record_new(
+    IdentityOcrRun *owned_run, const char *person_identifier,
+    const char *executed_at, const char *text_relative_path,
+    const char *text_sha256, const char *tsv_relative_path,
+    const char *tsv_sha256);
+void workspace_identity_ocr_record_free(WorkspaceIdentityOcrRecord *record);
 
 /**
  * @brief Crée une nouvelle zone de travail.
@@ -207,6 +228,11 @@ void workspace_set_selected_evidence(
     Workspace *workspace,
     const EvidenceRecord *evidence_record
 );
+void workspace_set_identity_ocr_runs(
+    Workspace *workspace, GPtrArray *owned_records);
+void workspace_set_identity_ocr_callback(
+    Workspace *workspace, WorkspaceIdentityOcrCallback callback,
+    gpointer user_data);
 void workspace_set_evidence_observations(Workspace *workspace,
     const GPtrArray *observations);
 void workspace_set_observation_remove_callback(Workspace *workspace,
