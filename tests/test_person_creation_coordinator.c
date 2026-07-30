@@ -56,7 +56,8 @@ static void assert_empty_after_reopen(const char *database_path)
     static const char *const tables[] = {
         "entites", "preuves", "preuve_entites", "preuve_entite_sources",
         "person_role_assignments", "identity_ocr_runs",
-        "identity_document_observations", "identity_field_observations"
+        "identity_document_observations", "identity_field_observations",
+        "person_evidence_factual_relations"
     };
     Database *database = database_open(database_path);
     g_assert_nonnull(database);
@@ -100,6 +101,7 @@ static void test_failure_matrix(void)
         {PERSON_CREATION_FAILURE_CREATE_SOURCE,0},
         {PERSON_CREATION_FAILURE_CREATE_SOURCE,1},
         {PERSON_CREATION_FAILURE_CREATE_SOURCE,2},
+        {PERSON_CREATION_FAILURE_INSERT_FACTUAL_RELATION,0},
         {PERSON_CREATION_FAILURE_SESSION_BEFORE_COMMIT,0},
         {PERSON_CREATION_FAILURE_ARTIFACT_TEXT_CHANGED,0},
         {PERSON_CREATION_FAILURE_ARTIFACT_TSV_CHANGED,0},
@@ -167,11 +169,23 @@ static void test_failure_matrix(void)
             .confidence = 10,
             .role_assignments = roles
         };
+        PersonCreationFactualRelationInput factual_relation = {
+            .evidence_selection_identifier =
+                person_evidence_selection_item_get_identifier(
+                    person_evidence_selection_get(selection, 0)),
+            .ocr_run_identifier = identity_ocr_run_get_identifier(
+                g_ptr_array_index(runs, 0)),
+            .relation_type = "identity_observed_in",
+            .factual_note = "Choix humain SPECIMEN"
+        };
+        GPtrArray *factual_relations = g_ptr_array_new();
+        g_ptr_array_add(factual_relations, &factual_relation);
         PersonCreationCoordinatorOptions options = {
             .failure_point = cases[scenario].point,
             .failure_occurrence = cases[scenario].occurrence,
             .inject_compensation_failure =
-                scenario == G_N_ELEMENTS(cases) - 1
+                scenario == G_N_ELEMENTS(cases) - 1,
+            .factual_relations = factual_relations
         };
         char *ocr_parent=g_build_filename(root,"02_Preuves_Traitees",
             "OCR",NULL);
@@ -223,6 +237,7 @@ static void test_failure_matrix(void)
             g_free(contents);
         }
         g_ptr_array_unref(roles);
+        g_ptr_array_unref(factual_relations);
         g_ptr_array_unref(runs);
         person_evidence_selection_free(selection);
         g_ptr_array_unref(prepared);
@@ -391,9 +406,25 @@ static void test_success_and_rollback(void)
     g_ptr_array_add(coordinator_runs, coordinator_run);
     PersonEvidenceSelection *task_selection =
         person_evidence_selection_copy(selection);
+    PersonCreationFactualRelationInput explicit_relation = {
+        .evidence_selection_identifier =
+            person_evidence_selection_item_get_identifier(
+                person_evidence_selection_get(task_selection, 0)),
+        .ocr_run_identifier =
+            identity_ocr_run_get_identifier(coordinator_run),
+        .relation_type = "data_extracted_from",
+        .factual_note = "Choix humain explicite SPECIMEN"
+    };
+    GPtrArray *explicit_relations = g_ptr_array_new();
+    g_ptr_array_add(explicit_relations, &explicit_relation);
+    PersonCreationCoordinatorOptions explicit_options = {
+        .factual_relations = explicit_relations
+    };
     database = database_open(database_path);
-    result = person_creation_coordinator_execute(database, root, &person,
-        task_selection, coordinator_runs, NULL, &error);
+    result = person_creation_coordinator_execute_with_options(
+        database, root, &person, task_selection, coordinator_runs,
+        &explicit_options, NULL, &error);
+    g_ptr_array_unref(explicit_relations);
     person_evidence_selection_free(task_selection);
     g_assert_no_error(error);
     g_assert_nonnull(result);
@@ -405,6 +436,8 @@ static void test_success_and_rollback(void)
     g_assert_cmpuint(count(database, "identity_ocr_runs"), ==, 1);
     g_assert_cmpuint(count(database, "identity_document_observations"), ==, 1);
     g_assert_cmpuint(count(database, "identity_field_observations"), ==, 2);
+    g_assert_cmpuint(count(database,
+        "person_evidence_factual_relations"), ==, 1);
     char *ocr_root = g_build_filename(root, "02_Preuves_Traitees", "OCR",
         identity_ocr_run_get_identifier(coordinator_run), NULL);
     char *ocr_text = g_build_filename(ocr_root, "ocr.txt", NULL);

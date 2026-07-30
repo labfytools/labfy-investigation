@@ -4,6 +4,8 @@
  ******************************************************************************/
 #include "views/create_person_dialog.h"
 #include "views/dialog_geometry.h"
+#include "views/person_vocabulary_adapter.h"
+#include "views/identity_ocr_option_adapter.h"
 #include "core/evidence_staging.h"
 #include "core/evidence_staging_task.h"
 #include "core/person_confirmation_summary.h"
@@ -78,7 +80,8 @@ typedef struct
     GtkStringList *evidence_labels;
     GtkStringList *retained_labels;
     GtkStringList *type_filter_labels;
-    GtkCheckButton *roles[9];
+    GPtrArray *role_buttons;
+    PersonVocabularyAdapter *vocabularies;
     guint step;
     GPtrArray *evidence_identifiers;
     GPtrArray *visible_records;
@@ -125,7 +128,6 @@ typedef struct {
     GWeakRef window;
     guint64 generation;
 } CreatePersonStagingContext;
-static const char *const status_codes[] = {"unknown", "suspected", "confirmed"};
 static void create_person_dialog_clear_preview(CreatePersonDialogState *state);
 static void create_person_dialog_select_record(CreatePersonDialogState *state,
     const EvidenceRecord *record, const char *business_type);
@@ -160,33 +162,6 @@ static void identity_languages_worker(GTask *task, gpointer source,
     if (choices != NULL) g_task_return_pointer(task, choices,
         (GDestroyNotify) g_ptr_array_unref);
     else g_task_return_error(task, error);
-}
-
-static const char *identity_language_label(const char *code)
-{
-    if (g_str_equal(code, "fra")) return "Français (fra)";
-    if (g_str_equal(code, "eng")) return "Anglais (eng)";
-    if (g_str_equal(code, "fra+eng")) return "Français + anglais (fra+eng)";
-    return code;
-}
-
-static guint identity_default_language_index(const GPtrArray *codes)
-{
-    guint english_index = GTK_INVALID_LIST_POSITION;
-
-    for (guint index = 0; codes != NULL && index < codes->len; index++) {
-        const char *code = g_ptr_array_index((GPtrArray *) codes, index);
-
-        if (g_strcmp0(code, "fra") == 0)
-            return index;
-        if (g_strcmp0(code, "eng") == 0)
-            english_index = index;
-    }
-    return english_index != GTK_INVALID_LIST_POSITION
-        ? english_index
-        : (codes != NULL && codes->len > 0
-            ? 0
-            : GTK_INVALID_LIST_POSITION);
 }
 
 static const char *create_person_dialog_effective_ocr_mime(
@@ -235,11 +210,13 @@ static void identity_languages_completed(GObject *source,
         for (guint i = 0; state->ocr_language_codes != NULL &&
              i < state->ocr_language_codes->len; i++) {
             const char *code = g_ptr_array_index(state->ocr_language_codes, i);
-            gtk_string_list_append(labels, identity_language_label(code));
+            gtk_string_list_append(labels,
+                identity_ocr_option_adapter_language_label(code));
         }
         gtk_drop_down_set_model(state->ocr_languages, G_LIST_MODEL(labels));
         gtk_drop_down_set_selected(state->ocr_languages,
-            identity_default_language_index(state->ocr_language_codes));
+            identity_ocr_option_adapter_default_language_index(
+                state->ocr_language_codes));
         gtk_widget_set_sensitive(GTK_WIDGET(state->ocr_start),
             state->ocr_language_codes != NULL &&
             state->ocr_language_codes->len > 0);
@@ -749,6 +726,8 @@ static void create_person_dialog_state_free(gpointer data)
     g_clear_pointer(&state->ocr_runs, g_ptr_array_unref);
     g_clear_pointer(&state->ocr_language_codes, g_ptr_array_unref);
     g_clear_pointer(&state->ocr_overlay, ocr_provenance_overlay_free);
+    g_clear_pointer(&state->role_buttons, g_ptr_array_unref);
+    g_clear_pointer(&state->vocabularies, person_vocabulary_adapter_free);
     person_dialog_lifecycle_cancel(state->lifecycle);
     g_clear_pointer(&state->evidence_identifiers, g_ptr_array_unref);
     g_clear_pointer(&state->visible_records, g_ptr_array_unref);
@@ -1301,6 +1280,8 @@ static void create_person_dialog_on_create(GtkButton *button, gpointer data)
     CreatePersonDialogResult *result = NULL;
     char *notes = NULL;
     guint status = gtk_drop_down_get_selected(state->status);
+    const GPtrArray *statuses =
+        person_vocabulary_adapter_get_statuses(state->vocabularies);
     (void) button;
     if (state->session_check != NULL &&
         !state->session_check(state->user_data)) {
@@ -1309,7 +1290,7 @@ static void create_person_dialog_on_create(GtkButton *button, gpointer data)
         gtk_widget_set_visible(GTK_WIDGET(state->error), TRUE);
         return;
     }
-    if (status >= G_N_ELEMENTS(status_codes) ||
+    if (statuses == NULL || status >= statuses->len ||
         gtk_editable_get_text(GTK_EDITABLE(state->designation))[0] == '\0')
     {
         gtk_label_set_text(state->error, "La désignation de la personne est obligatoire.");
@@ -1323,7 +1304,8 @@ static void create_person_dialog_on_create(GtkButton *button, gpointer data)
         gtk_editable_get_text(GTK_EDITABLE(state->name)));
     result->pseudonym = create_person_dialog_copy(
         gtk_editable_get_text(GTK_EDITABLE(state->pseudonym)));
-    result->status = g_strdup(status_codes[status]);
+    result->status = g_strdup(person_vocabulary_adapter_status_code(
+        state->vocabularies, status));
     result->notes = create_person_dialog_copy(notes);
     if (person_evidence_selection_get_count(
             state->person_evidence_selection) > 0) {
@@ -1340,23 +1322,10 @@ static void create_person_dialog_on_create(GtkButton *button, gpointer data)
     result->input.notes = result->notes;
     result->input.confidence = gtk_spin_button_get_value_as_int(state->confidence);
     result->input.evidence_identifier = result->evidence_identifier;
-    result->role_assignments = g_ptr_array_new_with_free_func(
-        (GDestroyNotify) person_role_assignment_input_free);
-    static const char *const role_codes[] = {
-        "alleged_author", "presented_identity",
-        "potentially_impersonated_identity", "victim", "witness",
-        "declared_bank_holder", "intermediary", "mentioned_person", "other"};
-    for (guint i = 0; i < G_N_ELEMENTS(role_codes); i++)
-        if (gtk_check_button_get_active(state->roles[i])) {
-            PersonRoleAssignmentInput assignment = {
-                .role_code = (char *) role_codes[i],
-                .evidence_identifier = result->evidence_identifier,
-                .provenance_kind = "manual",
-                .has_confidence = FALSE
-            };
-            g_ptr_array_add(result->role_assignments,
-                person_role_assignment_input_copy(&assignment));
-        }
+    result->role_assignments =
+        person_vocabulary_adapter_build_role_assignments(
+            state->vocabularies, state->role_buttons,
+            result->evidence_identifier);
     result->input.role_assignments = result->role_assignments;
     result->evidence_selection = state->person_evidence_selection;
     state->person_evidence_selection = NULL;
@@ -1395,23 +1364,20 @@ static void create_person_dialog_update_navigation(CreatePersonDialogState *stat
     gtk_label_set_markup(state->progress, progress->str);
     g_string_free(progress, TRUE);
     if (state->step == 4) {
-        static const char *const status_labels[] = {
-            "Inconnu", "Présumé", "Confirmé"};
-        GPtrArray *role_labels = g_ptr_array_new();
+        GPtrArray *role_labels =
+            person_vocabulary_adapter_selected_role_labels(
+                state->role_buttons);
         char *notes = create_person_dialog_get_notes(state);
         char *text;
-        for (guint i = 0; i < G_N_ELEMENTS(state->roles); i++)
-            if (gtk_check_button_get_active(state->roles[i]))
-                g_ptr_array_add(role_labels, (gpointer)
-                    gtk_check_button_get_label(state->roles[i]));
+        guint selected_status = gtk_drop_down_get_selected(state->status);
+        const char *status_label =
+            person_vocabulary_adapter_status_label(
+                state->vocabularies, selected_status);
         text = person_confirmation_summary_build_multiple(
             gtk_editable_get_text(GTK_EDITABLE(state->designation)),
             gtk_editable_get_text(GTK_EDITABLE(state->name)),
             gtk_editable_get_text(GTK_EDITABLE(state->pseudonym)),
-            gtk_drop_down_get_selected(state->status) <
-                G_N_ELEMENTS(status_labels)
-                ? status_labels[gtk_drop_down_get_selected(state->status)]
-                : "Non renseigné",
+            status_label,
             gtk_spin_button_get_value_as_int(state->confidence), notes,
             role_labels, state->person_evidence_selection);
         GString *confirmation = g_string_new(text);
@@ -1512,20 +1478,29 @@ static void create_person_dialog_add_row(GtkGrid *grid, int row,
     gtk_grid_attach(grid, widget, 1, row, 1, 1);
 }
 gboolean create_person_dialog_present(GtkWindow *parent,
-    const GPtrArray *records, const char *investigation_root_path,
+    Database *database, const GPtrArray *records,
+    const char *investigation_root_path,
     TaskManager *task_manager, const ToolInfo *tesseract_tool,
     CreatePersonDialogSessionCheck session_check,
     CreatePersonDialogCallback callback, gpointer data,
     GDestroyNotify data_destroy)
 {
-    static const char *const statuses[] = {"Inconnu", "Présumé", "Confirmé", NULL};
     CreatePersonDialogState *state = NULL;
     GtkWidget *box = NULL, *grid = NULL, *actions = NULL, *cancel = NULL;
     GtkWidget *roles_box = NULL, *evidence_box = NULL, *ocr_box = NULL;
     GtkWidget *summary = NULL;
-    if (parent == NULL || investigation_root_path == NULL ||
+    if (parent == NULL || database == NULL ||
+        investigation_root_path == NULL ||
         task_manager == NULL) return FALSE;
     state = g_new0(CreatePersonDialogState, 1);
+    GError *vocabulary_error = NULL;
+    state->vocabularies = person_vocabulary_adapter_new(
+        database, &vocabulary_error);
+    if (state->vocabularies == NULL) {
+        g_clear_error(&vocabulary_error);
+        g_free(state);
+        return FALSE;
+    }
     state->callback = callback; state->session_check = session_check;
     state->user_data = data; state->user_data_destroy = data_destroy;
     state->evidence_identifiers = g_ptr_array_new_with_free_func(g_free);
@@ -1568,7 +1543,10 @@ gboolean create_person_dialog_present(GtkWindow *parent,
     gtk_entry_set_placeholder_text(state->designation, "Personne présumée liée aux comptes");
     state->name = GTK_ENTRY(gtk_entry_new());
     state->pseudonym = GTK_ENTRY(gtk_entry_new());
-    state->status = GTK_DROP_DOWN(gtk_drop_down_new_from_strings(statuses));
+    GtkStringList *status_labels =
+        person_vocabulary_adapter_create_status_labels(state->vocabularies);
+    state->status = GTK_DROP_DOWN(gtk_drop_down_new(
+        G_LIST_MODEL(status_labels), NULL));
     gtk_drop_down_set_selected(state->status, 1);
     state->confidence = GTK_SPIN_BUTTON(gtk_spin_button_new_with_range(0, 100, 5));
     gtk_spin_button_set_value(state->confidence, 30);
@@ -1620,15 +1598,9 @@ gboolean create_person_dialog_present(GtkWindow *parent,
         GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT);
     gtk_stack_add_titled(state->stack, grid, "person", "1 — Personne");
     roles_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-    static const char *const role_codes[] = {
-        "alleged_author", "presented_identity",
-        "potentially_impersonated_identity", "victim", "witness",
-        "declared_bank_holder", "intermediary", "mentioned_person", "other"};
-    for (guint i = 0; i < G_N_ELEMENTS(role_codes); i++) {
-        state->roles[i] = GTK_CHECK_BUTTON(gtk_check_button_new_with_label(
-            person_role_assignment_role_label(role_codes[i])));
-        gtk_box_append(GTK_BOX(roles_box), GTK_WIDGET(state->roles[i]));
-    }
+    state->role_buttons =
+        person_vocabulary_adapter_create_role_buttons(
+            state->vocabularies, GTK_BOX(roles_box));
     gtk_stack_add_titled(state->stack, roles_box, "roles", "2 — Rôles");
     evidence_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_box_append(GTK_BOX(evidence_box), gtk_label_new(

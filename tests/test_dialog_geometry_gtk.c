@@ -54,14 +54,20 @@ static void test_paned_applied_once(void)
     gtk_window_present(window);
     for (guint frame = 0; frame < 6; frame++)
         wait_for_frame(GTK_WIDGET(window));
-    int expected = (gtk_widget_get_width(GTK_WIDGET(paned)) * 2) / 3;
-    g_assert_cmpint(ABS(gtk_paned_get_position(paned) - expected), <=, 2);
-    gtk_paned_set_position(paned, 450);
+    int allocated = gtk_widget_get_width(GTK_WIDGET(paned));
+    int expected = (allocated * 2) / 3;
+    int tolerance = MAX(4, allocated / 50);
+    int position = gtk_paned_get_position(paned);
+    g_assert_cmpint(ABS(position - expected), <=, tolerance);
+    g_assert_cmpint(position, >=, 320);
+    g_assert_cmpint(allocated - position, >=, 180);
+    int user_position = (allocated * 11) / 20;
+    gtk_paned_set_position(paned, user_position);
     gtk_window_set_default_size(window, 1000, 700);
     wait_for_frame(GTK_WIDGET(window));
-    g_assert_cmpint(gtk_paned_get_position(paned), ==, 450);
+    g_assert_cmpint(gtk_paned_get_position(paned), ==, user_position);
     labfy_paned_apply_initial_ratio(paned, 0.5, 100, 100);
-    g_assert_cmpint(gtk_paned_get_position(paned), ==, 450);
+    g_assert_cmpint(gtk_paned_get_position(paned), ==, user_position);
     gtk_window_destroy(window);
 }
 

@@ -5,6 +5,7 @@
 #include "dao/evidence_entity_dao.h"
 #include "dao/person_role_assignment_dao.h"
 #include "dao/identity_ocr_dao.h"
+#include "dao/identity_traceability_dao.h"
 #include "database/transaction.h"
 #include <errno.h>
 #include <glib/gstdio.h>
@@ -261,6 +262,53 @@ static gboolean persist_ocr_runs(IdentityOcrDao *dao, const char *root,
     return TRUE;
 }
 
+static gboolean persist_factual_relations(IdentityTraceabilityDao *dao,
+    const char *person_identifier,
+    const PersonEvidenceSelection *selection,
+    const GPtrArray *evidence_identifiers,
+    const GPtrArray *inputs, const char *timestamp,
+    FailureControl *failure, GError **error)
+{
+    for (guint i = 0; inputs != NULL && i < inputs->len; i++) {
+        const PersonCreationFactualRelationInput *input =
+            g_ptr_array_index((GPtrArray *) inputs, i);
+        const char *evidence_identifier = NULL;
+        for (guint j = 0; input != NULL &&
+             j < person_evidence_selection_get_count(selection); j++) {
+            const PersonEvidenceSelectionItem *item =
+                person_evidence_selection_get(selection, j);
+            if (g_strcmp0(
+                    person_evidence_selection_item_get_identifier(item),
+                    input->evidence_selection_identifier) == 0) {
+                evidence_identifier = g_ptr_array_index(
+                    (GPtrArray *) evidence_identifiers, j);
+                break;
+            }
+        }
+        char *identifier = g_uuid_string_random();
+        PersonEvidenceFactualRelation *relation =
+            input != NULL && evidence_identifier != NULL
+            ? person_evidence_factual_relation_new(identifier,
+                person_identifier, evidence_identifier,
+                input->ocr_run_identifier, input->relation_type,
+                input->factual_note, timestamp, TRUE) : NULL;
+        g_free(identifier);
+        if (relation == NULL ||
+            fail_at(failure,
+                PERSON_CREATION_FAILURE_INSERT_FACTUAL_RELATION, error) ||
+            !identity_traceability_dao_insert_factual_relation(
+                dao, relation, error)) {
+            person_evidence_factual_relation_free(relation);
+            if (error != NULL && *error == NULL)
+                g_set_error_literal(error, coordinator_error(), 10,
+                    "La relation factuelle explicite est invalide.");
+            return FALSE;
+        }
+        person_evidence_factual_relation_free(relation);
+    }
+    return TRUE;
+}
+
 static PersonCreationCoordinatorResult *person_creation_coordinator_execute_internal(
     Database *database, const char *root, const PersonEntityInput *person,
     const char *existing_person_identifier,
@@ -276,6 +324,7 @@ static PersonCreationCoordinatorResult *person_creation_coordinator_execute_inte
     EvidenceEntityDao *link_dao = NULL;
     PersonRoleAssignmentDao *role_dao = NULL;
     IdentityOcrDao *ocr_dao = NULL;
+    IdentityTraceabilityDao *traceability_dao = NULL;
     EntityRecord *person_record = NULL;
     GPtrArray *created_paths = g_ptr_array_new_with_free_func(g_free);
     GPtrArray *created_directories = g_ptr_array_new_with_free_func(g_free);
@@ -319,12 +368,14 @@ static PersonCreationCoordinatorResult *person_creation_coordinator_execute_inte
     link_dao = evidence_entity_dao_new(database, error);
     role_dao = person_role_assignment_dao_new(database, error);
     ocr_dao = identity_ocr_dao_new(database);
+    traceability_dao = identity_traceability_dao_new(database);
     person_record = entity_dao == NULL ? NULL : create_person
         ? build_person(person, result->person_identifier, timestamp, error)
         : entity_dao_find_by_identifier(
             entity_dao, result->person_identifier, error);
     if (timestamp == NULL || entity_dao == NULL || evidence_dao == NULL ||
         link_dao == NULL || role_dao == NULL || ocr_dao == NULL ||
+        traceability_dao == NULL ||
         person_record == NULL ||
         g_strcmp0(entity_record_get_type_identifier(person_record),
             "person") != 0 ||
@@ -418,6 +469,12 @@ static PersonCreationCoordinatorResult *person_creation_coordinator_execute_inte
             selection, result->evidence_identifiers, ocr_runs, timestamp,
             created_paths, created_directories, &failure,
             cancellable, error))
+        goto cleanup;
+    if (!persist_factual_relations(traceability_dao,
+            result->person_identifier, selection,
+            result->evidence_identifiers,
+            options != NULL ? options->factual_relations : NULL,
+            timestamp, &failure, error))
         goto cleanup;
     for (guint i = 0; ocr_runs != NULL && i < ocr_runs->len; i++) {
         IdentityOcrRun *run = g_ptr_array_index((GPtrArray *) ocr_runs, i);
@@ -513,6 +570,7 @@ cleanup:
     evidence_entity_dao_free(link_dao);
     person_role_assignment_dao_free(role_dao);
     identity_ocr_dao_free(ocr_dao);
+    identity_traceability_dao_free(traceability_dao);
     g_free(timestamp);
     if (!success) {
         person_creation_coordinator_result_free(result);

@@ -30,7 +30,7 @@ pause, retour au début, détachement et libération via des actions injectées.
 
 > **Version :** 3.2
 > **Dernière mise à jour :** 2026-07-30
-> **Schéma SQLite courant :** V17
+> **Schéma SQLite courant :** V18
 
 ## Personnes contextuelles — SQLite V14
 
@@ -98,6 +98,31 @@ l’aperçu à droite sur un tiers ; sa position n’est appliquée qu’après 
 première allocation réelle puis reste entièrement modifiable. Les actions
 restent fixes en bas. Cette politique exclut les alertes simples, les popups
 `GtkDropDown` et les sélecteurs de fichiers natifs.
+
+## Traçabilité d’identité — SQLite V18
+
+V18 sépare quatre dimensions qui ne doivent jamais être confondues :
+l’identification d’une personne, son rôle contextuel, l’authenticité humaine
+d’un document et la qualité d’une valeur OCR. Les statuts d’identification et
+les rôles proviennent de vocabulaires SQLite ordonnés. Les codes historiques
+de rôles sont conservés, mais les rôles sensibles ne sont jamais assignés par
+un moteur automatique.
+
+`document_authenticity_assessments` conserve un historique append-only
+d’évaluations humaines. Toute conclusion autre que `indeterminate` exige une
+justification. `person_evidence_factual_relations` porte uniquement quatre
+relations factuelles contrôlées et humaines ; elle ne remplace ni
+`preuve_entites`, rattachement générique, ni `relations`, relation entre
+entités. Aucun type « auteur », « identité réelle », « a falsifié » ou
+« a usurpé » n’est accepté.
+
+Les observations OCR conservent désormais séparément `raw_value`,
+`normalized_value`, `corrected_value` et `confirmed_value`. La confirmation
+humaine et la qualification `complete`, `partial`, `uncertain` ou `invalid`
+sont orthogonales au statut de révision. Les contraintes SQLite et le service
+de validation interdisent la projection des valeurs rejetées, en conflit,
+incertaines ou invalides. Cette tranche ne réalise encore aucune projection
+automatique et ne fournit pas l’interface GTK complète de saisie.
 
 ---
 
@@ -395,7 +420,7 @@ validation du chemin
     ↓
 création de l'arborescence
     ↓
-initialisation transactionnelle de SQLite V17
+initialisation transactionnelle de SQLite V18
     ↓
 création de l'identité de l'enquête
     ↓

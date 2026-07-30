@@ -5,6 +5,7 @@ labfy-investigation
 
 # Executables de tests
 /tests/test_*
+/tests/fake_document_tool
 
 # Conserver les sources des tests
 !/tests/test_*.c

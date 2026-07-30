@@ -1,5 +1,21 @@
 # Architecture de la base de données
 
+## Extension V18 — traçabilité d’identité
+
+La migration transactionnelle `database/schema_v18.sql` ajoute les
+vocabulaires `identification_status_vocabulary` et
+`person_role_vocabulary`, l’historique
+`document_authenticity_assessments`, les relations humaines contrôlées
+`person_evidence_factual_relations` et l’historique
+`person_identification_assessments`.
+
+`identity_field_observations` distingue les valeurs brute, normalisée,
+corrigée et confirmée. `confirmation_state` prouve l’action humaine et
+`value_quality` sépare la complétude de la décision de révision. Les
+contraintes refusent toute confirmation d’un champ rejeté, en conflit,
+incertain ou invalide. Aucun OCR ne crée une évaluation d’authenticité, une
+relation factuelle, un rôle sensible ou un état `confirmed`.
+
 > **Statut :** architecture courante  
 > **Version du schéma :** V10  
 > **Dernière mise à jour :** 2026-07-24  

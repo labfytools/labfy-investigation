@@ -37,6 +37,22 @@ const char *identity_field_observation_get_raw_value(
     const IdentityFieldObservation *field);
 const char *identity_field_observation_get_corrected_value(
     const IdentityFieldObservation *field);
+const char *identity_field_observation_get_normalized_value(
+    const IdentityFieldObservation *field);
+const char *identity_field_observation_get_confirmed_value(
+    const IdentityFieldObservation *field);
+const char *identity_field_observation_get_value_quality(
+    const IdentityFieldObservation *field);
+gboolean identity_field_observation_set_normalized_value(
+    IdentityFieldObservation *field, const char *value);
+gboolean identity_field_observation_set_value_quality(
+    IdentityFieldObservation *field, const char *quality);
+gboolean identity_field_observation_confirm(
+    IdentityFieldObservation *field, const char *value);
+void identity_field_observation_clear_confirmation(
+    IdentityFieldObservation *field);
+gboolean identity_field_observation_is_human_confirmed(
+    const IdentityFieldObservation *field);
 IdentityReviewStatus identity_field_observation_get_status(
     const IdentityFieldObservation *field);
 double identity_field_observation_get_confidence(

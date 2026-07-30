@@ -30,6 +30,8 @@ gboolean person_role_assignment_dao_insert(PersonRoleAssignmentDao *dao,
         "SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM entites e "
         "JOIN types_entite t ON t.id=e.type_id WHERE e.id=? AND t.code='person') "
         "AND (? IS NULL OR EXISTS(SELECT 1 FROM preuves WHERE id=?)) "
+        "AND EXISTS(SELECT 1 FROM person_role_vocabulary v "
+        "WHERE v.code=? AND v.active=1) "
         "RETURNING id;";
     DatabaseStatement *statement = NULL;
     GDateTime *now = NULL;
@@ -65,6 +67,7 @@ gboolean person_role_assignment_dao_insert(PersonRoleAssignmentDao *dao,
         !(input->evidence_identifier != NULL
           ? database_statement_bind_text(statement, 12, input->evidence_identifier)
           : database_statement_bind_null(statement, 12)) ||
+        !database_statement_bind_text(statement, 13, input->role_code) ||
         database_statement_step(statement) != DATABASE_STATEMENT_STEP_ROW)
         goto failed;
     success = TRUE;

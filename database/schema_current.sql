@@ -306,6 +306,11 @@ CREATE TABLE IF NOT EXISTS identity_field_observations (
     source_width INTEGER, source_height INTEGER, source_image_width INTEGER,
     source_image_height INTEGER, display_order INTEGER NOT NULL,
     reviewed_at TEXT NOT NULL, review_note TEXT,
+    confirmed_value TEXT,
+    confirmation_state TEXT NOT NULL DEFAULT 'unconfirmed'
+      CHECK(confirmation_state IN ('unconfirmed','human_confirmed')),
+    value_quality TEXT NOT NULL DEFAULT 'complete'
+      CHECK(value_quality IN ('complete','partial','uncertain','invalid')),
     CHECK (
       (origin = 'manual_entry' AND raw_value IS NULL
        AND corrected_value IS NOT NULL AND confidence IS NULL)
@@ -318,3 +323,116 @@ CREATE TABLE IF NOT EXISTS identity_field_observations (
     FOREIGN KEY(ocr_run_id) REFERENCES identity_ocr_runs(id) ON DELETE CASCADE);
 CREATE INDEX IF NOT EXISTS idx_identity_fields_observation
     ON identity_field_observations(observation_id,display_order);
+
+CREATE TABLE IF NOT EXISTS identification_status_vocabulary(
+ code TEXT PRIMARY KEY,label TEXT NOT NULL,description TEXT NOT NULL,
+ display_order INTEGER NOT NULL UNIQUE,
+ active INTEGER NOT NULL DEFAULT 1 CHECK(active IN(0,1)),
+ requires_justification INTEGER NOT NULL DEFAULT 0 CHECK(requires_justification IN(0,1)),
+ sensitive INTEGER NOT NULL DEFAULT 0 CHECK(sensitive IN(0,1)));
+INSERT OR IGNORE INTO identification_status_vocabulary VALUES
+('unknown','Inconnu','Aucune identification disponible.',10,1,0,0),
+('unverified','Non vérifié','Identification déclarée, non vérifiée.',20,1,0,0),
+('presumed','Présumé','Identification présumée à justifier.',30,1,1,1),
+('partially_identified','Partiellement identifié','Identification incomplète.',40,1,0,0),
+('confirmed','Confirmé','Identification confirmée à justifier.',50,1,1,1),
+('disputed','Contesté','Identification contestée à justifier.',60,1,1,1);
+CREATE TABLE IF NOT EXISTS person_role_vocabulary(
+ code TEXT PRIMARY KEY,label TEXT NOT NULL,description TEXT NOT NULL,
+ display_order INTEGER NOT NULL UNIQUE,active INTEGER NOT NULL CHECK(active IN(0,1)),
+ requires_justification INTEGER NOT NULL CHECK(requires_justification IN(0,1)),
+ sensitive INTEGER NOT NULL CHECK(sensitive IN(0,1)));
+INSERT OR IGNORE INTO person_role_vocabulary VALUES
+('alleged_author','Auteur présumé','Rôle allégué.',10,1,1,1),
+('presented_identity','Identité présentée','Identité déclarée.',20,1,0,0),
+('potentially_impersonated_identity','Identité potentiellement usurpée','Hypothèse sensible.',30,1,1,1),
+('victim','Victime','Personne déclarée victime.',40,1,0,0),
+('witness','Témoin','Personne déclarée témoin.',50,1,0,0),
+('declared_bank_holder','Titulaire bancaire déclaré','Titulaire déclaré.',60,1,0,0),
+('intermediary','Intermédiaire','Intermédiaire observé.',70,1,0,0),
+('mentioned_person','Personne citée','Personne citée.',80,1,0,0),
+('other','Autre','Rôle factuel non couvert.',90,1,1,0),
+('uncategorized','Non catégorisée','Code historique.',100,1,0,0),
+('alleged_scammer','Escroc présumé (historique)','Code historique.',110,0,1,1),
+('suspect','Suspect (historique)','Code historique.',120,0,1,1),
+('related_person','Personne liée (historique)','Code historique.',130,0,0,0),
+('impersonated_identity','Identité usurpée (historique)','Code historique.',140,0,1,1);
+CREATE TABLE IF NOT EXISTS document_authenticity_assessments(
+ id TEXT PRIMARY KEY,evidence_id TEXT NOT NULL,ocr_run_id TEXT,status TEXT NOT NULL
+ CHECK(status IN('indeterminate','presumed_authentic','suspicious',
+ 'presumed_forged','confirmed_forged')),justification TEXT,
+ assessed_at TEXT NOT NULL,previous_assessment_id TEXT,technical_note TEXT,
+ origin TEXT NOT NULL CHECK(origin='human'),
+ CHECK(status='indeterminate' OR
+ (justification IS NOT NULL AND length(trim(justification))>0)),
+ FOREIGN KEY(evidence_id) REFERENCES preuves(id) ON DELETE RESTRICT,
+ FOREIGN KEY(ocr_run_id) REFERENCES identity_ocr_runs(id) ON DELETE SET NULL,
+ FOREIGN KEY(previous_assessment_id) REFERENCES document_authenticity_assessments(id));
+CREATE TABLE IF NOT EXISTS person_evidence_factual_relations(
+ id TEXT PRIMARY KEY,person_id TEXT NOT NULL,evidence_id TEXT NOT NULL,
+ ocr_run_id TEXT,relation_type TEXT NOT NULL CHECK(relation_type IN(
+ 'identity_observed_in','document_presented_in_name_of','declared_holder_in',
+ 'data_extracted_from')),factual_note TEXT,observed_at TEXT NOT NULL,
+ origin TEXT NOT NULL CHECK(origin='human'),active INTEGER NOT NULL DEFAULT 1
+ CHECK(active IN(0,1)),FOREIGN KEY(person_id) REFERENCES entites(id),
+ FOREIGN KEY(evidence_id) REFERENCES preuves(id),
+ FOREIGN KEY(ocr_run_id) REFERENCES identity_ocr_runs(id) ON DELETE SET NULL);
+CREATE TABLE IF NOT EXISTS person_identification_assessments(
+ id TEXT PRIMARY KEY,person_id TEXT NOT NULL,status_code TEXT NOT NULL,
+ justification TEXT,assessed_at TEXT NOT NULL,origin TEXT NOT NULL CHECK(origin='human'),
+ previous_assessment_id TEXT,CHECK(status_code<>'disputed' OR
+ (justification IS NOT NULL AND length(trim(justification))>0)),
+ FOREIGN KEY(person_id) REFERENCES entites(id),
+ FOREIGN KEY(status_code) REFERENCES identification_status_vocabulary(code),
+ FOREIGN KEY(previous_assessment_id) REFERENCES person_identification_assessments(id));
+
+CREATE INDEX IF NOT EXISTS idx_authenticity_evidence_history
+  ON document_authenticity_assessments(evidence_id,assessed_at,id);
+CREATE INDEX IF NOT EXISTS idx_person_evidence_factual_person
+  ON person_evidence_factual_relations(person_id,observed_at,id);
+CREATE INDEX IF NOT EXISTS idx_person_evidence_factual_evidence
+  ON person_evidence_factual_relations(evidence_id,observed_at,id);
+CREATE TRIGGER IF NOT EXISTS authenticity_v18_consistency
+BEFORE INSERT ON document_authenticity_assessments BEGIN
+ SELECT CASE WHEN NEW.ocr_run_id IS NOT NULL AND NOT EXISTS(
+ SELECT 1 FROM identity_ocr_runs WHERE id=NEW.ocr_run_id
+ AND evidence_id=NEW.evidence_id)
+ THEN RAISE(ABORT,'OCR run belongs to another evidence')
+ WHEN NEW.previous_assessment_id IS NOT NULL AND NOT EXISTS(
+ SELECT 1 FROM document_authenticity_assessments
+ WHERE id=NEW.previous_assessment_id AND evidence_id=NEW.evidence_id)
+ THEN RAISE(ABORT,'previous assessment belongs to another evidence') END;
+END;
+CREATE TRIGGER IF NOT EXISTS factual_relation_v18_consistency
+BEFORE INSERT ON person_evidence_factual_relations BEGIN
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM entites e JOIN types_entite t
+ ON t.id=e.type_id WHERE e.id=NEW.person_id AND t.code='person')
+ THEN RAISE(ABORT,'factual relation requires a person')
+ WHEN NEW.ocr_run_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM identity_ocr_runs
+ WHERE id=NEW.ocr_run_id AND evidence_id=NEW.evidence_id)
+ THEN RAISE(ABORT,'OCR run belongs to another evidence') END;
+END;
+CREATE TRIGGER IF NOT EXISTS identity_fields_v18_insert_guard
+BEFORE INSERT ON identity_field_observations BEGIN
+ SELECT CASE
+ WHEN NEW.review_status IN('rejected','conflict') AND NEW.confirmed_value IS NOT NULL
+  THEN RAISE(ABORT,'non-projectable review status')
+ WHEN NEW.value_quality IN('uncertain','invalid') AND NEW.confirmed_value IS NOT NULL
+  THEN RAISE(ABORT,'non-projectable quality')
+ WHEN NEW.confirmed_value IS NOT NULL AND NEW.confirmation_state<>'human_confirmed'
+  THEN RAISE(ABORT,'human confirmation required')
+ WHEN NEW.confirmation_state='human_confirmed' AND NEW.confirmed_value IS NULL
+  THEN RAISE(ABORT,'confirmed value required') END;
+END;
+CREATE TRIGGER IF NOT EXISTS identity_fields_v18_update_guard
+BEFORE UPDATE ON identity_field_observations BEGIN
+ SELECT CASE
+ WHEN NEW.review_status IN('rejected','conflict') AND NEW.confirmed_value IS NOT NULL
+  THEN RAISE(ABORT,'non-projectable review status')
+ WHEN NEW.value_quality IN('uncertain','invalid') AND NEW.confirmed_value IS NOT NULL
+  THEN RAISE(ABORT,'non-projectable quality')
+ WHEN NEW.confirmed_value IS NOT NULL AND NEW.confirmation_state<>'human_confirmed'
+  THEN RAISE(ABORT,'human confirmation required')
+ WHEN NEW.confirmation_state='human_confirmed' AND NEW.confirmed_value IS NULL
+  THEN RAISE(ABORT,'confirmed value required') END;
+END;

@@ -407,6 +407,32 @@ bool schema_install_v17(Database *database)
         "la migration SQLite V17");
 }
 
+bool schema_install_v18(Database *database)
+{
+    sqlite3_stmt *statement = NULL;
+    sqlite3 *handle = database_get_handle(database);
+    if (handle != NULL &&
+        sqlite3_prepare_v2(handle,
+            "SELECT confirmed_value,confirmation_state,value_quality "
+            "FROM identity_field_observations LIMIT 0",
+            -1, &statement, NULL) == SQLITE_OK) {
+        sqlite3_finalize(statement);
+        statement = NULL;
+        if (sqlite3_prepare_v2(handle,
+                "SELECT 1 FROM document_authenticity_assessments,"
+                "person_evidence_factual_relations,"
+                "identification_status_vocabulary,"
+                "person_role_vocabulary LIMIT 0",
+                -1, &statement, NULL) == SQLITE_OK) {
+            sqlite3_finalize(statement);
+            return true;
+        }
+    }
+    sqlite3_finalize(statement);
+    return schema_execute_file(database, "database/schema_v18.sql",
+        "la migration SQLite V18");
+}
+
 bool schema_ensure_current(
     Database *database
 )

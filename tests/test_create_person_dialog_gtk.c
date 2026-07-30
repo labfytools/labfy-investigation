@@ -1,6 +1,8 @@
 #include "views/create_person_dialog.h"
 #include <gtk/gtk.h>
+#include <glib/gstdio.h>
 #include <string.h>
+#include <unistd.h>
 
 typedef struct
 {
@@ -241,6 +243,16 @@ static void activate(GtkApplication *application, gpointer data)
 {
     TestContext *context = data;
     GError *error = NULL;
+    char *database_path = NULL;
+    int database_fd = g_file_open_tmp(
+        "labfy-create-person-XXXXXX.sqlite", &database_path, &error);
+    g_assert_cmpint(database_fd, >=, 0);
+    close(database_fd);
+    g_unlink(database_path);
+    g_assert_true(database_initialize(database_path,
+        "Enquête SPECIMEN dialogue", "/tmp"));
+    Database *database = database_open(database_path);
+    g_assert_nonnull(database);
     GPtrArray *records = g_ptr_array_new_with_free_func(
         (GDestroyNotify) evidence_record_free);
     EvidenceRecord *record = evidence_record_new(
@@ -270,8 +282,11 @@ static void activate(GtkApplication *application, gpointer data)
         gtk_application_window_new(application));
     gtk_window_present(context->main_window);
     g_assert_true(create_person_dialog_present(context->main_window,
-        records, "/tmp", context->task_manager, NULL, NULL, completed,
+        database, records, "/tmp", context->task_manager, NULL, NULL, completed,
         context, NULL));
+    database_close(database);
+    g_unlink(database_path);
+    g_free(database_path);
     g_ptr_array_unref(records);
     g_idle_add(click_cancel, context);
 }

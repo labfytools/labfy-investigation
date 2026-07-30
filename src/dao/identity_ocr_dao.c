@@ -66,24 +66,32 @@ gboolean identity_ocr_dao_insert(IdentityOcrDao*d,const char*person,
   IdentityReviewStatus status=identity_field_observation_get_status(f);
   const IdentitySourceBox*b=identity_field_observation_get_box(f);char*id=g_uuid_string_random();
   s=database_statement_prepare(d->database,"INSERT INTO identity_field_observations("
-   "id,observation_id,field_code,raw_value,corrected_value,confidence,review_status,"
+   "id,observation_id,field_code,raw_value,corrected_value,normalized_value,"
+   "confidence,review_status,"
    "origin,evidence_id,ocr_run_id,page_number,source_x,source_y,source_width,"
-   "source_height,source_image_width,source_image_height,display_order,reviewed_at)"
-   " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+   "source_height,source_image_width,source_image_height,display_order,reviewed_at,"
+   "confirmed_value,confirmation_state,value_quality)"
+   " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
   ok=s&&bind_text(s,1,id)&&bind_text(s,2,obs)&&bind_text(s,3,identity_field_observation_get_code(f))&&
    bind_text(s,4,identity_field_observation_get_raw_value(f))&&
    bind_text(s,5,identity_field_observation_get_corrected_value(f))&&
+   bind_text(s,6,identity_field_observation_get_normalized_value(f))&&
    (identity_field_observation_get_confidence(f)>=0?
-    database_statement_bind_double(s,6,identity_field_observation_get_confidence(f)):
-    database_statement_bind_null(s,6))&&bind_text(s,7,review_status_text(status))&&
-   bind_text(s,8,identity_field_observation_get_origin(f))&&bind_text(s,9,evidence)&&
-   bind_text(s,10,identity_ocr_run_get_identifier(r))&&database_statement_bind_int64(s,11,identity_ocr_run_get_page(r));
-  for(int column=12;ok&&column<=17;column++){gint value=0;if(b&&b->available){
+    database_statement_bind_double(s,7,identity_field_observation_get_confidence(f)):
+    database_statement_bind_null(s,7))&&bind_text(s,8,review_status_text(status))&&
+   bind_text(s,9,identity_field_observation_get_origin(f))&&bind_text(s,10,evidence)&&
+   bind_text(s,11,identity_ocr_run_get_identifier(r))&&database_statement_bind_int64(s,12,identity_ocr_run_get_page(r));
+  for(int column=13;ok&&column<=18;column++){gint value=0;if(b&&b->available){
    const gint values[]={b->x,b->y,b->width,b->height,b->image_width,b->image_height};
-   value=values[column-12];ok=database_statement_bind_int64(s,column,value);
+   value=values[column-13];ok=database_statement_bind_int64(s,column,value);
   }else ok=database_statement_bind_null(s,column);}
-  ok=ok&&database_statement_bind_int64(s,18,identity_field_observation_get_order(f))&&
-   bind_text(s,19,timestamp)&&database_statement_step(s)==DATABASE_STATEMENT_STEP_DONE;
+  ok=ok&&database_statement_bind_int64(s,19,identity_field_observation_get_order(f))&&
+   bind_text(s,20,timestamp)&&
+   bind_text(s,21,identity_field_observation_get_confirmed_value(f))&&
+   bind_text(s,22,identity_field_observation_is_human_confirmed(f)
+    ?"human_confirmed":"unconfirmed")&&
+   bind_text(s,23,identity_field_observation_get_value_quality(f))&&
+   database_statement_step(s)==DATABASE_STATEMENT_STEP_DONE;
   database_statement_finalize(s);g_free(id);if(!ok){g_free(obs);goto fail;}}
  g_free(obs);return TRUE;
 fail:g_set_error_literal(error,g_quark_from_static_string("identity-ocr-dao"),1,
@@ -111,6 +119,8 @@ void identity_document_observation_record_free(IdentityDocumentObservationRecord
 void identity_field_observation_record_free(IdentityFieldObservationRecord*r)
 {if(!r)return;FREE_FIELD(r,id);FREE_FIELD(r,observation_id);FREE_FIELD(r,field_code);
  FREE_FIELD(r,raw_value);FREE_FIELD(r,corrected_value);FREE_FIELD(r,normalized_value);
+ FREE_FIELD(r,confirmed_value);FREE_FIELD(r,confirmation_state);
+ FREE_FIELD(r,value_quality);
  FREE_FIELD(r,review_status);FREE_FIELD(r,origin);FREE_FIELD(r,evidence_id);
  FREE_FIELD(r,ocr_run_id);FREE_FIELD(r,reviewed_at);FREE_FIELD(r,review_note);g_free(r);}
 
@@ -188,7 +198,10 @@ static IdentityFieldObservationRecord *read_field(DatabaseStatement*s)
   ok=database_statement_column_int64(s,12+(int)i,values[i]);
  ok=ok&&database_statement_column_int64(s,18,&r->display_order)&&
   database_statement_column_text(s,19,&r->reviewed_at)&&
-  database_statement_column_text(s,20,&r->review_note);
+  database_statement_column_text(s,20,&r->review_note)&&
+  database_statement_column_text(s,21,&r->confirmed_value)&&
+  database_statement_column_text(s,22,&r->confirmation_state)&&
+  database_statement_column_text(s,23,&r->value_quality);
  if(!ok){identity_field_observation_record_free(r);return NULL;}return r;
 }
 static const char run_columns[]="id,evidence_id,expected_sha256,page_number,"
@@ -203,7 +216,8 @@ static const char document_columns[]="id,person_id,evidence_id,ocr_run_id,"
 static const char field_columns[]="id,observation_id,field_code,raw_value,"
  "corrected_value,normalized_value,confidence,review_status,origin,evidence_id,"
  "ocr_run_id,page_number,source_x,source_y,source_width,source_height,"
- "source_image_width,source_image_height,display_order,reviewed_at,review_note";
+ "source_image_width,source_image_height,display_order,reviewed_at,review_note,"
+ "confirmed_value,confirmation_state,value_quality";
 
 typedef gpointer(*ReadRecord)(DatabaseStatement*);
 static gpointer read_run_record(DatabaseStatement*s){return read_run(s);}
@@ -272,6 +286,29 @@ GPtrArray *identity_ocr_dao_list_fields_by_document(IdentityOcrDao*d,const char*
 {return list_records(d,"identity_field_observations",field_columns,
  "observation_id",i,read_field_record,
  (GDestroyNotify)identity_field_observation_record_free,e);}
+GPtrArray *identity_ocr_dao_list_confirmed_fields(IdentityOcrDao*d,
+ const char*i,GError**e)
+{
+ if(!d||!i){g_set_error_literal(e,g_quark_from_static_string("identity-ocr-dao"),2,
+  "Lecture OCR invalide.");return NULL;}
+ char*sql=g_strdup_printf("SELECT %s FROM identity_field_observations "
+  "WHERE observation_id=? AND confirmation_state='human_confirmed' "
+  "AND confirmed_value IS NOT NULL AND review_status IN ('accepted','modified') "
+  "AND value_quality IN ('complete','partial') ORDER BY display_order,rowid;",
+  field_columns);
+ DatabaseStatement*s=database_statement_prepare(d->database,sql);g_free(sql);
+ GPtrArray*a=g_ptr_array_new_with_free_func(
+  (GDestroyNotify)identity_field_observation_record_free);
+ if(!s||!database_statement_bind_text(s,1,i))goto failed;
+ for(;;){DatabaseStatementStepResult step=database_statement_step(s);
+  if(step==DATABASE_STATEMENT_STEP_DONE)break;
+  if(step!=DATABASE_STATEMENT_STEP_ROW)goto failed;
+  IdentityFieldObservationRecord*r=read_field(s);if(!r)goto failed;g_ptr_array_add(a,r);}
+ database_statement_finalize(s);return a;
+failed:database_statement_finalize(s);g_ptr_array_unref(a);
+ g_set_error_literal(e,g_quark_from_static_string("identity-ocr-dao"),4,
+  "Impossible de lire les champs OCR confirmés.");return NULL;
+}
 
 IdentityOcrRun *identity_ocr_dao_load_run(
  IdentityOcrDao*d,const char*root,const char*identifier,
@@ -329,6 +366,11 @@ IdentityOcrRun *identity_ocr_dao_load_run(
    else if(g_strcmp0(f->review_status,"conflict")==0)
     identity_field_observation_mark_conflict(field);
    identity_field_observation_set_origin(field,f->origin);
+   if(f->normalized_value!=NULL)
+    identity_field_observation_set_normalized_value(field,f->normalized_value);
+   identity_field_observation_set_value_quality(field,f->value_quality);
+   if(g_strcmp0(f->confirmation_state,"human_confirmed")==0)
+    identity_field_observation_confirm(field,f->confirmed_value);
    identity_ocr_run_add_field(run,field);
   }
   g_clear_pointer(&fields,g_ptr_array_unref);
@@ -354,34 +396,40 @@ static gboolean update_review_fields(IdentityOcrDao*d,const char*observation,
   char*id=g_uuid_string_random();
   DatabaseStatement*s=database_statement_prepare(d->database,
    "INSERT INTO identity_field_observations(id,observation_id,field_code,"
-   "raw_value,corrected_value,confidence,review_status,origin,evidence_id,"
+   "raw_value,corrected_value,normalized_value,confidence,review_status,origin,evidence_id,"
    "ocr_run_id,page_number,source_x,source_y,source_width,source_height,"
-   "source_image_width,source_image_height,display_order,reviewed_at)"
-   " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+   "source_image_width,source_image_height,display_order,reviewed_at,"
+   "confirmed_value,confirmation_state,value_quality)"
+   " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
   gboolean ok=s&&bind_text(s,1,id)&&bind_text(s,2,observation)&&
    bind_text(s,3,identity_field_observation_get_code(f))&&
    bind_text(s,4,identity_field_observation_get_raw_value(f))&&
    bind_text(s,5,identity_field_observation_get_corrected_value(f))&&
+   bind_text(s,6,identity_field_observation_get_normalized_value(f))&&
    (identity_field_observation_get_confidence(f)>=0
-    ?database_statement_bind_double(s,6,
+    ?database_statement_bind_double(s,7,
       identity_field_observation_get_confidence(f))
-    :database_statement_bind_null(s,6))&&
-   bind_text(s,7,review_status_text(
+    :database_statement_bind_null(s,7))&&
+   bind_text(s,8,review_status_text(
       identity_field_observation_get_status(f)))&&
-   bind_text(s,8,identity_field_observation_get_origin(f))&&
-   bind_text(s,9,identity_ocr_run_get_evidence_id(run))&&
-   bind_text(s,10,identity_ocr_run_get_identifier(run))&&
-   database_statement_bind_int64(s,11,identity_ocr_run_get_page(run));
+   bind_text(s,9,identity_field_observation_get_origin(f))&&
+   bind_text(s,10,identity_ocr_run_get_evidence_id(run))&&
+   bind_text(s,11,identity_ocr_run_get_identifier(run))&&
+   database_statement_bind_int64(s,12,identity_ocr_run_get_page(run));
   const gint values[]={b!=NULL?b->x:0,b!=NULL?b->y:0,
    b!=NULL?b->width:0,b!=NULL?b->height:0,
    b!=NULL?b->image_width:0,b!=NULL?b->image_height:0};
-  for(gint column=12;ok&&column<=17;column++)
+  for(gint column=13;ok&&column<=18;column++)
    ok=b!=NULL&&b->available
-    ?database_statement_bind_int64(s,column,values[column-12])
+    ?database_statement_bind_int64(s,column,values[column-13])
     :database_statement_bind_null(s,column);
-  ok=ok&&database_statement_bind_int64(s,18,
+  ok=ok&&database_statement_bind_int64(s,19,
     identity_field_observation_get_order(f))&&
-   bind_text(s,19,timestamp)&&
+   bind_text(s,20,timestamp)&&
+   bind_text(s,21,identity_field_observation_get_confirmed_value(f))&&
+   bind_text(s,22,identity_field_observation_is_human_confirmed(f)
+    ?"human_confirmed":"unconfirmed")&&
+   bind_text(s,23,identity_field_observation_get_value_quality(f))&&
    database_statement_step(s)==DATABASE_STATEMENT_STEP_DONE;
   database_statement_finalize(s);g_free(id);if(!ok)return FALSE;
  }

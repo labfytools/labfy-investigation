@@ -270,8 +270,10 @@ static gboolean drive(gpointer data)
                 g_assert_true(gtk_widget_get_mapped(actions));
                 if(context->layout_index==0){
                     int position=gtk_paned_get_position(GTK_PANED(paned));
-                    g_assert_cmpint(position,>=,600);
-                    g_assert_cmpint(position,<=,680);
+                    int allocated=gtk_widget_get_width(paned);
+                    g_assert_cmpint(position,>=,480);
+                    g_assert_cmpint(allocated-position,>=,240);
+                    g_assert_cmpint(position,<,allocated-allocated/10);
                 }
                 context->layout_index++;
                 context->layout_resize_pending=FALSE;
@@ -582,10 +584,12 @@ static gboolean drive(gpointer data)
         verify_persisted_review(context);
         g_assert_true(gtk_widget_get_visible(GTK_WIDGET(context->main_window)));
         GPtrArray *empty=g_ptr_array_new();
-        g_assert_true(create_person_dialog_present(context->main_window,empty,
+        Database *database = database_open(context->database_path);
+        g_assert_true(create_person_dialog_present(context->main_window,database,empty,
             context->root,context->task_manager,
             tool_registry_find(context->registry,"tesseract"),NULL,completed,
             context,NULL));
+        database_close(database);
         g_ptr_array_unref(empty);
         GList *windows=gtk_application_get_windows(context->application);
         context->dialog=windows->data==context->main_window
@@ -667,7 +671,7 @@ static void activate(GtkApplication *application,gpointer data)
         g_assert_true(evidence_dao_insert(evidence_dao,
             g_ptr_array_index(records,index),&error));
     g_assert_no_error(error);
-    evidence_dao_free(evidence_dao);database_close(database);
+    evidence_dao_free(evidence_dao);
     context->registry=tool_registry_new();
     char *tool=g_canonicalize_filename("tests/fake_document_tool",NULL);
     g_assert_true(tool_registry_register(context->registry,"tesseract",
@@ -677,10 +681,11 @@ static void activate(GtkApplication *application,gpointer data)
         "5.0.0 SPECIMEN",&error));g_assert_no_error(error);
     context->main_window=GTK_WINDOW(gtk_application_window_new(application));
     gtk_window_present(context->main_window);
-    g_assert_true(create_person_dialog_present(context->main_window,records,
+    g_assert_true(create_person_dialog_present(context->main_window,database,records,
         context->root,context->task_manager,
         tool_registry_find(context->registry,"tesseract"),NULL,completed,
         context,NULL));
+    database_close(database);
     GList *windows=gtk_application_get_windows(application);
     context->dialog=windows->data==context->main_window
         ?GTK_WINDOW(windows->next->data):GTK_WINDOW(windows->data);

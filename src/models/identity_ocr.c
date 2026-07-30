@@ -1,6 +1,7 @@
 #include "models/identity_ocr.h"
 struct IdentityFieldObservation {
     char *code, *raw_value, *corrected_value, *normalized_value, *note;
+    char *confirmed_value, *value_quality;
     char *origin;
     double confidence;
     IdentityReviewStatus status;
@@ -48,7 +49,7 @@ IdentityFieldObservation *identity_field_observation_new(
     IdentityFieldObservation *f=g_new0(IdentityFieldObservation,1);
     f->code=g_strdup(code); f->raw_value=g_strdup(raw);
     f->confidence=confidence; f->status=IDENTITY_REVIEW_PROPOSED;
-    f->origin=g_strdup("ocr"); f->order=order;
+    f->origin=g_strdup("ocr"); f->value_quality=g_strdup("complete"); f->order=order;
     if (box != NULL) f->box=*box;
     return f;
 }
@@ -64,6 +65,7 @@ IdentityFieldObservation *identity_field_observation_new_manual(
     field->confidence = -1.0;
     field->status = IDENTITY_REVIEW_PROPOSED;
     field->origin = g_strdup("manual_entry");
+    field->value_quality = g_strdup("complete");
     field->order = order;
     return field;
 }
@@ -78,6 +80,8 @@ IdentityFieldObservation *identity_field_observation_copy(
             f->code,f->corrected_value,f->order);
     c->corrected_value=g_strdup(f->corrected_value);
     c->normalized_value=g_strdup(f->normalized_value);
+    c->confirmed_value=g_strdup(f->confirmed_value);
+    g_free(c->value_quality);c->value_quality=g_strdup(f->value_quality);
     c->note=g_strdup(f->note); c->status=f->status;
     g_free(c->origin); c->origin=g_strdup(f->origin); return c;
 }
@@ -86,7 +90,7 @@ void identity_field_observation_free(IdentityFieldObservation *f)
     if(f==NULL)return;
     g_free(f->code);g_free(f->raw_value);
     g_free(f->corrected_value);g_free(f->normalized_value);g_free(f->note);
-    g_free(f->origin);g_free(f);
+    g_free(f->origin);g_free(f->confirmed_value);g_free(f->value_quality);g_free(f);
 }
 gboolean identity_field_observation_accept(IdentityFieldObservation *f)
 { if(f==NULL)return FALSE;f->status=IDENTITY_REVIEW_ACCEPTED;return TRUE; }
@@ -112,7 +116,8 @@ gboolean identity_field_observation_restore_raw(IdentityFieldObservation *f)
     return TRUE;
 }
 void identity_field_observation_reject(IdentityFieldObservation *f)
-{if(f!=NULL)f->status=IDENTITY_REVIEW_REJECTED;}
+{if(f!=NULL){f->status=IDENTITY_REVIEW_REJECTED;
+ g_clear_pointer(&f->confirmed_value,g_free);}}
 gboolean identity_field_observation_set_origin(IdentityFieldObservation*f,
  const char*origin)
 {if(f==NULL||(!g_str_equal(origin,"ocr")&&!g_str_equal(origin,"mrz")&&
@@ -120,17 +125,44 @@ gboolean identity_field_observation_set_origin(IdentityFieldObservation*f,
  return FALSE;
  g_free(f->origin);f->origin=g_strdup(origin);return TRUE;}
 void identity_field_observation_mark_conflict(IdentityFieldObservation*f)
-{if(f!=NULL)f->status=IDENTITY_REVIEW_CONFLICT;}
+{if(f!=NULL){f->status=IDENTITY_REVIEW_CONFLICT;
+ g_clear_pointer(&f->confirmed_value,g_free);}}
 #define FG(name,type,field,zero) type identity_field_observation_get_##name(\
  const IdentityFieldObservation*f){return f!=NULL?f->field:zero;}
 FG(code,const char*,code,NULL) FG(raw_value,const char*,raw_value,NULL)
 FG(corrected_value,const char*,corrected_value,NULL)
+FG(normalized_value,const char*,normalized_value,NULL)
+FG(confirmed_value,const char*,confirmed_value,NULL)
+FG(value_quality,const char*,value_quality,NULL)
 FG(origin,const char*,origin,NULL)
 FG(status,IdentityReviewStatus,status,IDENTITY_REVIEW_PROPOSED)
 FG(confidence,double,confidence,-1.0)
 FG(order,guint,order,0)
 const IdentitySourceBox *identity_field_observation_get_box(
  const IdentityFieldObservation*f){return f!=NULL?&f->box:NULL;}
+gboolean identity_field_observation_set_normalized_value(
+ IdentityFieldObservation*f,const char*v)
+{if(!f||!v||!v[0]||!g_utf8_validate(v,-1,NULL))return FALSE;
+ g_free(f->normalized_value);f->normalized_value=g_strdup(v);return TRUE;}
+gboolean identity_field_observation_set_value_quality(
+ IdentityFieldObservation*f,const char*q)
+{if(!f||(!g_str_equal(q,"complete")&&!g_str_equal(q,"partial")&&
+ !g_str_equal(q,"uncertain")&&!g_str_equal(q,"invalid")))return FALSE;
+ g_free(f->value_quality);f->value_quality=g_strdup(q);
+ if(g_str_equal(q,"uncertain")||g_str_equal(q,"invalid"))
+  g_clear_pointer(&f->confirmed_value,g_free);
+ return TRUE;}
+gboolean identity_field_observation_confirm(IdentityFieldObservation*f,
+ const char*v)
+{if(!f||!v||!v[0]||f->status==IDENTITY_REVIEW_REJECTED||
+ f->status==IDENTITY_REVIEW_CONFLICT||
+ g_strcmp0(f->value_quality,"uncertain")==0||
+ g_strcmp0(f->value_quality,"invalid")==0)return FALSE;
+ g_free(f->confirmed_value);f->confirmed_value=g_strdup(v);return TRUE;}
+void identity_field_observation_clear_confirmation(IdentityFieldObservation*f)
+{if(f)g_clear_pointer(&f->confirmed_value,g_free);}
+gboolean identity_field_observation_is_human_confirmed(
+ const IdentityFieldObservation*f){return f&&f->confirmed_value!=NULL;}
 IdentityOcrRun *identity_ocr_run_new(const char *evidence_id,
  const char *sha,const char *type,const char *side,guint page,
  const char *languages,const char *profile)

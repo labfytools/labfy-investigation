@@ -4,6 +4,7 @@
 #include "core/person_entity_service.h"
 #include "models/person_evidence_selection.h"
 #include "models/identity_ocr.h"
+#include "models/identity_traceability.h"
 #include <gio/gio.h>
 
 G_BEGIN_DECLS
@@ -31,12 +32,19 @@ typedef enum {
     PERSON_CREATION_FAILURE_INSERT_DOCUMENT_OBSERVATION,
     PERSON_CREATION_FAILURE_INSERT_FIELD,
     PERSON_CREATION_FAILURE_CREATE_SOURCE,
+    PERSON_CREATION_FAILURE_INSERT_FACTUAL_RELATION,
     PERSON_CREATION_FAILURE_SESSION_BEFORE_COMMIT,
     PERSON_CREATION_FAILURE_ARTIFACT_TEXT_CHANGED,
     PERSON_CREATION_FAILURE_ARTIFACT_TSV_CHANGED,
     PERSON_CREATION_FAILURE_COMMIT,
     PERSON_CREATION_FAILURE_COMPENSATION
 } PersonCreationFailurePoint;
+typedef struct {
+    const char *evidence_selection_identifier;
+    const char *ocr_run_identifier;
+    const char *relation_type;
+    const char *factual_note;
+} PersonCreationFactualRelationInput;
 typedef gboolean (*PersonCreationSessionCheck)(gpointer user_data);
 typedef struct {
     PersonCreationFailurePoint failure_point;
@@ -44,6 +52,8 @@ typedef struct {
     gboolean inject_compensation_failure;
     PersonCreationSessionCheck session_check;
     gpointer session_check_data;
+    /** PersonCreationFactualRelationInput* empruntés, choix humains explicites. */
+    const GPtrArray *factual_relations;
 } PersonCreationCoordinatorOptions;
 typedef struct {
     const char *collected_at;

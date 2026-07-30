@@ -17,7 +17,7 @@ achèvement du ticket #109.
 
 > **Dernière mise à jour :** 2026-07-30
 > **État du projet :** développement actif  
-> **Schéma SQLite courant :** V17
+> **Schéma SQLite courant :** V18
 > **Usage opérationnel :** non prêt pour la production
 
 ---
@@ -131,7 +131,7 @@ La branche `main` contient notamment :
 
 - création, validation et ouverture d'enquêtes ;
 - session d'enquête remplaçable proprement ;
-- infrastructure SQLite et migrations jusqu'à V17 ;
+- infrastructure SQLite et migrations jusqu'à V18 ;
 - couche Database, DAO et services métier ;
 - import de preuves avec copie contrôlée et SHA-256 ;
 - vérification d'intégrité et reclassement des preuves ;
@@ -175,21 +175,19 @@ PARTIEL — VALIDATION MANUELLE DES TRANCHES LIVRÉES RÉUSSIE
 - consultation, révision sans Tesseract et nouvelle analyse depuis la fiche ;
 - provenance graphique et aperçu partagé avec PDF multipage ;
 - politique commune de géométrie des dialogues GTK métiers.
+- fondations V18 : authenticité humaine historisée, relations factuelles
+  typées, vocabulaires d’identification et de rôles, cycle OCR jusqu’à la
+  valeur explicitement confirmée et contraintes anti-automatisme.
 
 Limitations restantes :
 
 1. l’OCR groupé de plusieurs preuves dans une même opération n’est pas pris en
    charge ;
-2. le statut contrôlé d’authenticité du document et la justification
-   obligatoire des statuts affirmatifs ne sont pas implémentés ;
-3. la relation factuelle typée entre personne et preuve et certains états
-   d’identification demandés restent incomplets ;
-4. une partie du vocabulaire des rôles demeure codée en dur ;
-5. la provenance uniforme de tous les dérivés et la projection des seules
+2. l’interface GTK complète de saisie de l’authenticité, des relations
+   factuelles, des états et des rôles V18 reste à construire ;
+3. la provenance uniforme de tous les dérivés et la projection des seules
    valeurs OCR confirmées vers les attributs structurés de la personne restent
    partielles ;
-6. les tests négatifs garantissant l’absence de relation automatique
-   attribuant l’identité ou le rôle d’auteur doivent encore être renforcés.
 
 Ces limites interdisent de présenter le ticket #109 comme terminé.
 

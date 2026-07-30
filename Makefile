@@ -8,6 +8,36 @@ endif
 
 .DEFAULT_GOAL := all
 
+SOURCE_SIZE_LIMIT := 2000
+# Exceptions historiques : plafonds constatés avant la tranche V18.
+SOURCE_SIZE_EXCEPTIONS := \
+	src/core/application.c:9325 \
+	src/widgets/investigation_graph_view.c:4901 \
+	src/widgets/workspace.c:4071 \
+	src/views/main_window.c:2239 \
+	src/views/create_relation_dialog.c:2043
+
+.PHONY: check-source-size
+check-source-size:
+	@limit=$(SOURCE_SIZE_LIMIT); failed=0; \
+	files="$$(git ls-files --cached --others --exclude-standard -- \
+		'src/*.c' 'src/**/*.c' | sort -u)"; \
+	for file in $$files; do \
+		lines=$$(wc -l < "$$file"); allowed=$$limit; historical=0; \
+		for exception in $(SOURCE_SIZE_EXCEPTIONS); do \
+			case "$$exception" in "$$file":*) \
+				allowed=$${exception##*:}; historical=1;; esac; \
+		done; \
+		if [ $$historical -eq 1 ]; then \
+			echo "EXCEPTION HISTORIQUE $$file : $$lines/$$allowed lignes (limite normale $$limit)"; \
+		fi; \
+		if [ $$lines -gt $$allowed ]; then \
+			echo "ERREUR taille source $$file : $$lines lignes, maximum $$allowed"; \
+			failed=1; \
+		fi; \
+	done; \
+	exit $$failed
+
 CFLAGS = -std=c17 \
           -Wall \
           -Wextra \
@@ -160,6 +190,7 @@ TEST_PDF_ANALYSIS := tests/test_pdf_analysis
 TEST_DOCUMENT_TOOL_RUNNER := tests/test_document_tool_runner
 TEST_IDENTITY_OCR := tests/test_identity_ocr
 TEST_IDENTITY_OCR_PREPROCESSOR := tests/test_identity_ocr_preprocessor
+TEST_IDENTITY_TRACEABILITY := tests/test_identity_traceability
 TEST_OCR_PROVENANCE_OVERLAY_GTK := tests/test_ocr_provenance_overlay_gtk
 TEST_EVIDENCE_METADATA_DIALOG_GTK := tests/test_evidence_metadata_dialog_gtk
 TEST_EVIDENCE_IDENTITY_IMPORT_GTK := tests/test_evidence_identity_import_gtk
@@ -198,6 +229,17 @@ $(TEST_IDENTITY_OCR_PREPROCESSOR): tests/test_identity_ocr_preprocessor.c \
 	src/core/ocr_analysis.c src/core/document_analysis.c \
 	src/core/document_tool_runner.c src/core/tool_process.c \
 	src/core/tool_registry.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+$(TEST_IDENTITY_TRACEABILITY): tests/test_identity_traceability.c \
+	src/models/identity_traceability.c src/dao/identity_traceability_dao.c \
+	src/views/person_vocabulary_adapter.c \
+	src/models/person_role_assignment.c \
+	src/models/identity_ocr.c src/dao/identity_ocr_dao.c \
+	src/core/relation_type_normalizer.c \
+	src/database/database.c src/database/schema.c src/database/statement.c \
+	src/database/transaction.c src/database/error.c \
+	src/core/relation_type_normalizer.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 $(TEST_OCR_PROVENANCE_OVERLAY_GTK): \
@@ -890,6 +932,8 @@ $(TEST_PERSON_DIALOG_LIFECYCLE): tests/test_person_dialog_lifecycle.c \
 
 $(TEST_CREATE_PERSON_DIALOG_GTK): tests/test_create_person_dialog_gtk.c \
 	src/views/create_person_dialog.c src/views/dialog_geometry.c \
+	src/views/person_vocabulary_adapter.c \
+	src/views/identity_ocr_option_adapter.c \
 	src/core/person_dialog_lifecycle.c \
 	src/core/person_confirmation_summary.c \
 	src/core/evidence_staging.c src/core/evidence_staging_task.c \
@@ -908,12 +952,18 @@ $(TEST_CREATE_PERSON_DIALOG_GTK): tests/test_create_person_dialog_gtk.c \
 	src/core/background_task.c src/core/task_manager.c \
 	src/models/evidence_selection_model.c src/models/evidence_record.c \
 	src/models/person_role_assignment.c \
-	src/models/person_evidence_selection.c
+	src/models/person_evidence_selection.c \
+	src/models/identity_traceability.c src/dao/identity_traceability_dao.c \
+	src/database/database.c src/database/schema.c src/database/statement.c \
+	src/database/transaction.c src/database/error.c \
+	src/core/relation_type_normalizer.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 $(TEST_CREATE_PERSON_DIALOG_OCR_GTK): \
 	tests/test_create_person_dialog_ocr_gtk.c \
 	src/views/create_person_dialog.c src/views/dialog_geometry.c \
+	src/views/person_vocabulary_adapter.c \
+	src/views/identity_ocr_option_adapter.c \
 	src/core/person_dialog_lifecycle.c \
 	src/core/person_confirmation_summary.c \
 	src/core/evidence_staging.c src/core/evidence_staging_task.c \
@@ -937,6 +987,7 @@ $(TEST_CREATE_PERSON_DIALOG_OCR_GTK): \
 	src/models/evidence_selection_model.c src/models/evidence_record.c \
 	src/models/person_role_assignment.c \
 	src/models/person_evidence_selection.c \
+	src/models/identity_traceability.c src/dao/identity_traceability_dao.c \
 	src/database/database.c src/database/schema.c src/database/statement.c \
 	src/database/transaction.c src/database/error.c \
 	src/core/relation_type_normalizer.c $(FAKE_DOCUMENT_TOOL)
@@ -981,6 +1032,7 @@ $(TEST_PERSON_CREATION_COORDINATOR): \
 	src/core/person_creation_coordinator.c src/core/evidence_staging.c \
 	src/core/file_hash.c \
 	src/models/identity_ocr.c src/dao/identity_ocr_dao.c \
+	src/models/identity_traceability.c src/dao/identity_traceability_dao.c \
 	src/models/person_evidence_selection.c src/models/evidence_record.c \
 	src/models/person_role_assignment.c src/models/entity_record.c \
 	src/models/evidence_observation.c \
@@ -1127,6 +1179,7 @@ test: \
 	$(TEST_DOCUMENT_TOOL_RUNNER) \
 	$(TEST_IDENTITY_OCR) \
 	$(TEST_IDENTITY_OCR_PREPROCESSOR) \
+	$(TEST_IDENTITY_TRACEABILITY) \
 	$(TEST_OCR_PROVENANCE_OVERLAY_GTK) \
 	$(TEST_EVIDENCE_METADATA_DIALOG_GTK) \
 	$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK) \
@@ -1221,6 +1274,7 @@ test: \
 	@$(TEST_DOCUMENT_TOOL_RUNNER)
 	@$(TEST_IDENTITY_OCR)
 	@$(TEST_IDENTITY_OCR_PREPROCESSOR)
+	@$(TEST_IDENTITY_TRACEABILITY)
 	@$(TEST_OCR_PROVENANCE_OVERLAY_GTK)
 	@$(TEST_EVIDENCE_METADATA_DIALOG_GTK)
 	@$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK)
@@ -1319,6 +1373,7 @@ clean:
 		$(TEST_DOCUMENT_TOOL_RUNNER) \
 	$(TEST_IDENTITY_OCR) \
 	$(TEST_IDENTITY_OCR_PREPROCESSOR) \
+	$(TEST_IDENTITY_TRACEABILITY) \
 	$(TEST_OCR_PROVENANCE_OVERLAY_GTK) \
 	$(TEST_EVIDENCE_METADATA_DIALOG_GTK) \
 	$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK) \

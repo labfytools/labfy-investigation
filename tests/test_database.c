@@ -525,7 +525,7 @@ static void test_database_initialize_valid_database(void)
         "FROM investigation;"
     );
 
-    assert(strcmp(schema_version, "17") == 0);
+    assert(strcmp(schema_version, "18") == 0);
     test_database_assert_table_exists(database, "person_role_assignments");
     test_database_assert_table_exists(database, "bank_account_entities");
     test_database_assert_table_exists(database, "relation_types");
@@ -535,6 +535,14 @@ static void test_database_initialize_valid_database(void)
     test_database_assert_table_exists(database, "osint_execution_relations");
     test_database_assert_table_exists(database, "comptes_sociaux");
     test_database_assert_table_exists(database, "person_roles");
+    test_database_assert_table_exists(database,
+        "document_authenticity_assessments");
+    test_database_assert_table_exists(database,
+        "person_evidence_factual_relations");
+    test_database_assert_table_exists(database,
+        "person_role_vocabulary");
+    test_database_assert_table_exists(database,
+        "identification_status_vocabulary");
     assert(strcmp(application_name, "Labfy Investigation") == 0);
 
     assert(created_at[0] != '\0');
@@ -993,7 +1001,7 @@ static void test_database_migrate_v1_to_v2(void)
     assert(
         strcmp(
             schema_version,
-            "17"
+            "18"
         ) == 0
     );
 
@@ -1422,6 +1430,14 @@ static void test_database_migrate_v12_to_v13_preserves_legacy_link(void)
         "INSERT INTO person_roles(entity_id,role,updated_at) VALUES("
         "'20000000-0000-4000-8000-000000000014','alleged_scammer',"
         "'2026-07-28T08:00:00Z');"
+        "DROP TABLE person_identification_assessments;"
+        "DROP TABLE person_evidence_factual_relations;"
+        "DROP TABLE document_authenticity_assessments;"
+        "DROP TABLE person_role_vocabulary;"
+        "DROP TABLE identification_status_vocabulary;"
+        "DROP TABLE identity_field_observations;"
+        "DROP TABLE identity_document_observations;"
+        "DROP TABLE identity_ocr_runs;"
         "DROP TABLE preuve_entite_sources;"
         "DROP TABLE person_role_assignments;"
         "UPDATE metadata SET value='12' WHERE key='schema_version';"
@@ -1448,7 +1464,7 @@ static void test_database_migrate_v12_to_v13_preserves_legacy_link(void)
     legacy_sources = test_database_read_single_text(sqlite_database,
         "SELECT COUNT(*) FROM preuve_entite_sources "
         "WHERE source_kind='legacy_manual';");
-    assert(strcmp(version, "17") == 0);
+    assert(strcmp(version, "18") == 0);
     assert(strcmp(legacy_sources, "1") == 0);
     char *legacy_role = test_database_read_single_text(sqlite_database,
         "SELECT role_code || ':' || provenance_kind "

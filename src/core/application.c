@@ -6116,6 +6116,7 @@ static void application_on_add_person_requested(gpointer user_data)
         const ToolInfo *tesseract =
             tool_registry_find(registry, "ocr.tesseract");
         create_person_dialog_present(main_window_get_window(application->main_window),
+            investigation_session_get_database(application->session),
             records, investigation_project_get_root_path(project),
             application->task_manager, tesseract,
             application_person_dialog_session_matches,

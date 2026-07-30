@@ -27,7 +27,8 @@ typedef gboolean (*CreatePersonDialogSessionCheck)(gpointer user_data);
  * @return TRUE si le dialogue a été présenté.
  */
 gboolean create_person_dialog_present(GtkWindow *parent,
-    const GPtrArray *evidence_records, const char *investigation_root_path,
+    Database *database, const GPtrArray *evidence_records,
+    const char *investigation_root_path,
     TaskManager *task_manager, const ToolInfo *tesseract_tool,
     CreatePersonDialogSessionCheck session_check,
     CreatePersonDialogCallback callback, gpointer user_data,

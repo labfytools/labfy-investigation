@@ -14,8 +14,12 @@
 static gboolean person_entity_service_status_valid(const char *status)
 {
     return g_strcmp0(status, "unknown") == 0 ||
+        g_strcmp0(status, "unverified") == 0 ||
+        g_strcmp0(status, "presumed") == 0 ||
+        g_strcmp0(status, "partially_identified") == 0 ||
         g_strcmp0(status, "suspected") == 0 ||
-        g_strcmp0(status, "confirmed") == 0;
+        g_strcmp0(status, "confirmed") == 0 ||
+        g_strcmp0(status, "disputed") == 0;
 }
 
 gboolean person_entity_service_update_display_name(Database *database,

@@ -21,6 +21,7 @@ typedef struct {
 typedef struct {
  char *id,*observation_id,*field_code,*raw_value,*corrected_value;
  char *normalized_value,*review_status,*origin,*evidence_id,*ocr_run_id;
+ char *confirmed_value,*confirmation_state,*value_quality;
  char *reviewed_at,*review_note; double confidence; gboolean has_confidence;
  gint64 page_number,source_x,source_y,source_width,source_height;
  gint64 source_image_width,source_image_height,display_order;
@@ -46,6 +47,8 @@ GPtrArray *identity_ocr_dao_list_documents_by_evidence(IdentityOcrDao *dao,
 IdentityFieldObservationRecord *identity_ocr_dao_find_field(
  IdentityOcrDao *dao,const char *identifier,GError **error);
 GPtrArray *identity_ocr_dao_list_fields_by_document(IdentityOcrDao *dao,
+ const char *document_identifier,GError **error);
+GPtrArray *identity_ocr_dao_list_confirmed_fields(IdentityOcrDao *dao,
  const char *document_identifier,GError **error);
 IdentityOcrRun *identity_ocr_dao_load_run(
  IdentityOcrDao *dao,const char *investigation_root,

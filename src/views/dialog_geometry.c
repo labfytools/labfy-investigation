@@ -107,7 +107,8 @@ static void paned_geometry_apply(
 {
     int width = gtk_widget_get_width(GTK_WIDGET(paned));
     int position;
-    if (width <= 0 || geometry == NULL) return;
+    if (geometry == NULL ||
+        width < geometry->minimum_start + geometry->minimum_end) return;
     position = (int) (width * geometry->ratio);
     position = MAX(geometry->minimum_start, position);
     position = MIN(position, MAX(0, width - geometry->minimum_end));
@@ -120,7 +121,8 @@ static gboolean paned_geometry_idle(gpointer data)
     LabfyPanedGeometry *geometry = g_object_get_data(
         G_OBJECT(paned), "labfy-paned-initial-geometry");
     if (geometry == NULL) return G_SOURCE_REMOVE;
-    if (gtk_widget_get_width(GTK_WIDGET(paned)) <= 0)
+    if (gtk_widget_get_width(GTK_WIDGET(paned)) <
+        geometry->minimum_start + geometry->minimum_end)
         return G_SOURCE_CONTINUE;
     paned_geometry_apply(paned, geometry);
     return G_SOURCE_REMOVE;

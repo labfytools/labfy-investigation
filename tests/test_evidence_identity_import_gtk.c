@@ -36,6 +36,7 @@ typedef struct {
     gboolean import_done;
     gboolean cancellation_done;
     gboolean layout_resize_pending;
+    int user_paned_position;
     gboolean passed;
     gboolean revision_done;
     char *final_evidence_identifier;
@@ -501,19 +502,35 @@ static gboolean drive(gpointer data)
         if (!context->layout_resize_pending) {
             int initial_position =
                 gtk_paned_get_position(GTK_PANED(paned));
-            int expected_position =
-                (gtk_widget_get_width(paned) * 2) / 3;
+            int allocated_width = gtk_widget_get_width(paned);
+            int start_min = 0, end_min = 0;
+            gtk_widget_measure(gtk_paned_get_start_child(GTK_PANED(paned)),
+                GTK_ORIENTATION_HORIZONTAL, -1, &start_min, NULL, NULL, NULL);
+            gtk_widget_measure(gtk_paned_get_end_child(GTK_PANED(paned)),
+                GTK_ORIENTATION_HORIZONTAL, -1, &end_min, NULL, NULL, NULL);
+            int minimum_start = MAX(480, start_min);
+            int minimum_end = MAX(320, end_min);
+            int expected_position = CLAMP((allocated_width * 2) / 3,
+                minimum_start, MAX(minimum_start,
+                    allocated_width - minimum_end));
+            int tolerance = MAX(4, allocated_width / 50);
             g_assert_cmpint(
-                ABS(initial_position - expected_position), <=, 3);
-            gtk_paned_set_position(GTK_PANED(paned), 650);
+                ABS(initial_position - expected_position), <=, tolerance);
+            g_assert_cmpint(initial_position, >=, minimum_start);
+            g_assert_cmpint(allocated_width - initial_position, >=,
+                minimum_end);
+            int user_position = (allocated_width * 11) / 20;
+            gtk_paned_set_position(GTK_PANED(paned), user_position);
             g_assert_cmpint(
-                gtk_paned_get_position(GTK_PANED(paned)), ==, 650);
+                gtk_paned_get_position(GTK_PANED(paned)), ==, user_position);
+            context->user_paned_position = user_position;
             gtk_window_set_default_size(dialog, 1000, 700);
             context->layout_resize_pending = TRUE;
             return G_SOURCE_CONTINUE;
         }
         g_assert_cmpint(
-            gtk_paned_get_position(GTK_PANED(paned)), ==, 650);
+            gtk_paned_get_position(GTK_PANED(paned)), ==,
+            context->user_paned_position);
         GtkDropDown *person = GTK_DROP_DOWN(find_named(root,
             "identity-person"));
         g_assert_nonnull(person);
