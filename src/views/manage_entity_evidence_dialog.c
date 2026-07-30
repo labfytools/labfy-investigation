@@ -3,6 +3,7 @@
  * @brief Dialogue de sélection des preuves associées à une entité.
  ******************************************************************************/
 #include "views/manage_entity_evidence_dialog.h"
+#include "views/dialog_geometry.h"
 #include "widgets/evidence_preview_widget.h"
 #include <gio/gio.h>
 typedef struct
@@ -116,9 +117,7 @@ gboolean manage_entity_evidence_dialog_present(GtkWindow *parent,
     state->import_callback = import_callback;
     state->window = GTK_WINDOW(gtk_window_new());
     gtk_window_set_title(state->window, "Pièces jointes de la personne");
-    gtk_window_set_transient_for(state->window, parent);
-    gtk_window_set_modal(state->window, TRUE);
-    gtk_window_set_default_size(state->window, 1200, 800);
+    labfy_dialog_prepare(state->window, parent, TRUE, TRUE);
     root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     gtk_widget_set_margin_top(root, 16); gtk_widget_set_margin_bottom(root, 16);
     gtk_widget_set_margin_start(root, 16); gtk_widget_set_margin_end(root, 16);
@@ -178,7 +177,8 @@ gboolean manage_entity_evidence_dialog_present(GtkWindow *parent,
     gtk_paned_set_start_child(GTK_PANED(content), scroll);
     gtk_paned_set_end_child(GTK_PANED(content),
         evidence_preview_widget_get_widget(state->preview));
-    gtk_paned_set_position(GTK_PANED(content), 380);
+    labfy_paned_apply_initial_ratio(
+        GTK_PANED(content), 2.0 / 3.0, 480, 240);
     gtk_paned_set_resize_start_child(GTK_PANED(content), FALSE);
     gtk_paned_set_resize_end_child(GTK_PANED(content), TRUE);
     save = gtk_button_new_with_label("Enregistrer les pièces jointes");
@@ -194,5 +194,5 @@ gboolean manage_entity_evidence_dialog_present(GtkWindow *parent,
     g_signal_connect(save, "clicked", G_CALLBACK(manage_evidence_on_save), state);
     g_signal_connect(import, "clicked", G_CALLBACK(manage_evidence_on_import), state);
     g_signal_connect(state->window, "close-request", G_CALLBACK(manage_evidence_on_close), state);
-    gtk_window_present(state->window); return TRUE;
+    labfy_dialog_present(state->window); return TRUE;
 }

@@ -2,9 +2,12 @@
 
 static EvidencePreviewRequest *copy_request(const EvidencePreviewRequest *r)
 {
-    return evidence_preview_request_new(r->investigation_root_path,
+    EvidencePreviewRequest *copy = evidence_preview_request_new(
+        r->investigation_root_path,
         r->evidence_identifier, r->relative_path, r->expected_sha256,
         r->mime_type, r->request_generation);
+    evidence_preview_request_set_pdf_page(copy, r->pdf_page);
+    return copy;
 }
 static gboolean worker(BackgroundTask *task, GCancellable *cancellable,
     gpointer data, gpointer *result, GError **error)

@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "views/evidence_import_dialog.h"
+#include "views/dialog_geometry.h"
 #include "models/evidence_type.h"
 #include "core/file_hash.h"
 #include "core/task_manager.h"
@@ -974,32 +975,13 @@ gboolean evidence_import_dialog_present(
         "Importer une preuve"
     );
 
-    gtk_window_set_transient_for(
-        state->window,
-        parent
-    );
+    labfy_dialog_prepare(state->window, parent, TRUE, TRUE);
 
     gtk_window_set_application(
         state->window,
         gtk_window_get_application(
             parent
         )
-    );
-
-    gtk_window_set_modal(
-        state->window,
-        TRUE
-    );
-
-    gtk_window_set_destroy_with_parent(
-        state->window,
-        TRUE
-    );
-
-    gtk_window_set_default_size(
-        state->window,
-        1200,
-        800
     );
 
     root_box =
@@ -1411,10 +1393,26 @@ gboolean evidence_import_dialog_present(
         button_box
     );
 
+    GtkWidget *left_panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    GtkWidget *form_scroll = gtk_scrolled_window_new();
+    gtk_widget_set_name(form_scroll, "evidence-import-form-scroll");
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(form_scroll),
+        GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_vexpand(form_scroll, TRUE);
+    g_object_ref(button_box);
+    gtk_box_remove(GTK_BOX(root_box), button_box);
+    gtk_scrolled_window_set_child(
+        GTK_SCROLLED_WINDOW(form_scroll), root_box);
+    gtk_box_append(GTK_BOX(left_panel), form_scroll);
+    gtk_widget_set_name(button_box, "evidence-import-actions");
+    gtk_widget_set_margin_end(button_box, 18);
+    gtk_widget_set_margin_bottom(button_box, 12);
+    gtk_box_append(GTK_BOX(left_panel), button_box);
+    g_object_unref(button_box);
     paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_widget_set_name(paned, "evidence-import-paned");
-    gtk_paned_set_start_child(GTK_PANED(paned), root_box);
-    gtk_widget_set_size_request(root_box, 320, -1);
+    gtk_paned_set_start_child(GTK_PANED(paned), left_panel);
+    gtk_widget_set_size_request(left_panel, 320, -1);
     state->preview_task_manager = task_manager_new();
     state->preview = evidence_preview_widget_new(
         state->preview_task_manager, NULL, NULL);
@@ -1425,7 +1423,8 @@ gboolean evidence_import_dialog_present(
     }
     gtk_paned_set_end_child(GTK_PANED(paned),
         evidence_preview_widget_get_widget(state->preview));
-    gtk_paned_set_position(GTK_PANED(paned), 420);
+    labfy_paned_apply_initial_ratio(
+        GTK_PANED(paned), 2.0 / 3.0, 480, 240);
     gtk_paned_set_resize_start_child(GTK_PANED(paned), FALSE);
     gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);
     gtk_window_set_child(state->window, paned);
@@ -1500,9 +1499,7 @@ gboolean evidence_import_dialog_present(
         import_button
     );
 
-    gtk_window_present(
-        state->window
-    );
+    labfy_dialog_present(state->window);
 
     return TRUE;
 }

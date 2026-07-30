@@ -11,6 +11,58 @@ static void drain_until(EvidencePreviewWidget *widget, const char *state)
         g_main_context_iteration(NULL, TRUE);
 }
 
+static gboolean mark_frame(GtkWidget *widget, GdkFrameClock *clock,
+    gpointer data)
+{
+    gboolean *frame_seen = data;
+    (void) widget;
+    (void) clock;
+    *frame_seen = TRUE;
+    return G_SOURCE_REMOVE;
+}
+
+static void wait_for_frame(GtkWidget *widget)
+{
+    gboolean frame_seen = FALSE;
+    gtk_widget_add_tick_callback(widget, mark_frame, &frame_seen, NULL);
+    while (!frame_seen)
+        g_main_context_iteration(NULL, TRUE);
+}
+
+static gboolean task_manager_has_running_task(TaskManager *manager)
+{
+    gsize count = task_manager_get_count(manager);
+    for (gsize index = 0; index < count; index++) {
+        BackgroundTask *task = task_manager_get_task(manager, index);
+        BackgroundTaskState state = background_task_get_state(task);
+        background_task_unref(task);
+        if (state == BACKGROUND_TASK_STATE_PENDING ||
+            state == BACKGROUND_TASK_STATE_RUNNING)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static GtkWidget *find_named(GtkWidget *widget, const char *name)
+{
+    if (g_strcmp0(gtk_widget_get_name(widget), name) == 0) return widget;
+    for (GtkWidget *child = gtk_widget_get_first_child(widget);
+         child != NULL; child = gtk_widget_get_next_sibling(child)) {
+        GtkWidget *found = find_named(child, name);
+        if (found != NULL) return found;
+    }
+    return NULL;
+}
+
+static void click_named(EvidencePreviewWidget *widget, const char *name)
+{
+    GtkWidget *button = find_named(
+        evidence_preview_widget_get_widget(widget), name);
+    g_assert_nonnull(button);
+    g_assert_true(gtk_widget_get_sensitive(button));
+    g_signal_emit_by_name(button, "clicked");
+}
+
 static void test_widget_lifecycle_and_eml(void)
 {
     static const char eml[] =
@@ -89,12 +141,17 @@ static void write_pdf(const char *path)
 {
     cairo_surface_t *surface = cairo_pdf_surface_create(path, 640, 360);
     cairo_t *cr = cairo_create(surface);
-    cairo_set_source_rgb(cr, 1, 1, 1);
-    cairo_paint(cr);
-    cairo_set_source_rgb(cr, 0, 0, 0);
-    cairo_move_to(cr, 30, 80);
-    cairo_show_text(cr, "PAGE PDF SPECIMEN");
-    cairo_show_page(cr);
+    for (guint page = 1; page <= 3; page++) {
+        char *label = g_strdup_printf("PAGE PDF %u SPECIMEN", page);
+        cairo_set_source_rgb(cr, page == 1 ? 0.8 : 0.2,
+            page == 2 ? 0.8 : 0.2, page == 3 ? 0.8 : 0.2);
+        cairo_paint(cr);
+        cairo_set_source_rgb(cr, 0, 0, 0);
+        cairo_move_to(cr, 30, 80);
+        cairo_show_text(cr, label);
+        cairo_show_page(cr);
+        g_free(label);
+    }
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
 }
@@ -161,6 +218,34 @@ static void test_paned_png_jpeg_pdf(void)
     evidence_preview_widget_show(widget, png_request, "PNG SPECIMEN");
     drain_until(widget, "image");
     g_assert_cmpstr(evidence_preview_widget_get_state(widget), ==, "image");
+    g_assert_true(evidence_preview_widget_is_fit(widget));
+    click_named(widget, "evidence-preview-zoom-in");
+    g_assert_cmpfloat(evidence_preview_widget_get_zoom(widget), ==, 1.25);
+    for (guint index = 0; index < 4; index++)
+        click_named(widget, "evidence-preview-zoom-in");
+    g_assert_cmpfloat(evidence_preview_widget_get_zoom(widget), ==, 4.0);
+    wait_for_frame(GTK_WIDGET(window));
+    GtkScrolledWindow *image_scroll = GTK_SCROLLED_WINDOW(find_named(
+        evidence_preview_widget_get_widget(widget),
+        "evidence-preview-image-scroll"));
+    GtkAdjustment *horizontal =
+        gtk_scrolled_window_get_hadjustment(image_scroll);
+    GtkAdjustment *vertical =
+        gtk_scrolled_window_get_vadjustment(image_scroll);
+    g_assert_cmpfloat(gtk_adjustment_get_upper(horizontal), >,
+        gtk_adjustment_get_page_size(horizontal));
+    g_assert_cmpfloat(gtk_adjustment_get_upper(vertical), >,
+        gtk_adjustment_get_page_size(vertical));
+    gtk_adjustment_set_value(horizontal,
+        gtk_adjustment_get_upper(horizontal) / 3.0);
+    gtk_adjustment_set_value(vertical,
+        gtk_adjustment_get_upper(vertical) / 3.0);
+    g_assert_cmpfloat(gtk_adjustment_get_value(horizontal), >, 0.0);
+    g_assert_cmpfloat(gtk_adjustment_get_value(vertical), >, 0.0);
+    click_named(widget, "evidence-preview-zoom-out");
+    g_assert_cmpfloat(evidence_preview_widget_get_zoom(widget), ==, 3.0);
+    click_named(widget, "evidence-preview-fit");
+    g_assert_true(evidence_preview_widget_is_fit(widget));
     EvidencePreviewRequest *jpeg_request = request_for(
         directory, "SPECIMEN.jpg",
         "10000000-0000-4000-8000-000000000002", "image/jpeg", 2);
@@ -173,10 +258,48 @@ static void test_paned_png_jpeg_pdf(void)
     evidence_preview_widget_show(widget, pdf_request, "PDF SPECIMEN");
     drain_until(widget, "pdf");
     g_assert_cmpstr(evidence_preview_widget_get_state(widget), ==, "pdf");
+    g_assert_cmpuint(evidence_preview_widget_get_pdf_page_count(widget), ==, 3);
+    g_assert_cmpuint(evidence_preview_widget_get_pdf_page(widget), ==, 0);
+    GtkWidget *previous = find_named(
+        evidence_preview_widget_get_widget(widget),
+        "evidence-preview-previous-page");
+    GtkWidget *next = find_named(
+        evidence_preview_widget_get_widget(widget),
+        "evidence-preview-next-page");
+    GtkLabel *page_label = GTK_LABEL(find_named(
+        evidence_preview_widget_get_widget(widget),
+        "evidence-preview-page-label"));
+    g_assert_false(gtk_widget_get_sensitive(previous));
+    g_assert_true(gtk_widget_get_sensitive(next));
+    g_assert_cmpstr(gtk_label_get_text(page_label), ==, "Page 1 / 3");
+    click_named(widget, "evidence-preview-next-page");
+    drain_until(widget, "pdf");
+    g_assert_cmpuint(evidence_preview_widget_get_pdf_page(widget), ==, 1);
+    g_assert_cmpstr(gtk_label_get_text(page_label), ==, "Page 2 / 3");
+    click_named(widget, "evidence-preview-zoom-in");
+    g_assert_cmpfloat(evidence_preview_widget_get_zoom(widget), ==, 1.25);
+    click_named(widget, "evidence-preview-next-page");
+    drain_until(widget, "pdf");
+    g_assert_cmpuint(evidence_preview_widget_get_pdf_page(widget), ==, 2);
+    g_assert_false(gtk_widget_get_sensitive(next));
+    g_assert_cmpfloat(evidence_preview_widget_get_zoom(widget), ==, 1.25);
+    click_named(widget, "evidence-preview-previous-page");
+    click_named(widget, "evidence-preview-previous-page");
+    drain_until(widget, "pdf");
+    g_assert_cmpuint(evidence_preview_widget_get_pdf_page(widget), ==, 0);
+    g_assert_false(gtk_widget_get_sensitive(previous));
+    click_named(widget, "evidence-preview-next-page");
+    click_named(widget, "evidence-preview-next-page");
+    click_named(widget, "evidence-preview-previous-page");
+    drain_until(widget, "pdf");
+    g_assert_cmpuint(evidence_preview_widget_get_pdf_page(widget), ==, 1);
     gtk_window_set_default_size(window, 760, 560);
     gtk_paned_set_position(GTK_PANED(paned), 300);
     while (g_main_context_iteration(NULL, FALSE));
     g_assert_cmpint(gtk_paned_get_position(GTK_PANED(paned)), ==, 300);
+    g_assert_true(gtk_widget_get_mapped(find_named(
+        evidence_preview_widget_get_widget(widget),
+        "evidence-preview-toolbar")));
     evidence_preview_widget_show(widget, png_request, "résultat ancien");
     evidence_preview_widget_show(widget, jpeg_request, "résultat courant");
     drain_until(widget, "image");
@@ -199,6 +322,46 @@ static void test_paned_png_jpeg_pdf(void)
     g_free(directory);
 }
 
+static void test_pdf_twenty_open_close_cycles(void)
+{
+    GError *error = NULL;
+    char *directory =
+        g_dir_make_tmp("labfy-preview-cycles-XXXXXX", &error);
+    g_assert_no_error(error);
+    char *pdf = g_build_filename(directory, "SPECIMEN-multipage.pdf", NULL);
+    write_pdf(pdf);
+    TaskManager *manager = task_manager_new();
+    EvidencePreviewRequest *request = request_for(
+        directory, "SPECIMEN-multipage.pdf",
+        "10000000-0000-4000-8000-000000000020", "application/pdf", 20);
+    for (guint cycle = 0; cycle < 20; cycle++) {
+        EvidencePreviewWidget *widget =
+            evidence_preview_widget_new(manager, NULL, NULL);
+        GtkWindow *window = GTK_WINDOW(gtk_window_new());
+        gtk_window_set_default_size(window, 760, 560);
+        gtk_window_set_child(window,
+            evidence_preview_widget_get_widget(widget));
+        gtk_window_present(window);
+        evidence_preview_widget_show(widget, request, "PDF SPECIMEN");
+        if ((cycle % 2U) == 0) {
+            drain_until(widget, "pdf");
+            click_named(widget, "evidence-preview-next-page");
+        }
+        gtk_window_destroy(window);
+        evidence_preview_widget_cancel(widget);
+        evidence_preview_widget_free(widget);
+    }
+    while (task_manager_has_running_task(manager))
+        g_main_context_iteration(NULL, TRUE);
+    while (g_main_context_iteration(NULL, FALSE));
+    task_manager_free(manager);
+    evidence_preview_request_free(request);
+    g_unlink(pdf);
+    g_rmdir(directory);
+    g_free(pdf);
+    g_free(directory);
+}
+
 int main(int argc, char **argv)
 {
     if (!gtk_init_check()) {
@@ -210,5 +373,7 @@ int main(int argc, char **argv)
         test_widget_lifecycle_and_eml);
     g_test_add_func("/evidence-preview-widget/paned-png-jpeg-pdf",
         test_paned_png_jpeg_pdf);
+    g_test_add_func("/evidence-preview-widget/pdf-twenty-open-close-cycles",
+        test_pdf_twenty_open_close_cycles);
     return g_test_run();
 }

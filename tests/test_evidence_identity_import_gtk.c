@@ -452,6 +452,10 @@ static gboolean drive(gpointer data)
     if (context->phase == 0) {
         GtkWindow *dialog = find_window(context, "Importer une preuve");
         if (dialog == NULL) return G_SOURCE_CONTINUE;
+        g_assert_true(gtk_window_get_transient_for(dialog) ==
+            context->main_window);
+        g_assert_true(gtk_window_get_modal(dialog));
+        g_assert_true(gtk_window_get_destroy_with_parent(dialog));
         GtkWidget *paned =
             find_named(GTK_WIDGET(dialog), "evidence-import-paned");
         g_assert_true(GTK_IS_PANED(paned));
@@ -465,11 +469,12 @@ static gboolean drive(gpointer data)
         GtkWindow *dialog = find_window(
             context, "Import — OCR d’identité facultatif");
         if (dialog == NULL) return G_SOURCE_CONTINUE;
+        g_assert_nonnull(gtk_window_get_transient_for(dialog));
+        g_assert_true(gtk_window_get_modal(dialog));
+        g_assert_true(gtk_window_get_destroy_with_parent(dialog));
         GtkWidget *root = GTK_WIDGET(dialog);
         int default_width = 0;
         int default_height = 0;
-        if (!context->layout_resize_pending)
-            gtk_window_set_default_size(dialog, 1200, 800);
         gtk_window_get_default_size(
             dialog, &default_width, &default_height);
         g_assert_cmpint(default_width, ==,
@@ -490,14 +495,16 @@ static gboolean drive(gpointer data)
         g_assert_true(gtk_paned_get_start_child(GTK_PANED(paned)) == left);
         g_assert_nonnull(gtk_paned_get_end_child(GTK_PANED(paned)));
         g_assert_false(is_descendant_of(actions, form_scroll));
-        if (g_object_get_data(
-                G_OBJECT(paned), "identity-initial-position-set") == NULL)
+        if (gtk_widget_get_width(paned) <= 0 ||
+            gtk_paned_get_position(GTK_PANED(paned)) <= 0)
             return G_SOURCE_CONTINUE;
         if (!context->layout_resize_pending) {
             int initial_position =
                 gtk_paned_get_position(GTK_PANED(paned));
-            g_assert_cmpint(initial_position, >=, 780);
-            g_assert_cmpint(initial_position, <=, 820);
+            int expected_position =
+                (gtk_widget_get_width(paned) * 2) / 3;
+            g_assert_cmpint(
+                ABS(initial_position - expected_position), <=, 3);
             gtk_paned_set_position(GTK_PANED(paned), 650);
             g_assert_cmpint(
                 gtk_paned_get_position(GTK_PANED(paned)), ==, 650);

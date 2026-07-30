@@ -3,6 +3,7 @@
  * @brief Formulaire GTK de création d'une personne observée.
  ******************************************************************************/
 #include "views/create_person_dialog.h"
+#include "views/dialog_geometry.h"
 #include "core/evidence_staging.h"
 #include "core/evidence_staging_task.h"
 #include "core/person_confirmation_summary.h"
@@ -49,6 +50,7 @@ typedef struct
     EvidencePreviewWidget *preview;
     GtkLabel *progress;
     GtkLabel *summary;
+    GtkScrolledWindow *summary_scroll;
     GtkStack *stack;
     GtkButton *previous;
     GtkButton *next;
@@ -132,25 +134,6 @@ static void create_person_dialog_on_retained_changed(
 static void create_person_dialog_render_ocr_fields(
     CreatePersonDialogState *state, IdentityOcrRun *run);
 
-static gboolean create_person_dialog_set_initial_ocr_paned_position(
-    gpointer data)
-{
-    GtkPaned *paned = GTK_PANED(data);
-    int width;
-    int position;
-    if (g_object_get_data(
-            G_OBJECT(paned), "create-person-ocr-position-set") != NULL)
-        return G_SOURCE_REMOVE;
-    width = gtk_widget_get_width(GTK_WIDGET(paned));
-    if (width <= 0) return G_SOURCE_CONTINUE;
-    position = MAX(500, (width * 2) / 3);
-    position = MIN(position, MAX(0, width - 180));
-    gtk_paned_set_position(paned, position);
-    g_object_set_data(G_OBJECT(paned),
-        "create-person-ocr-position-set", GINT_TO_POINTER(1));
-    return G_SOURCE_REMOVE;
-}
-
 static void identity_language_job_free(gpointer data)
 {
     IdentityLanguageJob *job = data;
@@ -187,6 +170,53 @@ static const char *identity_language_label(const char *code)
     return code;
 }
 
+static guint identity_default_language_index(const GPtrArray *codes)
+{
+    guint english_index = GTK_INVALID_LIST_POSITION;
+
+    for (guint index = 0; codes != NULL && index < codes->len; index++) {
+        const char *code = g_ptr_array_index((GPtrArray *) codes, index);
+
+        if (g_strcmp0(code, "fra") == 0)
+            return index;
+        if (g_strcmp0(code, "eng") == 0)
+            english_index = index;
+    }
+    return english_index != GTK_INVALID_LIST_POSITION
+        ? english_index
+        : (codes != NULL && codes->len > 0
+            ? 0
+            : GTK_INVALID_LIST_POSITION);
+}
+
+static const char *create_person_dialog_effective_ocr_mime(
+    const PersonEvidenceSelectionItem *item)
+{
+    const char *mime =
+        person_evidence_selection_item_get_mime_type(item);
+    const char *name;
+    const char *suffix;
+
+    if (mime != NULL && mime[0] != '\0')
+        return mime;
+    name = person_evidence_selection_item_get_original_name(item);
+    suffix = name != NULL ? strrchr(name, '.') : NULL;
+    if (suffix == NULL)
+        return NULL;
+    if (g_ascii_strcasecmp(suffix, ".png") == 0)
+        return "image/png";
+    if (g_ascii_strcasecmp(suffix, ".jpg") == 0 ||
+        g_ascii_strcasecmp(suffix, ".jpeg") == 0)
+        return "image/jpeg";
+    if (g_ascii_strcasecmp(suffix, ".heic") == 0)
+        return "image/heic";
+    if (g_ascii_strcasecmp(suffix, ".heif") == 0)
+        return "image/heif";
+    if (g_ascii_strcasecmp(suffix, ".pdf") == 0)
+        return "application/pdf";
+    return NULL;
+}
+
 static void identity_languages_completed(GObject *source,
     GAsyncResult *result, gpointer data)
 {
@@ -209,9 +239,7 @@ static void identity_languages_completed(GObject *source,
         }
         gtk_drop_down_set_model(state->ocr_languages, G_LIST_MODEL(labels));
         gtk_drop_down_set_selected(state->ocr_languages,
-            state->ocr_language_codes != NULL &&
-            state->ocr_language_codes->len > 0 ? 0 :
-            GTK_INVALID_LIST_POSITION);
+            identity_default_language_index(state->ocr_language_codes));
         gtk_widget_set_sensitive(GTK_WIDGET(state->ocr_start),
             state->ocr_language_codes != NULL &&
             state->ocr_language_codes->len > 0);
@@ -598,6 +626,8 @@ static void create_person_dialog_ocr_completed(GObject *source,
             create_person_dialog_render_ocr_fields(state, run);
             ocr_provenance_overlay_set_image(state->ocr_overlay,
                 identity_ocr_run_get_preview(run), state->ocr_generation);
+            ocr_provenance_overlay_set_page(state->ocr_overlay,
+                identity_ocr_run_get_page(run), state->ocr_generation);
             const GPtrArray *fields = identity_ocr_run_get_fields(run);
             if (fields != NULL && fields->len > 0)
                 ocr_provenance_overlay_set_field(state->ocr_overlay,
@@ -653,7 +683,7 @@ static void create_person_dialog_on_ocr_start(GtkButton *button,
     job->identifier = g_strdup(
         person_evidence_selection_item_get_identifier(item));
     job->sha256 = g_strdup(person_evidence_selection_item_get_sha256(item));
-    job->mime = g_strdup(person_evidence_selection_item_get_mime_type(item));
+    job->mime = g_strdup(create_person_dialog_effective_ocr_mime(item));
     if (person_evidence_selection_item_get_origin(item) ==
         PERSON_EVIDENCE_ORIGIN_EXISTING) {
         record = person_evidence_selection_item_get_record(item);
@@ -1430,6 +1460,10 @@ static void create_person_dialog_update_navigation(CreatePersonDialogState *stat
             }
         }
         gtk_label_set_text(state->summary, confirmation->str);
+        GtkAdjustment *adjustment = gtk_scrolled_window_get_vadjustment(
+            state->summary_scroll);
+        gtk_adjustment_set_value(adjustment,
+            gtk_adjustment_get_lower(adjustment));
         g_string_free(confirmation, TRUE);
         g_free(text);
         g_free(notes);
@@ -1524,9 +1558,7 @@ gboolean create_person_dialog_present(GtkWindow *parent,
     gtk_window_set_application(state->window,
         gtk_window_get_application(parent));
     gtk_window_set_title(state->window, "Ajouter une personne");
-    gtk_window_set_transient_for(state->window, parent);
-    gtk_window_set_modal(state->window, TRUE);
-    gtk_window_set_default_size(state->window, 960, 700);
+    labfy_dialog_prepare(state->window, parent, TRUE, TRUE);
     box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_widget_set_margin_start(box, 16); gtk_widget_set_margin_end(box, 16);
     gtk_widget_set_margin_top(box, 16); gtk_widget_set_margin_bottom(box, 16);
@@ -1554,6 +1586,8 @@ gboolean create_person_dialog_present(GtkWindow *parent,
     }
     state->evidence = GTK_DROP_DOWN(gtk_drop_down_new(
         G_LIST_MODEL(g_object_ref(state->evidence_labels)), NULL));
+    gtk_widget_set_name(GTK_WIDGET(state->evidence),
+        "create-person-evidence-dropdown");
     state->search = GTK_ENTRY(gtk_entry_new());
     gtk_entry_set_placeholder_text(state->search,
         "Rechercher par nom, description ou type");
@@ -1565,6 +1599,8 @@ gboolean create_person_dialog_present(GtkWindow *parent,
     state->type_filter = GTK_DROP_DOWN(
         gtk_drop_down_new(G_LIST_MODEL(
             g_object_ref(state->type_filter_labels)), NULL));
+    gtk_widget_set_name(GTK_WIDGET(state->type_filter),
+        "create-person-evidence-type-filter");
     /*
      * gtk_drop_down_new() prend la propriété complète du modèle. Une
      * libération ici laisserait les vues internes du GtkDropDown avec un
@@ -1655,10 +1691,20 @@ gboolean create_person_dialog_present(GtkWindow *parent,
             gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
         gtk_widget_set_name(evidence_paned, "create-person-evidence-paned");
         gtk_widget_set_size_request(evidence_box, 320, -1);
-        gtk_paned_set_start_child(GTK_PANED(evidence_paned), evidence_box);
+        GtkWidget *evidence_scroll = gtk_scrolled_window_new();
+        gtk_widget_set_name(evidence_scroll,
+            "create-person-evidence-scroll");
+        gtk_scrolled_window_set_policy(
+            GTK_SCROLLED_WINDOW(evidence_scroll),
+            GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+        gtk_scrolled_window_set_child(
+            GTK_SCROLLED_WINDOW(evidence_scroll), evidence_box);
+        gtk_paned_set_start_child(
+            GTK_PANED(evidence_paned), evidence_scroll);
         gtk_paned_set_end_child(GTK_PANED(evidence_paned),
             evidence_preview_widget_get_widget(state->preview));
-        gtk_paned_set_position(GTK_PANED(evidence_paned), 420);
+        labfy_paned_apply_initial_ratio(
+            GTK_PANED(evidence_paned), 2.0 / 3.0, 480, 240);
         gtk_paned_set_resize_start_child(
             GTK_PANED(evidence_paned), FALSE);
         gtk_paned_set_resize_end_child(GTK_PANED(evidence_paned), TRUE);
@@ -1689,6 +1735,8 @@ gboolean create_person_dialog_present(GtkWindow *parent,
             "Détection des langues…", NULL};
         state->ocr_languages = GTK_DROP_DOWN(
             gtk_drop_down_new_from_strings(pending_languages));
+        gtk_widget_set_name(GTK_WIDGET(state->ocr_languages),
+            "create-person-ocr-languages");
     }
     state->ocr_profile = GTK_DROP_DOWN(
         gtk_drop_down_new_from_strings(profile_labels));
@@ -1835,9 +1883,23 @@ gboolean create_person_dialog_present(GtkWindow *parent,
     state->summary = GTK_LABEL(gtk_label_new(""));
     summary = GTK_WIDGET(state->summary);
     gtk_label_set_wrap(state->summary, TRUE);
+    gtk_label_set_wrap_mode(state->summary, PANGO_WRAP_WORD_CHAR);
+    gtk_label_set_max_width_chars(state->summary, 100);
     gtk_label_set_xalign(state->summary, 0.0f);
     gtk_label_set_selectable(state->summary, TRUE);
-    gtk_stack_add_titled(state->stack, summary, "summary", "5 — Confirmation");
+    gtk_widget_set_hexpand(summary, TRUE);
+    gtk_widget_set_valign(summary, GTK_ALIGN_START);
+    state->summary_scroll = GTK_SCROLLED_WINDOW(gtk_scrolled_window_new());
+    gtk_widget_set_name(GTK_WIDGET(state->summary_scroll),
+        "create-person-confirmation-scroll");
+    gtk_scrolled_window_set_policy(state->summary_scroll,
+        GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_propagate_natural_height(
+        state->summary_scroll, FALSE);
+    gtk_widget_set_vexpand(GTK_WIDGET(state->summary_scroll), TRUE);
+    gtk_scrolled_window_set_child(state->summary_scroll, summary);
+    gtk_stack_add_titled(state->stack,
+        GTK_WIDGET(state->summary_scroll), "summary", "5 — Confirmation");
     state->error = GTK_LABEL(gtk_label_new(NULL)); gtk_widget_set_visible(GTK_WIDGET(state->error), FALSE);
     actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_widget_set_name(actions, "create-person-actions");
@@ -1900,10 +1962,9 @@ gboolean create_person_dialog_present(GtkWindow *parent,
         g_task_run_in_thread(task, identity_languages_worker);
         g_object_unref(task);
     }
-    gtk_window_present(state->window);
-    g_idle_add_full(G_PRIORITY_DEFAULT_IDLE,
-        create_person_dialog_set_initial_ocr_paned_position,
-        g_object_ref(ocr_paned), g_object_unref);
+    labfy_paned_apply_initial_ratio(
+        GTK_PANED(ocr_paned), 2.0 / 3.0, 520, 240);
+    labfy_dialog_present(state->window);
     return TRUE;
 }
 void create_person_dialog_result_free(CreatePersonDialogResult *result)

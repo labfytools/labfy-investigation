@@ -1,17 +1,20 @@
 # Guide de développement
 
-Pour la tranche OCR identité, les tests ciblés sont
-`tests/test_identity_ocr`, `tests/test_identity_ocr_preprocessor`,
+Pour l’OCR d’identité, les tests ciblés sont `tests/test_identity_ocr`,
+`tests/test_identity_ocr_preprocessor`,
 `tests/test_person_creation_coordinator`,
-`tests/test_ocr_provenance_overlay_gtk` et
-`tests/test_create_person_dialog_gtk`. Le test Tesseract réel est facultatif
+`tests/test_create_person_dialog_ocr_gtk`,
+`tests/test_evidence_identity_import_gtk`,
+`tests/test_evidence_metadata_dialog_gtk`,
+`tests/test_workspace_identity_ocr_gtk` et
+`tests/test_ocr_provenance_overlay_gtk`. Le test Tesseract réel est facultatif
 et s’ignore explicitement si l’outil ou une langue compatible manque.
 Les fixtures directes du préprocesseur sont générées en mémoire ou dans un
 répertoire temporaire : JPEG avec APP1 EXIF, HEIC/HEIF via libheif et PDF
 multipage via Cairo. Elles ne doivent jamais être remplacées par un document
 réel.
 
-La validation ciblée du composant partagé comprend
+La validation ciblée de l’aperçu partagé comprend
 `test_evidence_preview_widget_gtk`, `test_evidence_preview`,
 `test_evidence_video_preview_controller` et
 `test_create_person_dialog_gtk`, ce dernier sous
@@ -27,8 +30,8 @@ conteneur synthétique. Les transformations d’orientation libheif restent
 appliquées par le décodage standard ; seule l’image principale est rendue et
 le nombre d’images de premier niveau est exposé.
 
-> **Version :** 2.1
-> **Dernière mise à jour :** 2026-07-28
+> **Version :** 2.2
+> **Dernière mise à jour :** 2026-07-30
 > **Projet :** Labfy Investigation
 
 ---
@@ -281,6 +284,30 @@ make -j8 \
 
 Ces tests utilisent uniquement des fichiers `SPECIMEN`, des répertoires
 temporaires et des bases SQLite temporaires.
+
+Tests GTK réels de l’OCR, de l’aperçu et de la géométrie :
+
+```sh
+make -j8 \
+    tests/test_create_person_dialog_ocr_gtk \
+    tests/test_evidence_identity_import_gtk \
+    tests/test_evidence_metadata_dialog_gtk \
+    tests/test_workspace_identity_ocr_gtk \
+    tests/test_evidence_preview_widget_gtk \
+    tests/test_dialog_geometry_gtk
+
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_create_person_dialog_ocr_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_identity_import_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_metadata_dialog_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_workspace_identity_ocr_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_preview_widget_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_dialog_geometry_gtk
+```
+
+Ils doivent cliquer sur les contrôles de production, passer par `MainWindow`
+et `Workspace` lorsque le scénario le demande, puis fermer et rouvrir la base
+SQLite temporaire. Un environnement sans affichage peut produire un `SKIP`,
+mais celui-ci ne remplace pas l’exécution séparée sur le poste GTK réel.
 
 La fixture manuelle est
 `tests/fixtures/eml/manual_smoke_test.eml`. Elle est exclusivement
@@ -541,6 +568,15 @@ Un dialogue :
 - ne réalise pas une opération longue directement ;
 - présente un résumé avant une écriture importante.
 
+Les dialogues métiers complexes utilisent `labfy_dialog_prepare()` puis
+`labfy_dialog_present()`. La vraie fenêtre parente est définie avec
+`transient_for`; aucune coordonnée absolue n’est utilisée. Ils visent
+1200 × 800 et un minimum utile de 800 × 600, avec formulaire défilable à
+gauche sur environ deux tiers, aperçu à droite et barre d’actions fixe. Le
+séparateur reste déplaçable et n’est pas réinitialisé après sa première
+allocation. Cette règle ne concerne pas les alertes, popups `GtkDropDown` ou
+sélecteurs natifs.
+
 ### 11.3 Messages utilisateur
 
 Les détails techniques restent dans les journaux.
@@ -663,3 +699,24 @@ Avant de considérer une modification terminée :
 - [ ] `make -j8 test` passe ;
 - [ ] `git diff --check` passe ;
 - [ ] la documentation est à jour.
+
+## 16. Validation manuelle du ticket #109
+
+Utiliser exclusivement une enquête, une base SQLite et des documents
+`SPECIMEN` temporaires. Vérifier au minimum :
+
+1. création d’une personne avec OCR, correction de transcription, réédition
+   d’un champ, `manual_entry`, notes et confirmation ;
+2. visibilité immédiate de la preuve dans Workspace, puis fermeture et
+   réouverture de SQLite ;
+3. import multiple sans OCR, puis analyse individuelle de chaque preuve depuis
+   sa fiche, sans doublon ;
+4. sélection de plusieurs `OcrRun`, révision du seul run choisi sans
+   Tesseract, puis nouvelle analyse créant un run supplémentaire ;
+5. aperçu PNG, JPEG et PDF `SPECIMEN` multipage : zoom, ajustement,
+   défilements, navigation, compteur et provenance ;
+6. dialogues à 1200 × 800 et 760 × 560 : parent transitoire, formulaire
+   défilable, répartition 2/3–1/3 et actions toujours visibles.
+
+La validation manuelle réussie confirme ces parcours, mais ne clôt pas le
+ticket #109 et ne couvre pas les limitations encore listées dans la roadmap.

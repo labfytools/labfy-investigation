@@ -222,6 +222,64 @@ static void test_preview_pdf_first_page(void)
     g_assert_cmpint(g_rmdir(root), ==, 0); g_free(path); g_free(root);
 }
 
+static void test_preview_pdf_multiple_pages_and_limits(void)
+{
+    GError *error = NULL;
+    char *root = g_dir_make_tmp("labfy-preview-pdf-pages-XXXXXX", &error);
+    char *path = g_build_filename(root, "SPECIMEN-3-pages.pdf", NULL);
+    cairo_surface_t *surface = cairo_pdf_surface_create(path, 320, 200);
+    cairo_t *cr = cairo_create(surface);
+    for (guint page = 1; page <= 3; page++) {
+        char *label = g_strdup_printf("PAGE %u SPECIMEN", page);
+        cairo_set_source_rgb(cr, page / 3.0, 0.2, 0.4);
+        cairo_paint(cr);
+        cairo_set_source_rgb(cr, 1, 1, 1);
+        cairo_move_to(cr, 20, 40);
+        cairo_show_text(cr, label);
+        cairo_show_page(cr);
+        g_free(label);
+    }
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+    char *sha256 = NULL;
+    guint64 size = 0;
+    g_assert_true(file_hash_compute_sha256(
+        path, NULL, &sha256, &size, &error));
+    g_assert_no_error(error);
+    EvidencePreviewRequest *request = evidence_preview_request_new(
+        root, "10000000-0000-4000-8000-000000000120",
+        "SPECIMEN-3-pages.pdf", sha256, "application/pdf", 20);
+    EvidencePreviewResult *first =
+        evidence_preview_load(request, NULL, &error);
+    g_assert_no_error(error);
+    g_assert_cmpuint(first->item_count, ==, 3);
+    g_assert_cmpuint(first->current_page, ==, 1);
+    evidence_preview_result_free(first);
+    evidence_preview_request_set_pdf_page(request, 1);
+    EvidencePreviewResult *second =
+        evidence_preview_load(request, NULL, &error);
+    g_assert_no_error(error);
+    g_assert_cmpuint(second->current_page, ==, 2);
+    evidence_preview_result_free(second);
+    evidence_preview_request_set_pdf_page(request, 2);
+    EvidencePreviewResult *last =
+        evidence_preview_load(request, NULL, &error);
+    g_assert_no_error(error);
+    g_assert_cmpuint(last->current_page, ==, 3);
+    evidence_preview_result_free(last);
+    evidence_preview_request_set_pdf_page(request, 3);
+    g_assert_null(evidence_preview_load(request, NULL, &error));
+    g_assert_error(error,
+        g_quark_from_static_string("evidence-preview-error"), 8);
+    g_clear_error(&error);
+    evidence_preview_request_free(request);
+    g_free(sha256);
+    g_assert_cmpint(g_remove(path), ==, 0);
+    g_assert_cmpint(g_rmdir(root), ==, 0);
+    g_free(path);
+    g_free(root);
+}
+
 static gboolean write_heic_specimen(const char *path, gint width, gint height)
 {
     struct heif_context *context = heif_context_alloc();
@@ -379,6 +437,8 @@ int main(int argc, char **argv)
         test_preview_dispatch_text_video_email);
     g_test_add_func("/evidence-preview/pdf-first-page",
         test_preview_pdf_first_page);
+    g_test_add_func("/evidence-preview/pdf-multiple-pages-limits",
+        test_preview_pdf_multiple_pages_and_limits);
     g_test_add_func("/evidence-preview/real-heic",
         test_preview_real_heic);
     g_test_add_func("/evidence-preview/heic-cancel-invalid",

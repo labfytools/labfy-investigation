@@ -123,20 +123,30 @@ Les outils externes sont lancés avec `GSubprocess` et des arguments séparés. 
 
 ## Fonctionnalités déjà présentes
 
-La création d’une personne propose une étape facultative d’OCR contrôlé des
-documents d’identité. Elle ne démarre que sur action explicite, travaille sur
-une copie vérifiée PNG, JPEG, HEIC, HEIF ou sur une page PDF choisie, et laisse
-chaque champ à l’état « À vérifier ». L’acceptation, la modification ou le rejet
-s’effectuent champ par champ, sans verdict d’authenticité, reconnaissance
-faciale, fusion de personne ni changement automatique du statut
-d’identification.
+La création d’une personne et l’import normal d’une preuve proposent un OCR
+contrôlé des documents d’identité. Il ne démarre que sur action explicite,
+travaille sur une copie vérifiée PNG, JPEG, HEIC, HEIF ou sur une page PDF
+choisie, et conserve séparément le texte OCR brut immuable et une transcription
+corrigée rééditable et réinitialisable. Les propositions restent révisables :
+elles peuvent être acceptées, corrigées à nouveau, restaurées depuis leur
+valeur brute ou rejetées. Un champ visible mais omis par l’OCR peut être saisi
+avec l’origine `manual_entry` ; une correction d’une valeur extraite conserve
+l’origine `manual_override`. Des notes factuelles peuvent signaler un document
+tronqué, flou, masqué ou incomplet, sans reconstruire une zone absente.
 
-Ce parcours est également disponible lors de l’import normal d’une preuve,
-avec sélection explicite ou présélection de la personne. Il traite une seule
-preuve par opération. L’import multiple sans OCR reste disponible ; plusieurs
-preuves doivent être OCRisées successivement, chacune dans son propre
-parcours. Les dialogues concernés affichent la liste à gauche et un grand
-aperçu redimensionnable à droite.
+La fiche directe d’une preuve relit depuis SQLite le texte brut, la
+transcription corrigée, les exécutions `OcrRun`, observations, champs, notes,
+artefacts, empreintes SHA-256, personne liée et provenance graphique. Un run
+est sélectionné explicitement lorsqu’un historique en contient plusieurs.
+« Réviser l’analyse OCR » modifie uniquement ce run sans relancer Tesseract ;
+« Relancer une nouvelle analyse » crée un nouveau run sans écraser
+l’historique.
+
+L’import multiple sans OCR reste disponible. L’OCR groupé n’est pas pris en
+charge : les preuves importées ensemble sont ensuite analysées une par une
+depuis leur fiche, sur leur UUID définitif et sans doublon. Aucun de ces
+parcours ne produit de verdict d’authenticité, de reconnaissance faciale, de
+fusion de personne, d’identité certaine ou de rôle d’auteur automatique.
 
 Le socle actuel comprend notamment :
 
@@ -212,8 +222,18 @@ Le socle actuel comprend notamment :
   définitifs qu’après confirmation globale ;
 - rattachement transactionnel de toutes les preuves retenues, avec rollback
   SQLite et suppression compensatoire des copies définitives en cas d’échec.
-- aperçu asynchrone contrôlé PNG/JPEG, HEIC/HEIF, MP4/MOV, texte, EML et
-  première page PDF, sans OCR ni écriture SQLite ;
+- aperçu asynchrone contrôlé PNG/JPEG, HEIC/HEIF, MP4/MOV, texte, EML et PDF
+  multipage, avec zoom de 25 à 400 %, ajustement, défilements horizontal et
+  vertical, navigation et compteur de pages ; la provenance OCR reste alignée
+  avec la page, le zoom et le défilement ;
+
+Les dialogues métiers complexes suivent une politique GTK commune : parent
+réel via `transient_for`, modalité adaptée et présentation sans coordonnées
+absolues sous Wayland. Ils visent 1200 × 800, avec un minimum utile de
+800 × 600 lorsque la zone de travail le permet, un formulaire défilable à
+gauche sur environ deux tiers, un aperçu redimensionnable à droite et une
+barre d’actions fixe. Les alertes simples, popups `GtkDropDown` et sélecteurs
+de fichiers natifs ne sont pas concernés.
 
 ### Pivot EML
 
@@ -389,6 +409,21 @@ Les nouveaux modules doivent être accompagnés de tests couvrant :
 - l’annulation lorsque nécessaire ;
 - les responsabilités mémoire ;
 - les régressions possibles.
+
+Les parcours GTK OCR et aperçu doivent aussi être exécutés séparément sur un
+poste avec affichage :
+
+```bash
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_create_person_dialog_ocr_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_identity_import_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_workspace_identity_ocr_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_preview_widget_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_dialog_geometry_gtk
+```
+
+Les tests emploient uniquement des documents `SPECIMEN`, des fichiers
+temporaires et des bases SQLite temporaires fermées puis rouvertes. Un `SKIP`
+lié à l’absence d’affichage ne remplace pas cette validation GTK réelle.
 
 ---
 

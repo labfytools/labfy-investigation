@@ -322,6 +322,12 @@ static gboolean drive(gpointer data)
     g_test_message("drive phase=%u fenêtre=%s cycles=%u",
         context->phase, dialog != NULL ? "oui" : "non",
         context->close_cycles);
+    if (dialog != NULL) {
+        g_assert_true(gtk_window_get_transient_for(dialog) ==
+            context->main_window);
+        g_assert_true(gtk_window_get_modal(dialog));
+        g_assert_true(gtk_window_get_destroy_with_parent(dialog));
+    }
     if (dialog == NULL) {
         if (context->phase == 1) {
             insert_run(context, FALSE);

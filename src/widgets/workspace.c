@@ -1183,6 +1183,8 @@ static void workspace_render_identity_ocr(Workspace *workspace)
     WorkspaceIdentityOcrRecord *record = g_ptr_array_index(
         workspace->identity_ocr_records, selected);
     IdentityOcrRun *run = record->run;
+    ocr_provenance_overlay_set_page(workspace->identity_ocr_overlay,
+        identity_ocr_run_get_page(run), selected + 1U);
     char *summary = g_strdup_printf(
         "Run actif : %s\nUTC : %s\nPersonne liée : %s\n"
         "Document : %s — %s — page %u\nLangues : %s\n"

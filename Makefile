@@ -164,6 +164,7 @@ TEST_OCR_PROVENANCE_OVERLAY_GTK := tests/test_ocr_provenance_overlay_gtk
 TEST_EVIDENCE_METADATA_DIALOG_GTK := tests/test_evidence_metadata_dialog_gtk
 TEST_EVIDENCE_IDENTITY_IMPORT_GTK := tests/test_evidence_identity_import_gtk
 TEST_WORKSPACE_IDENTITY_OCR_GTK := tests/test_workspace_identity_ocr_gtk
+TEST_DIALOG_GEOMETRY_GTK := tests/test_dialog_geometry_gtk
 FAKE_DOCUMENT_TOOL := tests/fake_document_tool
 
 DOCUMENT_ANALYSIS_TEST_SOURCES := \
@@ -177,6 +178,10 @@ $(TEST_DOCUMENT_TOOL_RUNNER): tests/test_document_tool_runner.c \
 	$(CC) $(TEST_CFLAGS) -Wpedantic \
 		tests/test_document_tool_runner.c \
 		$(DOCUMENT_ANALYSIS_TEST_SOURCES) -o $@ $(TEST_LDFLAGS)
+
+$(TEST_DIALOG_GEOMETRY_GTK): tests/test_dialog_geometry_gtk.c \
+	src/views/dialog_geometry.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 all: $(TARGET)
 
@@ -571,6 +576,7 @@ $(TEST_EVIDENCE_TYPE_DAO): \
 $(TEST_EVIDENCE_IMPORT_DIALOG): \
 	tests/test_evidence_import_dialog.c \
 	src/views/evidence_import_dialog.c \
+	src/views/dialog_geometry.c \
 	src/models/evidence_type.c \
 	src/widgets/evidence_preview_widget.c \
 	src/core/evidence_preview_task.c src/core/evidence_preview.c \
@@ -883,7 +889,8 @@ $(TEST_PERSON_DIALOG_LIFECYCLE): tests/test_person_dialog_lifecycle.c \
 	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
 
 $(TEST_CREATE_PERSON_DIALOG_GTK): tests/test_create_person_dialog_gtk.c \
-	src/views/create_person_dialog.c src/core/person_dialog_lifecycle.c \
+	src/views/create_person_dialog.c src/views/dialog_geometry.c \
+	src/core/person_dialog_lifecycle.c \
 	src/core/person_confirmation_summary.c \
 	src/core/evidence_staging.c src/core/evidence_staging_task.c \
 	src/core/evidence_preview_task.c src/core/evidence_preview.c \
@@ -906,7 +913,8 @@ $(TEST_CREATE_PERSON_DIALOG_GTK): tests/test_create_person_dialog_gtk.c \
 
 $(TEST_CREATE_PERSON_DIALOG_OCR_GTK): \
 	tests/test_create_person_dialog_ocr_gtk.c \
-	src/views/create_person_dialog.c src/core/person_dialog_lifecycle.c \
+	src/views/create_person_dialog.c src/views/dialog_geometry.c \
+	src/core/person_dialog_lifecycle.c \
 	src/core/person_confirmation_summary.c \
 	src/core/evidence_staging.c src/core/evidence_staging_task.c \
 	src/core/evidence_preview_task.c src/core/evidence_preview.c \
@@ -1122,7 +1130,8 @@ test: \
 	$(TEST_OCR_PROVENANCE_OVERLAY_GTK) \
 	$(TEST_EVIDENCE_METADATA_DIALOG_GTK) \
 	$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK) \
-	$(TEST_WORKSPACE_IDENTITY_OCR_GTK)
+	$(TEST_WORKSPACE_IDENTITY_OCR_GTK) \
+	$(TEST_DIALOG_GEOMETRY_GTK)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -1216,6 +1225,7 @@ test: \
 	@$(TEST_EVIDENCE_METADATA_DIALOG_GTK)
 	@$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK)
 	@$(TEST_WORKSPACE_IDENTITY_OCR_GTK)
+	@$(TEST_DIALOG_GEOMETRY_GTK)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -1313,6 +1323,7 @@ clean:
 	$(TEST_EVIDENCE_METADATA_DIALOG_GTK) \
 	$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK) \
 	$(TEST_WORKSPACE_IDENTITY_OCR_GTK) \
+	$(TEST_DIALOG_GEOMETRY_GTK) \
 		$(FAKE_DOCUMENT_TOOL)
 
 

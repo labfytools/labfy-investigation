@@ -3,6 +3,7 @@
  * @brief Présentation en lecture seule d'une analyse EML.
  ******************************************************************************/
 #include "views/eml_analysis_dialog.h"
+#include "views/dialog_geometry.h"
 #include "widgets/controlled_vocab_dropdown.h"
 typedef struct { GtkWindow *window; GtkWidget *proposals_box;
     GtkWidget *summary_label;
@@ -234,8 +235,7 @@ void eml_analysis_dialog_present(GtkWindow *parent,
     state->callback = callback; state->user_data = user_data;
     window = GTK_WINDOW(gtk_window_new());
     gtk_window_set_title(window, "Analyse locale du courriel EML");
-    gtk_window_set_transient_for(window, parent); gtk_window_set_modal(window, TRUE);
-    gtk_window_set_default_size(window, 720, 560);
+    labfy_dialog_prepare(window, parent, TRUE, TRUE);
     state->window = window;
     box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_widget_set_margin_start(box, 14); gtk_widget_set_margin_end(box, 14);
@@ -314,7 +314,7 @@ void eml_analysis_dialog_present(GtkWindow *parent,
         G_CALLBACK(eml_analysis_dialog_on_window_close), state);
     g_object_set_data_full(G_OBJECT(window), "eml-dialog-state", state,
         eml_analysis_dialog_state_free);
-    gtk_window_present(window);
+    labfy_dialog_present(window);
     g_free(received); g_free(emails); g_free(domains);
     g_free(sender_ips); g_free(destination_ips);
 }
@@ -418,9 +418,7 @@ void eml_analysis_dialog_present_pipeline(
     state->callback = callback; state->user_data = user_data;
     state->window = GTK_WINDOW(gtk_window_new());
     gtk_window_set_title(state->window, "Révision de l’analyse EML");
-    gtk_window_set_transient_for(state->window, parent);
-    gtk_window_set_modal(state->window, TRUE);
-    gtk_window_set_default_size(state->window, 900, 700);
+    labfy_dialog_prepare(state->window, parent, TRUE, TRUE);
     GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_widget_set_margin_start(outer, 14);
     gtk_widget_set_margin_end(outer, 14);
@@ -538,7 +536,7 @@ void eml_analysis_dialog_present_pipeline(
         G_CALLBACK(eml_analysis_dialog_on_window_close), state);
     g_object_set_data_full(G_OBJECT(state->window), "eml-dialog-state",
         state, eml_analysis_dialog_state_free);
-    gtk_window_present(state->window);
+    labfy_dialog_present(state->window);
     g_free(received);
     g_string_free(attachments, TRUE);
     g_string_free(texts, TRUE);

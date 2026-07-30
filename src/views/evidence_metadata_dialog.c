@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "views/evidence_metadata_dialog.h"
+#include "views/dialog_geometry.h"
 
 #include "models/evidence_type.h"
 #include "dao/identity_ocr_dao.h"
@@ -258,6 +259,8 @@ static void evidence_metadata_dialog_render_ocr(
 
     IdentityOcrRunRecord *run = g_ptr_array_index(
         context->ocr_runs, selected);
+    ocr_provenance_overlay_set_page(context->ocr_overlay,
+        (guint) run->page_number, context->ocr_generation);
     const char *selected_identifier = g_ptr_array_index(
         context->ocr_run_identifiers, selected);
     if (g_strcmp0(run->id, selected_identifier) != 0) return;
@@ -492,13 +495,10 @@ gboolean evidence_metadata_dialog_present_with_ocr(
                 evidence_record_get_type_identifier(record)) == 0) selected = index;
     }
     gtk_window_set_title(context->window, "Modifier les métadonnées");
-    gtk_window_set_default_size(context->window, 560, 420);
-    gtk_window_set_modal(context->window, TRUE);
-    gtk_window_set_destroy_with_parent(context->window, TRUE);
+    labfy_dialog_prepare(context->window, parent, TRUE, TRUE);
     if (parent != NULL) {
         gtk_window_set_application(context->window,
             gtk_window_get_application(parent));
-        gtk_window_set_transient_for(context->window, parent);
     }
     g_object_set_data_full(G_OBJECT(context->window), "evidence-metadata-context",
         context, evidence_metadata_dialog_context_free);
@@ -577,7 +577,7 @@ gboolean evidence_metadata_dialog_present_with_ocr(
     gtk_box_append(GTK_BOX(buttons), cancel); gtk_box_append(GTK_BOX(buttons), save);
     gtk_box_append(GTK_BOX(main_box), buttons);
     gtk_window_set_child(context->window, main_box);
-    gtk_window_present(context->window);
+    labfy_dialog_present(context->window);
     return TRUE;
 }
 

@@ -24,6 +24,7 @@ typedef struct {
     char *expected_sha256;
     char *mime_type;
     guint64 request_generation;
+    guint pdf_page;
 } EvidencePreviewRequest;
 typedef struct {
     EvidencePreviewKind kind;
@@ -40,6 +41,7 @@ typedef struct {
     char *message;
     guint64 size_bytes;
     guint item_count;
+    guint current_page;
     gboolean integrity_valid;
     gboolean preview_available;
     gboolean truncated;
@@ -47,6 +49,8 @@ typedef struct {
 EvidencePreviewRequest *evidence_preview_request_new(const char *root,
     const char *evidence_identifier, const char *relative_path,
     const char *sha256, const char *mime_type, guint64 generation);
+void evidence_preview_request_set_pdf_page(
+    EvidencePreviewRequest *request, guint page);
 void evidence_preview_request_free(EvidencePreviewRequest *request);
 EvidencePreviewResult *evidence_preview_load(
     const EvidencePreviewRequest *request, GCancellable *cancellable,

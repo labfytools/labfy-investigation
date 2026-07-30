@@ -4,22 +4,81 @@
 #include "core/identity_field_extractor.h"
 #include "core/ocr_analysis.h"
 
+#include <string.h>
+
+static gboolean identity_ocr_workflow_languages_are_valid(
+    const char *languages)
+{
+    char **codes;
+    gboolean valid = TRUE;
+
+    if (languages == NULL || languages[0] == '\0')
+        return FALSE;
+    codes = g_strsplit(languages, "+", -1);
+    for (guint index = 0; codes[index] != NULL && valid; index++) {
+        const char *code = codes[index];
+
+        valid = strlen(code) == 3;
+        for (guint character = 0; valid && code[character] != '\0';
+             character++)
+            valid = g_ascii_islower(code[character]);
+    }
+    g_strfreev(codes);
+    return valid;
+}
+
+static gboolean identity_ocr_workflow_validate_request(
+    const IdentityOcrWorkflowRequest *request,
+    GError **error)
+{
+#define REQUIRE_REQUEST_FIELD(condition, message) \
+    G_STMT_START { \
+        if (!(condition)) { \
+            g_set_error_literal(error, G_IO_ERROR, \
+                G_IO_ERROR_INVALID_ARGUMENT, (message)); \
+            return FALSE; \
+        } \
+    } G_STMT_END
+
+    REQUIRE_REQUEST_FIELD(request != NULL,
+        "La demande OCR d’identité est absente.");
+    REQUIRE_REQUEST_FIELD(request->root_path != NULL,
+        "Le chemin racine de l’enquête est absent de la demande OCR.");
+    REQUIRE_REQUEST_FIELD(request->evidence_identifier != NULL,
+        "L’UUID de la preuve est absent de la demande OCR.");
+    REQUIRE_REQUEST_FIELD(request->relative_path != NULL,
+        "Le chemin relatif de la preuve est absent de la demande OCR.");
+    REQUIRE_REQUEST_FIELD(request->expected_sha256 != NULL,
+        "Le SHA-256 attendu est absent de la demande OCR.");
+    REQUIRE_REQUEST_FIELD(request->mime_type != NULL,
+        "Le type MIME de la preuve est absent de la demande OCR.");
+    REQUIRE_REQUEST_FIELD(
+        identity_ocr_document_type_is_valid(request->document_type),
+        "Le type de document d’identité est invalide dans la demande OCR.");
+    REQUIRE_REQUEST_FIELD(
+        identity_ocr_document_side_is_valid(request->document_side),
+        "La face du document d’identité est invalide dans la demande OCR.");
+    REQUIRE_REQUEST_FIELD(
+        identity_ocr_workflow_languages_are_valid(request->languages),
+        "Le code de langue Tesseract est invalide dans la demande OCR "
+        "(un code ISO 639-3 comme « fra » ou « eng » est requis).");
+    REQUIRE_REQUEST_FIELD(request->preprocessing_profile != NULL,
+        "Le profil de prétraitement est absent de la demande OCR.");
+    REQUIRE_REQUEST_FIELD(request->tesseract_executable != NULL,
+        "Le chemin de l’exécutable Tesseract est absent de la demande OCR.");
+    REQUIRE_REQUEST_FIELD(request->page_number > 0,
+        "Le numéro de page est invalide dans la demande OCR.");
+    REQUIRE_REQUEST_FIELD(request->profile <= IDENTITY_OCR_PREPROCESS_UPSCALE,
+        "Le profil de prétraitement est invalide dans la demande OCR.");
+
+#undef REQUIRE_REQUEST_FIELD
+    return TRUE;
+}
+
 gboolean identity_ocr_workflow_request_is_valid(
     const IdentityOcrWorkflowRequest *request)
 {
-    return request != NULL &&
-        request->root_path != NULL &&
-        request->evidence_identifier != NULL &&
-        request->relative_path != NULL &&
-        request->expected_sha256 != NULL &&
-        request->mime_type != NULL &&
-        identity_ocr_document_type_is_valid(request->document_type) &&
-        identity_ocr_document_side_is_valid(request->document_side) &&
-        request->languages != NULL &&
-        request->preprocessing_profile != NULL &&
-        request->tesseract_executable != NULL &&
-        request->page_number > 0 &&
-        request->profile <= IDENTITY_OCR_PREPROCESS_UPSCALE;
+    return identity_ocr_workflow_validate_request(request, NULL);
 }
 
 IdentityOcrRun *identity_ocr_workflow_execute(
@@ -37,11 +96,8 @@ IdentityOcrRun *identity_ocr_workflow_execute(
     gsize preview_length = 0;
 
     g_return_val_if_fail(error == NULL || *error == NULL, NULL);
-    if (!identity_ocr_workflow_request_is_valid(request)) {
-        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-            "La demande du parcours OCR d’identité est invalide.");
+    if (!identity_ocr_workflow_validate_request(request, error))
         return NULL;
-    }
     preview_request = evidence_preview_request_new(request->root_path,
         request->evidence_identifier, request->relative_path,
         request->expected_sha256, request->mime_type, request->generation);

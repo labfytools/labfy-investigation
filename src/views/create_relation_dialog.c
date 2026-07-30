@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "views/create_relation_dialog.h"
+#include "views/dialog_geometry.h"
 
 #include "models/entity_record.h"
 #include "models/evidence_record.h"
@@ -1231,26 +1232,7 @@ static gboolean create_relation_dialog_present_internal(
             : "Ajouter une relation"
     );
 
-    gtk_window_set_transient_for(
-        state->window,
-        parent
-    );
-
-    gtk_window_set_modal(
-        state->window,
-        TRUE
-    );
-
-    gtk_window_set_destroy_with_parent(
-        state->window,
-        TRUE
-    );
-
-    gtk_window_set_default_size(
-        state->window,
-        920,
-        780
-    );
+    labfy_dialog_prepare(state->window, parent, TRUE, TRUE);
 
     root_box =
         gtk_box_new(
@@ -1912,9 +1894,7 @@ static gboolean create_relation_dialog_present_internal(
         )
     );
 
-    gtk_window_present(
-        state->window
-    );
+    labfy_dialog_present(state->window);
 
     return TRUE;
 }

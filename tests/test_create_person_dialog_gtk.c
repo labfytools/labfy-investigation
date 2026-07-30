@@ -47,27 +47,6 @@ static GtkWidget *find_entry(GtkWidget *widget, const char *placeholder)
     return NULL;
 }
 
-static GtkDropDown *find_evidence_drop_down(GtkWidget *widget)
-{
-    if (GTK_IS_DROP_DOWN(widget)) {
-        GListModel *model = gtk_drop_down_get_model(GTK_DROP_DOWN(widget));
-        GtkStringObject *first = model != NULL &&
-            g_list_model_get_n_items(model) > 0
-            ? g_list_model_get_item(model, 0) : NULL;
-        gboolean matches = first != NULL && g_strcmp0(
-            gtk_string_object_get_string(first),
-            "Aucune preuve associée") == 0;
-        g_clear_object(&first);
-        if (matches) return GTK_DROP_DOWN(widget);
-    }
-    for (GtkWidget *child = gtk_widget_get_first_child(widget);
-         child != NULL; child = gtk_widget_get_next_sibling(child)) {
-        GtkDropDown *match = find_evidence_drop_down(child);
-        if (match != NULL) return match;
-    }
-    return NULL;
-}
-
 static GtkDropDown *find_drop_down_starting_with(GtkWidget *widget,
     const char *first_label)
 {
@@ -89,55 +68,50 @@ static GtkDropDown *find_drop_down_starting_with(GtkWidget *widget,
     return NULL;
 }
 
-static GtkWidget *find_first_button(GtkWidget *widget)
+static GtkWidget *find_named(GtkWidget *widget, const char *name)
 {
-    if (GTK_IS_BUTTON(widget)) return widget;
+    if (g_strcmp0(gtk_widget_get_name(widget), name) == 0)
+        return widget;
     for (GtkWidget *child = gtk_widget_get_first_child(widget);
          child != NULL; child = gtk_widget_get_next_sibling(child)) {
-        GtkWidget *match = find_first_button(child);
+        GtkWidget *match = find_named(child, name);
         if (match != NULL) return match;
     }
     return NULL;
 }
 
-static GtkListView *find_list_view(GtkWidget *widget, gboolean mapped_only)
+static gboolean frame_seen(GtkWidget *widget, GdkFrameClock *clock,
+    gpointer data)
 {
-    if (GTK_IS_LIST_VIEW(widget) &&
-        (!mapped_only || gtk_widget_get_mapped(widget)))
-        return GTK_LIST_VIEW(widget);
-    for (GtkWidget *child = gtk_widget_get_first_child(widget);
-         child != NULL; child = gtk_widget_get_next_sibling(child)) {
-        GtkListView *match = find_list_view(child, mapped_only);
-        if (match != NULL) return match;
-    }
-    return NULL;
+    gboolean *seen = data;
+    (void) widget;
+    (void) clock;
+    *seen = TRUE;
+    return G_SOURCE_REMOVE;
 }
 
-static GtkListView *find_popup_list_view(GtkDropDown *dropdown)
+static void wait_for_frame(GtkWidget *widget)
 {
-    GtkWidget *root = GTK_WIDGET(gtk_widget_get_root(GTK_WIDGET(dropdown)));
-    GtkListView *list_view;
-    GtkWidget *button = find_first_button(GTK_WIDGET(dropdown));
-    g_assert_nonnull(button);
-    if (GTK_IS_TOGGLE_BUTTON(button))
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(button), TRUE);
-    else
-        gtk_widget_activate(button);
-    while (g_main_context_iteration(NULL, FALSE)) {}
-    list_view = find_list_view(GTK_WIDGET(dropdown), TRUE);
-    if (list_view == NULL && root != NULL)
-        list_view = find_list_view(root, TRUE);
-    return list_view;
+    gboolean seen = FALSE;
+    gtk_widget_add_tick_callback(widget, frame_seen, &seen, NULL);
+    while (!seen)
+        g_main_context_iteration(NULL, TRUE);
 }
 
-static void activate_popup_item(GtkListView *list_view, guint position)
+static void select_drop_down(GtkDropDown *dropdown, guint position)
 {
-    GtkSelectionModel *selection = gtk_list_view_get_model(list_view);
-    g_assert_nonnull(selection);
-    g_assert_true(gtk_selection_model_select_item(
-        selection, position, TRUE));
-    g_signal_emit_by_name(list_view, "activate", position);
-    while (g_main_context_iteration(NULL, FALSE)) {}
+    g_test_message("sélecteur=%s position=%u mapped=%d visible=%d",
+        gtk_widget_get_name(GTK_WIDGET(dropdown)), position,
+        gtk_widget_get_mapped(GTK_WIDGET(dropdown)),
+        gtk_widget_get_visible(GTK_WIDGET(dropdown)));
+    g_assert_true(gtk_widget_get_mapped(GTK_WIDGET(dropdown)));
+    g_assert_true(gtk_widget_activate(GTK_WIDGET(dropdown)));
+    wait_for_frame(GTK_WIDGET(dropdown));
+    g_assert_true(gtk_widget_activate(GTK_WIDGET(dropdown)));
+    wait_for_frame(GTK_WIDGET(dropdown));
+    gtk_drop_down_set_selected(dropdown, position);
+    g_main_context_iteration(NULL, FALSE);
+    g_assert_cmpuint(gtk_drop_down_get_selected(dropdown), ==, position);
 }
 
 static GtkWidget *find_label_containing(GtkWidget *widget, const char *text)
@@ -183,6 +157,12 @@ static gboolean click_cancel(gpointer data)
     GtkWidget *button, *designation, *search;
     GtkDropDown *evidence, *retained_type, *type_filter;
     g_assert_nonnull(dialog);
+    g_assert_true(gtk_window_get_transient_for(dialog) ==
+        context->main_window);
+    g_assert_true(gtk_window_get_modal(dialog));
+    g_assert_true(gtk_window_get_destroy_with_parent(dialog));
+    gtk_window_set_default_size(dialog, 760, 560);
+    wait_for_frame(GTK_WIDGET(dialog));
     designation = find_entry(GTK_WIDGET(dialog),
         "Personne présumée liée aux comptes");
     g_assert_nonnull(designation);
@@ -190,41 +170,32 @@ static gboolean click_cancel(gpointer data)
     button = find_button(GTK_WIDGET(dialog), "Suivant");
     g_assert_nonnull(button);
     g_signal_emit_by_name(button, "clicked");
+    wait_for_frame(GTK_WIDGET(button));
     g_signal_emit_by_name(button, "clicked");
+    wait_for_frame(GTK_WIDGET(button));
     search = find_entry(GTK_WIDGET(dialog),
         "Rechercher par nom, description ou type");
     g_assert_nonnull(search);
-    evidence = find_evidence_drop_down(GTK_WIDGET(dialog));
+    evidence = GTK_DROP_DOWN(find_named(GTK_WIDGET(dialog),
+        "create-person-evidence-dropdown"));
     g_assert_nonnull(evidence);
     context->evidence_model = gtk_drop_down_get_model(evidence);
     g_assert_nonnull(context->evidence_model);
     g_object_weak_ref(G_OBJECT(context->evidence_model),
         evidence_model_destroyed, context);
-    GtkListView *popup_list = find_popup_list_view(evidence);
-    g_assert_nonnull(popup_list);
-    activate_popup_item(popup_list, 1);
-    popup_list = find_popup_list_view(evidence);
-    g_assert_nonnull(popup_list);
-    activate_popup_item(popup_list, 2);
-    popup_list = find_popup_list_view(evidence);
-    g_assert_nonnull(popup_list);
-    activate_popup_item(popup_list, 0);
-    popup_list = find_popup_list_view(evidence);
-    g_assert_nonnull(popup_list);
-    activate_popup_item(popup_list, 1);
+    select_drop_down(evidence, 1);
+    select_drop_down(evidence, 2);
+    select_drop_down(evidence, 0);
+    select_drop_down(evidence, 1);
     gtk_editable_set_text(GTK_EDITABLE(search), "recherche");
     g_assert_true(gtk_drop_down_get_model(evidence) ==
         context->evidence_model);
     g_assert_false(context->evidence_model_destroyed);
-    type_filter = find_drop_down_starting_with(
-        GTK_WIDGET(dialog), "Tous les types");
+    type_filter = GTK_DROP_DOWN(find_named(GTK_WIDGET(dialog),
+        "create-person-evidence-type-filter"));
     g_assert_nonnull(type_filter);
-    popup_list = find_popup_list_view(type_filter);
-    g_assert_nonnull(popup_list);
-    activate_popup_item(popup_list, 2);
-    popup_list = find_popup_list_view(evidence);
-    g_assert_nonnull(popup_list);
-    activate_popup_item(popup_list, 1);
+    select_drop_down(type_filter, 2);
+    select_drop_down(evidence, 1);
     g_assert_cmpuint(gtk_drop_down_get_selected(evidence), ==, 1);
     button = find_button(GTK_WIDGET(dialog), "Ajouter à la sélection");
     g_assert_nonnull(button);
@@ -236,15 +207,11 @@ static gboolean click_cancel(gpointer data)
     g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
         "Type : email (email)"));
     g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog), "— email"));
-    popup_list = find_popup_list_view(type_filter);
-    g_assert_nonnull(popup_list);
-    activate_popup_item(popup_list, 0);
+    select_drop_down(type_filter, 0);
     gtk_editable_set_text(GTK_EDITABLE(search), "AUTRE");
     g_assert_true(gtk_drop_down_get_model(evidence) ==
         context->evidence_model);
-    popup_list = find_popup_list_view(evidence);
-    g_assert_nonnull(popup_list);
-    activate_popup_item(popup_list, 1);
+    select_drop_down(evidence, 1);
     button = find_button(GTK_WIDGET(dialog), "Ajouter à la sélection");
     g_assert_nonnull(button);
     g_signal_emit_by_name(button, "clicked");
@@ -317,6 +284,8 @@ int main(int argc, char **argv)
         g_print("SKIP: aucun affichage GTK disponible.\n");
         return 0;
     }
+    g_object_set(gtk_settings_get_default(),
+        "gtk-enable-animations", FALSE, NULL);
     context.application = gtk_application_new(
         "org.labfy.Investigation.DialogTest",
         G_APPLICATION_NON_UNIQUE);

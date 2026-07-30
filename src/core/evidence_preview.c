@@ -299,8 +299,8 @@ failed:
     if (handle != NULL) heif_image_handle_release(handle);
     heif_context_free(context); return FALSE;
 }
-static gboolean load_pdf(const char *path, EvidencePreviewResult *result,
-    GError **error)
+static gboolean load_pdf(const char *path, guint requested_page,
+    EvidencePreviewResult *result, GError **error)
 {
     char *uri = g_filename_to_uri(path, NULL, error);
     if (uri == NULL) return FALSE;
@@ -309,7 +309,21 @@ static gboolean load_pdf(const char *path, EvidencePreviewResult *result,
     gint pages = poppler_document_get_n_pages(document);
     if (pages < 1) { g_object_unref(document); g_set_error_literal(error,
         preview_error(), 7, "Le PDF ne contient aucune page."); return FALSE; }
-    PopplerPage *page = poppler_document_get_page(document, 0);
+    if (requested_page >= (guint) pages) {
+        g_object_unref(document);
+        g_set_error(error, preview_error(), 8,
+            "La page PDF %u est hors limites (document de %d pages).",
+            requested_page + 1U, pages);
+        return FALSE;
+    }
+    PopplerPage *page = poppler_document_get_page(
+        document, (gint) requested_page);
+    if (page == NULL) {
+        g_object_unref(document);
+        g_set_error_literal(error, preview_error(), 7,
+            "La page PDF demandée est indisponible.");
+        return FALSE;
+    }
     double page_width = 0, page_height = 0;
     poppler_page_get_size(page, &page_width, &page_height);
     if (!valid_dimensions((gint) page_width, (gint) page_height, error)) {
@@ -324,6 +338,7 @@ static gboolean load_pdf(const char *path, EvidencePreviewResult *result,
     cairo_t *cr = cairo_create(surface); cairo_set_source_rgb(cr, 1, 1, 1);
     cairo_paint(cr); cairo_scale(cr, scale, scale); poppler_page_render(page, cr);
     cairo_destroy(cr); result->item_count = (guint) pages;
+    result->current_page = requested_page + 1U;
     gboolean ok = surface_to_result(surface, width, height, result, error);
     cairo_surface_destroy(surface); g_object_unref(page);
     g_object_unref(document); return ok;
@@ -395,6 +410,12 @@ EvidencePreviewRequest *evidence_preview_request_new(const char *root,
     request->expected_sha256 = g_strdup(sha256);
     request->mime_type = g_strdup(mime_type);
     request->request_generation = generation; return request;
+}
+
+void evidence_preview_request_set_pdf_page(
+    EvidencePreviewRequest *request, guint page)
+{
+    if (request != NULL) request->pdf_page = page;
 }
 void evidence_preview_request_free(EvidencePreviewRequest *request)
 {
@@ -501,7 +522,7 @@ EvidencePreviewResult *evidence_preview_load(
         result->kind = EVIDENCE_PREVIEW_KIND_PDF;
         result->effective_mime_type = g_strdup("application/pdf");
         result->effective_format = g_strdup("PDF");
-        ok = load_pdf(path, result, error); break;
+        ok = load_pdf(path, request->pdf_page, result, error); break;
     default:
         result->message = g_strdup("Format non pris en charge ou contenu invalide.");
         result->effective_format = g_strdup("Inconnu"); break;

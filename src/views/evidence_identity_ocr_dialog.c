@@ -1,4 +1,5 @@
 #include "views/evidence_identity_ocr_dialog.h"
+#include "views/dialog_geometry.h"
 
 #include "core/file_hash.h"
 #include "core/identity_ocr_workflow.h"
@@ -127,24 +128,6 @@ static void on_reset_transcription(GtkButton *button, gpointer data)
     identity_ocr_run_reset_corrected_transcription(state->run);
     gtk_text_view_set_editable(state->corrected_text, TRUE);
     gtk_widget_set_sensitive(GTK_WIDGET(state->save_transcription), TRUE);
-}
-
-static gboolean set_initial_paned_position(gpointer data)
-{
-    GtkWidget *paned = data;
-    int width;
-    int position;
-    if (g_object_get_data(
-            G_OBJECT(paned), "identity-initial-position-set") != NULL)
-        return G_SOURCE_REMOVE;
-    width = gtk_widget_get_width(paned);
-    if (width <= 0) return G_SOURCE_CONTINUE;
-    position = MAX(520, (width * 2) / 3);
-    position = MIN(position, MAX(0, width - 180));
-    gtk_paned_set_position(GTK_PANED(paned), position);
-    g_object_set_data(G_OBJECT(paned),
-        "identity-initial-position-set", GINT_TO_POINTER(1));
-    return G_SOURCE_REMOVE;
 }
 
 static const char *mime_from_path(const char *path)
@@ -545,6 +528,8 @@ static void workflow_completed(GObject *source, GAsyncResult *result,
                 GTK_WIDGET(state->save_transcription), TRUE);
             ocr_provenance_overlay_set_image(state->overlay,
                 identity_ocr_run_get_preview(state->run), state->generation);
+            ocr_provenance_overlay_set_page(state->overlay,
+                identity_ocr_run_get_page(state->run), state->generation);
             gtk_label_set_text(state->status,
                 "OCR terminé. Vérifiez chaque proposition.");
             gtk_widget_set_sensitive(
@@ -668,11 +653,9 @@ gboolean evidence_identity_ocr_dialog_present(
     state->window = GTK_WINDOW(gtk_window_new());
     gtk_window_set_application(state->window,
         gtk_window_get_application(parent));
-    gtk_window_set_transient_for(state->window, parent);
-    gtk_window_set_modal(state->window, TRUE);
+    labfy_dialog_prepare(state->window, parent, TRUE, TRUE);
     gtk_window_set_title(state->window,
         "Import — OCR d’identité facultatif");
-    gtk_window_set_default_size(state->window, 1200, 800);
     GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_widget_set_name(root, "identity-form-content");
     gtk_widget_set_margin_start(root, 14);
@@ -881,9 +864,9 @@ gboolean evidence_identity_ocr_dialog_present(
         state->tesseract_path != NULL);
     if (state->tesseract_path != NULL &&
         !populate_languages(state, error)) goto failure_window;
-    gtk_window_present(state->window);
-    g_idle_add_full(G_PRIORITY_DEFAULT_IDLE,
-        set_initial_paned_position, g_object_ref(paned), g_object_unref);
+    labfy_paned_apply_initial_ratio(
+        GTK_PANED(paned), 2.0 / 3.0, 520, 240);
+    labfy_dialog_present(state->window);
     return TRUE;
 
 failure_window:

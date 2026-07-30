@@ -1,18 +1,26 @@
 # Architecture
 
-`EvidencePreviewWidget` est l’adaptateur GTK unique de `EvidencePreview` pour
-`CreatePersonDialog` et la fiche directe. Il encapsule les états, le rendu
-EML/PDF/image/texte/vidéo, l’annulation, la génération, la garde de session et
-l’arrêt du média. Les deux écrans lui transmettent uniquement une source
-interne ou de staging accompagnée du SHA-256 attendu.
+`EvidencePreviewWidget` est l’adaptateur GTK partagé de `EvidencePreview` pour
+`CreatePersonDialog`, l’import, la révision OCR et la fiche directe. Il
+encapsule les états, le rendu EML/PDF/image/texte/vidéo, l’annulation, la
+génération, la garde de session et l’arrêt du média. Les écrans lui
+transmettent uniquement une source interne ou de staging accompagnée du
+SHA-256 attendu.
 
 ## Aperçu contrôlé multi-format
 
 `EvidencePreview` vérifie l’empreinte du fichier interne ou de staging,
 détecte son contenu et produit un résultat borné sans GTK. `BackgroundTask`
-travaille hors du thread principal ; `CreatePersonDialog` y crée ensuite
-textures, buffers et médias, rejette les générations périmées et arrête tout
+travaille hors du thread principal ; le widget crée ensuite textures, buffers
+et médias sur le contexte GTK, rejette les générations périmées et arrête tout
 média au changement ou à la fermeture. L’aperçu ne persiste rien.
+
+Pour les images et PDF, la barre compacte fournit zoom avant, zoom arrière et
+retour à l’ajustement. Une image agrandie reste défilable horizontalement et
+verticalement. Les PDF multipages disposent des actions page précédente et
+suivante et d’un compteur `Page X / N` ; le changement de page conserve le
+zoom. `OcrProvenanceOverlay` applique le même zoom, le même défilement et la
+même page afin que la provenance reste alignée.
 
 Le mode aperçu de `EmlMimeExtractor` réutilise le parcours récursif et les
 décodages RFC 2047/2231 sans écrire les pièces jointes. Il préfère
@@ -20,9 +28,9 @@ décodages RFC 2047/2231 sans écrire les pièces jointes. Il préfère
 l’inventaire possédé. Le contrôleur vidéo indépendant de GTK orchestre
 pause, retour au début, détachement et libération via des actions injectées.
 
-> **Version :** 3.1
-> **Dernière mise à jour :** 2026-07-28
-> **Schéma SQLite courant :** V14
+> **Version :** 3.2
+> **Dernière mise à jour :** 2026-07-30
+> **Schéma SQLite courant :** V17
 
 ## Personnes contextuelles — SQLite V14
 
@@ -33,31 +41,63 @@ confiance et notes. Les anciens codes sont copiés littéralement depuis
 les rôles et le rattachement manuel dans une transaction unique.
 
 Le cœur `EvidencePreview` vérifie l’intégrité avant décodage PNG/JPEG, applique
-des bornes et ne renvoie qu’un PNG mémoire réduit. Une `BackgroundTask`
+des bornes et ne renvoie qu’un rendu mémoire réduit. Une `BackgroundTask`
 travaille hors du thread GTK ; la texture est créée sur le contexte principal.
 Le dialogue annule l’ancienne tâche et rejette les générations obsolètes.
 L’interface conserve une génération de session et les chemins stables du
-projet et de sa base. PDF, vidéo, EML avancé et OCR restent exclus.
+projet et de sa base.
 
-## OCR contrôlé d’identité — SQLite V15
+## OCR contrôlé d’identité — SQLite V15 à V17
 
-La V15 sépare l’exécution OCR, l’observation du document et les observations
-de champs. Le moteur reçoit uniquement une copie contrôlée ou une page PDF
-explicitement choisie, conserve texte brut, TSV, paramètres, langues, version,
-SHA-256, confiance et coordonnées, puis laisse la révision à l’utilisateur.
-Les widgets n’accèdent pas à SQLite : le coordinateur persiste les décisions
-acceptées ou modifiées dans la transaction finale et compense les fichiers en
-cas d’échec.
+`IdentityOcrWorkflow` est l’unique orchestration du moteur OCR, réutilisée par
+`CreatePersonDialog`, `EvidenceIdentityOcrDialog`, l’import normal et
+Workspace. La V15 sépare l’exécution OCR, l’observation du document et les
+observations de champs. La V16 ajoute notamment l’origine `manual_entry` pour
+un champ visible mais omis par l’OCR. La V17 ajoute une transcription corrigée
+humaine distincte du texte OCR brut.
+
+Le moteur reçoit uniquement une copie contrôlée ou une page PDF explicitement
+choisie, conserve texte brut, TSV, paramètres, langues, version, SHA-256,
+confiance et coordonnées, puis laisse la révision à l’utilisateur. Le texte
+brut n’est jamais remplacé. Une correction de valeur garde
+`manual_override`; une saisie sans valeur OCR garde `manual_entry`. Les notes
+restent factuelles et ne reconstruisent jamais une partie absente d’un
+document tronqué.
+
+Les widgets n’accèdent pas à SQLite. Le coordinateur persiste sur l’UUID
+définitif de la preuve dans une transaction unique, avec rollback,
+compensation des fichiers et garde de session juste avant commit. L’import
+multiple reste sans OCR groupé : chaque preuve est analysée ensuite,
+individuellement et sans réimport ni doublon.
 
 La provenance visuelle est rendue par `OcrProvenanceOverlay`. La conversion
 des coordonnées source vers la zone affichée est indépendante de GTK et tient
 compte du ratio, de la réduction, de l’agrandissement et des marges. Le
 rectangle est transitoire : aucune annotation n’est écrite dans la preuve.
 Les langues proposées proviennent exclusivement de `tesseract --list-langs`.
-Le DAO V15 expose des lectures possédées pour les exécutions, observations de
-documents et observations de champs, ainsi que des listes ordonnées par preuve,
-personne ou observation documentaire.
+Les DAO structurés exposent des lectures possédées pour les runs, observations
+de documents et de champs, notes et artefacts. La fiche de preuve recharge ces
+données depuis SQLite, sélectionne explicitement un run dans un modèle
+`GtkDropDown` stable et affiche texte brut, transcription corrigée, personne
+liée, SHA-256 et provenance graphique. Réviser conserve l’UUID du run et ne
+relance pas Tesseract ; relancer crée un nouveau run sans écraser
+l’historique.
 > **Statut :** architecture courante
+
+## Politique des dialogues GTK métiers
+
+`labfy_dialog_prepare()` et `labfy_dialog_present()` centralisent la séquence
+des dialogues complexes : `transient_for` vers la vraie fenêtre parente,
+modalité appropriée, géométrie commune, puis `gtk_window_present()`. Aucune
+coordonnée absolue n’est utilisée sous GTK4/Wayland.
+
+La cible initiale est proche de 1200 × 800, avec un minimum utile de
+800 × 600 lorsque la zone de travail le permet. Un `GtkPaned` place
+initialement le formulaire défilable à gauche sur environ deux tiers et
+l’aperçu à droite sur un tiers ; sa position n’est appliquée qu’après la
+première allocation réelle puis reste entièrement modifiable. Les actions
+restent fixes en bas. Cette politique exclut les alertes simples, les popups
+`GtkDropDown` et les sélecteurs de fichiers natifs.
 
 ---
 
@@ -355,7 +395,7 @@ validation du chemin
     ↓
 création de l'arborescence
     ↓
-initialisation transactionnelle de SQLite V14
+initialisation transactionnelle de SQLite V17
     ↓
 création de l'identité de l'enquête
     ↓
@@ -460,9 +500,9 @@ sont supprimées après rollback. `PersonCreationTask` exécute cette orchestrat
 hors du thread GTK. Un changement de session annule les tâches et interdit le
 rafraîchissement d’une autre enquête.
 
-Les aperçus PNG/JPEG utilisent exclusivement le fichier interne d’une preuve
-existante ou sa copie de staging. PDF, vidéo, EML et autres formats ne sont
-pas analysés dans cette tranche.
+Les aperçus utilisent exclusivement le fichier interne d’une preuve existante
+ou sa copie de staging. L’OCR d’identité n’est lancé que sur demande explicite
+et sur un format compatible contrôlé.
 
 Les tâches longues utilisent l'infrastructure de tâche d'arrière-plan et le
 gestionnaire de tâches.
@@ -790,6 +830,14 @@ Les scénarios critiques incluent :
 - clés étrangères ;
 - conservation de la valeur brute ;
 - absence d'une dépendance optionnelle.
+
+Les parcours OCR ferment puis rouvrent leurs bases SQLite temporaires afin de
+vérifier la persistance du texte brut, de la transcription corrigée, des
+champs et de l’historique multi-run. Les tests GTK réels passent par
+`MainWindow`, `Workspace` et les contrôles de production, avec des fixtures
+`SPECIMEN`, `G_DEBUG=fatal-criticals` et un timeout. Ils couvrent aussi
+l’aperçu PNG/JPEG/PDF multipage, la provenance, la géométrie, l’annulation,
+les résultats tardifs, les erreurs de transaction et les cycles de vie.
 
 Validation :
 

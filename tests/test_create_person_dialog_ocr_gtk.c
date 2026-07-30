@@ -22,6 +22,9 @@ typedef struct {
     guint guard;
     guint completion_count;
     guint layout_index;
+    guint confirmation_stage;
+    int confirmation_width;
+    int confirmation_height;
     gboolean layout_resize_pending;
     gboolean passed;
     gboolean persisted;
@@ -284,12 +287,26 @@ static gboolean drive(gpointer data)
             g_assert_cmpstr(gtk_stack_get_visible_child_name(transcription),
                 ==,"raw");
         }
+        {
+            GtkDropDown *languages=GTK_DROP_DOWN(find_named(root,
+                "create-person-ocr-languages"));
+            g_assert_true(GTK_IS_DROP_DOWN(languages));
+            guint selected=gtk_drop_down_get_selected(languages);
+            GListModel *model=gtk_drop_down_get_model(languages);
+            GtkStringObject *selected_item=g_list_model_get_item(
+                model,selected);
+            g_assert_nonnull(selected_item);
+            g_assert_cmpstr(gtk_string_object_get_string(selected_item),==,
+                "Français (fra)");
+            g_object_unref(selected_item);
+        }
         if(find_button(root,"Analyser comme document d’identité")==NULL)
             return G_SOURCE_CONTINUE;
         if(!gtk_widget_get_sensitive(find_button(root,
             "Analyser comme document d’identité")))return G_SOURCE_CONTINUE;
         g_signal_emit_by_name(find_button(root,
             "Analyser comme document d’identité"),"clicked");
+        g_assert_nonnull(find_label(root,"OCR contrôlé en cours"));
         context->phase++;break;
     case 1:
         if(find_label(root,"OCR terminé")==NULL)return G_SOURCE_CONTINUE;
@@ -406,6 +423,60 @@ static gboolean drive(gpointer data)
             "Analyser comme document d’identité"),"clicked");
         context->phase++;break;
     case 3:
+        if(context->confirmation_stage>0){
+            GtkWidget *scroll=find_named(root,
+                "create-person-confirmation-scroll");
+            GtkWidget *actions=find_named(root,"create-person-actions");
+            static const int widths[]={1200,1000,800,760};
+            static const int heights[]={800,700,600,560};
+            g_assert_true(GTK_IS_SCROLLED_WINDOW(scroll));
+            g_assert_true(gtk_widget_get_mapped(scroll));
+            g_assert_true(gtk_widget_get_mapped(actions));
+            if(context->confirmation_stage==1){
+                g_assert_cmpint(
+                    gtk_widget_get_width(GTK_WIDGET(context->dialog)),
+                    ==,context->confirmation_width);
+                g_assert_cmpint(
+                    gtk_widget_get_height(GTK_WIDGET(context->dialog)),
+                    ==,context->confirmation_height);
+                GtkAdjustment *adjustment=
+                    gtk_scrolled_window_get_vadjustment(
+                        GTK_SCROLLED_WINDOW(scroll));
+                gtk_adjustment_set_value(adjustment,
+                    gtk_adjustment_get_upper(adjustment)-
+                    gtk_adjustment_get_page_size(adjustment));
+                g_assert_cmpfloat(
+                    gtk_adjustment_get_value(adjustment),>=,0.0);
+                gtk_adjustment_set_value(adjustment,
+                    gtk_adjustment_get_lower(adjustment));
+                g_signal_emit_by_name(
+                    find_button(root,"Précédent"),"clicked");
+                g_signal_emit_by_name(find_button(root,"Suivant"),"clicked");
+                g_assert_cmpfloat(gtk_adjustment_get_value(adjustment),==,
+                    gtk_adjustment_get_lower(adjustment));
+                g_assert_cmpint(
+                    gtk_widget_get_height(GTK_WIDGET(context->dialog)),
+                    ==,context->confirmation_height);
+            }else{
+                int width=0,height=0;
+                gtk_window_get_default_size(
+                    context->dialog,&width,&height);
+                g_assert_cmpint(width,==,
+                    widths[context->confirmation_stage-2]);
+                g_assert_cmpint(height,==,
+                    heights[context->confirmation_stage-2]);
+            }
+            if(context->confirmation_stage<=4){
+                guint index=context->confirmation_stage-1;
+                gtk_window_set_default_size(context->dialog,
+                    widths[index],heights[index]);
+                context->confirmation_stage++;
+                break;
+            }
+            g_signal_emit_by_name(find_button(root,
+                "Créer la personne"),"clicked");
+            context->phase++;break;
+        }
         if(find_label(root,"OCR terminé")==NULL)return G_SOURCE_CONTINUE;
         {
             GtkStack *transcription=GTK_STACK(find_named(root,
@@ -492,14 +563,16 @@ static gboolean drive(gpointer data)
         button=g_object_get_data(
             G_OBJECT(pdf_third_row),"identity-reject-button");
         g_assert_nonnull(button);g_signal_emit_by_name(button,"clicked");
+        context->confirmation_width=gtk_widget_get_width(
+            GTK_WIDGET(context->dialog));
+        context->confirmation_height=gtk_widget_get_height(
+            GTK_WIDGET(context->dialog));
         g_signal_emit_by_name(find_button(root,"Suivant"),"clicked");
         g_assert_nonnull(find_label(root,"page 2"));
         g_assert_nonnull(find_label(root,"PAGE 2 VALEUR FINALE"));
         g_assert_nonnull(find_label(root,"authenticité n’est pas établie"));
         g_assert_null(find_label(root,"brut : PAGE2"));
-        g_signal_emit_by_name(find_button(root,
-            "Créer la personne"),"clicked");
-        context->phase++;break;
+        context->confirmation_stage=1;break;
     case 4:
         if(context->completion_count!=1)return G_SOURCE_CONTINUE;
         g_assert_true(context->persisted);
@@ -577,7 +650,7 @@ static void activate(GtkApplication *application,gpointer data)
         "document",png_size,png_sha,"2026-07-28T10:00:00Z",NULL,NULL,
         "SPECIMEN synthétique",EVIDENCE_INTEGRITY_STATUS_VALID,&error);
     g_assert_nonnull(record);evidence_record_set_display_metadata(
-        record,"Document d’identité","image/png");g_ptr_array_add(records,record);
+        record,"Document d’identité",NULL);g_ptr_array_add(records,record);
     record=evidence_record_new(
         "10000000-0000-4000-8000-000000000002","SPECIMEN-page-2.pdf",
         "SPECIMEN-page-2.pdf",
@@ -611,6 +684,10 @@ static void activate(GtkApplication *application,gpointer data)
     GList *windows=gtk_application_get_windows(application);
     context->dialog=windows->data==context->main_window
         ?GTK_WINDOW(windows->next->data):GTK_WINDOW(windows->data);
+    g_assert_true(gtk_window_get_transient_for(context->dialog)==
+        context->main_window);
+    g_assert_true(gtk_window_get_modal(context->dialog));
+    g_assert_true(gtk_window_get_destroy_with_parent(context->dialog));
     GtkWidget *designation=find_entry(GTK_WIDGET(context->dialog),
         "Personne présumée liée aux comptes");
     gtk_editable_set_text(GTK_EDITABLE(designation),"PERSONNE SPECIMEN");

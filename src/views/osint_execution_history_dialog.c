@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "views/osint_execution_history_dialog.h"
+#include "views/dialog_geometry.h"
 
 #include "core/osint_execution_integrity.h"
 #include "models/osint_execution_record.h"
@@ -153,10 +154,7 @@ void osint_execution_history_dialog_present(
     context->records = g_ptr_array_ref(records);
     context->linked_objects = g_hash_table_ref(linked_objects);
     gtk_window_set_title(context->window, "Historique OSINT");
-    gtk_window_set_default_size(context->window, 980, 650);
-    gtk_window_set_modal(context->window, TRUE);
-    gtk_window_set_destroy_with_parent(context->window, TRUE);
-    if (parent_window != NULL) gtk_window_set_transient_for(context->window, parent_window);
+    labfy_dialog_prepare(context->window, parent_window, TRUE, TRUE);
     g_object_set_data_full(G_OBJECT(context->window), "osint-history-context",
         context, osint_execution_history_dialog_context_free);
     main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
@@ -214,5 +212,5 @@ void osint_execution_history_dialog_present(
     gtk_window_set_child(context->window, main_box);
     osint_execution_history_dialog_on_record_clicked(
         GTK_BUTTON(gtk_widget_get_first_child(history_box)), context);
-    gtk_window_present(context->window);
+    labfy_dialog_present(context->window);
 }

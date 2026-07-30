@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "views/osint_dns_review_dialog.h"
+#include "views/dialog_geometry.h"
 
 #include "models/osint_dns_proposal.h"
 
@@ -211,11 +212,7 @@ void osint_dns_review_dialog_present(
     context->user_data = user_data;
 
     gtk_window_set_title(context->window, "Intégrer les propositions DNS");
-    gtk_window_set_default_size(context->window, 720, 560);
-    gtk_window_set_modal(context->window, TRUE);
-    gtk_window_set_destroy_with_parent(context->window, TRUE);
-    if (parent_window != NULL)
-        gtk_window_set_transient_for(context->window, parent_window);
+    labfy_dialog_prepare(context->window, parent_window, TRUE, TRUE);
     g_object_set_data_full(
         G_OBJECT(context->window), "osint-dns-review-context", context,
         osint_dns_review_dialog_context_free
@@ -279,5 +276,5 @@ void osint_dns_review_dialog_present(
     gtk_box_append(GTK_BOX(main_box), scrolled_window);
     gtk_box_append(GTK_BOX(main_box), button_box);
     gtk_window_set_child(context->window, main_box);
-    gtk_window_present(context->window);
+    labfy_dialog_present(context->window);
 }

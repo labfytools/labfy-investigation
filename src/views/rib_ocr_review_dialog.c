@@ -3,6 +3,7 @@
  * @brief Révision humaine des résultats OCR d'un RIB.
  ******************************************************************************/
 #include "views/rib_ocr_review_dialog.h"
+#include "views/dialog_geometry.h"
 #include "core/iban_analyzer.h"
 typedef struct { GtkWindow *window; GtkEntry *iban; GtkLabel *error;
     RibOcrReviewCallback callback; gpointer data; gboolean completed; } State;
@@ -36,8 +37,7 @@ void rib_ocr_review_dialog_present(GtkWindow *parent, const char *ocr_text,
     state->data = user_data; state->iban = GTK_ENTRY(gtk_entry_new());
     state->error = GTK_LABEL(gtk_label_new(NULL));
     gtk_window_set_title(state->window, "Réviser l’analyse OCR du RIB");
-    gtk_window_set_transient_for(state->window, parent); gtk_window_set_modal(state->window, TRUE);
-    gtk_window_set_default_size(state->window, 760, 620);
+    labfy_dialog_prepare(state->window, parent, TRUE, TRUE);
     gtk_widget_set_margin_top(root, 16); gtk_widget_set_margin_bottom(root, 16);
     gtk_widget_set_margin_start(root, 16); gtk_widget_set_margin_end(root, 16);
     gtk_text_view_set_editable(GTK_TEXT_VIEW(view), FALSE);
@@ -55,5 +55,5 @@ void rib_ocr_review_dialog_present(GtkWindow *parent, const char *ocr_text,
     g_object_set_data_full(G_OBJECT(state->window), "state", state, state_free);
     g_signal_connect(confirm, "clicked", G_CALLBACK(on_confirm), state);
     g_signal_connect(state->window, "close-request", G_CALLBACK(on_close), state);
-    gtk_window_present(state->window);
+    labfy_dialog_present(state->window);
 }

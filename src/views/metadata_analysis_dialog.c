@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "views/metadata_analysis_dialog.h"
+#include "views/dialog_geometry.h"
 
 static gboolean metadata_analysis_dialog_on_escape(
     GtkWidget *widget, GVariant *arguments, gpointer user_data)
@@ -30,9 +31,7 @@ void metadata_analysis_dialog_present(GtkWindow *parent, const char *summary,
 
     window = gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(window), "Métadonnées de la preuve");
-    gtk_window_set_default_size(GTK_WINDOW(window), 760, 560);
-    gtk_window_set_modal(GTK_WINDOW(window), TRUE);
-    if (parent != NULL) gtk_window_set_transient_for(GTK_WINDOW(window), parent);
+    labfy_dialog_prepare(GTK_WINDOW(window), parent, TRUE, TRUE);
     content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     gtk_widget_set_margin_top(content, 16);
     gtk_widget_set_margin_bottom(content, 16);
@@ -81,7 +80,7 @@ void metadata_analysis_dialog_present(GtkWindow *parent, const char *summary,
     }
     gtk_box_append(GTK_BOX(content), close_button);
     gtk_window_set_child(GTK_WINDOW(window), content);
-    gtk_window_present(GTK_WINDOW(window));
+    labfy_dialog_present(GTK_WINDOW(window));
     g_free(heading_text);
     g_free(path_text);
 }

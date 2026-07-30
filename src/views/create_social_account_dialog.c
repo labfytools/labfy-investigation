@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "views/create_social_account_dialog.h"
+#include "views/dialog_geometry.h"
 
 struct CreateSocialAccountDialogResult
 {
@@ -200,9 +201,7 @@ gboolean create_social_account_dialog_present(
     state->evidence_identifiers = g_ptr_array_new_with_free_func(g_free);
     state->window = GTK_WINDOW(gtk_window_new());
     gtk_window_set_title(state->window, "Ajouter un compte social");
-    gtk_window_set_transient_for(state->window, parent);
-    gtk_window_set_modal(state->window, TRUE);
-    gtk_window_set_default_size(state->window, 620, 560);
+    labfy_dialog_prepare(state->window, parent, TRUE, TRUE);
     box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_widget_set_margin_start(box, 16); gtk_widget_set_margin_end(box, 16);
     gtk_widget_set_margin_top(box, 16); gtk_widget_set_margin_bottom(box, 16);
@@ -266,7 +265,7 @@ gboolean create_social_account_dialog_present(
     g_signal_connect(create, "clicked", G_CALLBACK(create_social_account_dialog_on_create), state);
     g_object_set_data_full(G_OBJECT(state->window), "social-account-state", state,
         create_social_account_dialog_state_free);
-    gtk_window_present(state->window);
+    labfy_dialog_present(state->window);
     g_free(now_text); g_date_time_unref(now);
     return TRUE;
 }

@@ -15,6 +15,13 @@ void ocr_provenance_overlay_set_field(OcrProvenanceOverlay *overlay,
     const IdentityFieldObservation *field, guint64 generation);
 void ocr_provenance_overlay_clear(OcrProvenanceOverlay *overlay,
     guint64 generation);
+void ocr_provenance_overlay_set_page(
+    OcrProvenanceOverlay *overlay, guint page, guint64 generation);
+void ocr_provenance_overlay_zoom_in(OcrProvenanceOverlay *overlay);
+void ocr_provenance_overlay_zoom_out(OcrProvenanceOverlay *overlay);
+void ocr_provenance_overlay_fit(OcrProvenanceOverlay *overlay);
+double ocr_provenance_overlay_get_zoom(
+    const OcrProvenanceOverlay *overlay);
 gboolean ocr_provenance_overlay_has_region(
     const OcrProvenanceOverlay *overlay);
 

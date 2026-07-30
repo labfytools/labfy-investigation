@@ -1,34 +1,23 @@
 # Roadmap
 
-La tranche 3 du ticket #109 ajoute l’OCR contrôlé des documents d’identité dans
-l’assistant de création : lancement explicite, staging, révision champ par
-champ et persistance transactionnelle V15. Elle ne clôt pas le ticket #109 et
-n’engage aucune tranche suivante.
-La provenance graphique, les langues Tesseract dynamiques et la compensation
-complète des répertoires OCR font partie de cette même tranche.
-La lecture structurée V15 et les scénarios de fermeture/réouverture restent
-également circonscrits à la tranche 3.
-L’OCR contrôlé est limité à une preuve par opération dans l’import normal.
-L’import multiple sans OCR reste disponible. L’OCR multiple constitue un
-chantier futur distinct ; les preuves sont actuellement analysées
-successivement afin de conserver une association non ambiguë.
+Le ticket #109 reste en cours. Ses tranches livrées couvrent l’OCR contrôlé et
+révisable dans la création d’une personne, l’import normal et la fiche de
+preuve, la transcription corrigée persistante, l’historique multi-run, la
+provenance graphique, ainsi que l’aperçu avancé partagé. L’import multiple
+reste sans OCR groupé : chaque preuve est analysée individuellement après
+import afin de préserver une association non ambiguë.
 
-La tranche 2 partage désormais l’aperçu entre l’assistant personne et la
-fiche directe. La validation manuelle des codecs installés reste nécessaire ;
-elle ne vaut pas achèvement du ticket #109 et n’inclut aucun OCR.
+L’aperçu couvre PNG/JPEG, HEIC/HEIF, MP4/MOV, texte, EML passif et PDF
+multipage, avec zoom, ajustement, défilements, navigation et compteur. La
+politique commune des dialogues métiers fournit une géométrie responsive, un
+formulaire défilable, un aperçu redimensionnable et des actions fixes.
 
-L’aperçu contrôlé du ticket #109 couvre PNG/JPEG, HEIC/HEIF, MP4/MOV, texte,
-EML passif et première page PDF. OCR et analyse avancée restent hors périmètre.
+La validation manuelle de ces parcours est réussie. Elle ne vaut pas
+achèvement du ticket #109.
 
-> **Dernière mise à jour :** 2026-07-28
+> **Dernière mise à jour :** 2026-07-30
 > **État du projet :** développement actif  
-> **Schéma SQLite courant :** V14
-
-Les tranches 1 et 2 du ticket #109 couvrent les rôles contextuels multiples,
-la sélection de plusieurs preuves existantes, le staging et l’import multiple
-différé, ainsi que la création transactionnelle avec compensation des
-fichiers. OCR, extraction de documents d’identité et analyses documentaires
-avancées restent hors périmètre.
+> **Schéma SQLite courant :** V17
 > **Usage opérationnel :** non prêt pour la production
 
 ---
@@ -142,7 +131,7 @@ La branche `main` contient notamment :
 
 - création, validation et ouverture d'enquêtes ;
 - session d'enquête remplaçable proprement ;
-- infrastructure SQLite et migrations jusqu'à V14 ;
+- infrastructure SQLite et migrations jusqu'à V17 ;
 - couche Database, DAO et services métier ;
 - import de preuves avec copie contrôlée et SHA-256 ;
 - vérification d'intégrité et reclassement des preuves ;
@@ -169,6 +158,40 @@ Cette liste est une synthèse et non un contrat de stabilité.
 ---
 
 ## 5. Chantier actif
+
+### Ticket #109 — Personnes, preuves et OCR d’identité
+
+Statut technique :
+
+```text
+PARTIEL — VALIDATION MANUELLE DES TRANCHES LIVRÉES RÉUSSIE
+```
+
+Éléments livrés :
+
+- sélection de preuves existantes, staging et import multiple différé ;
+- OCR contrôlé, correction rééditable et transcription corrigée distincte ;
+- persistance transactionnelle sur l’UUID définitif avec historique multi-run ;
+- consultation, révision sans Tesseract et nouvelle analyse depuis la fiche ;
+- provenance graphique et aperçu partagé avec PDF multipage ;
+- politique commune de géométrie des dialogues GTK métiers.
+
+Limitations restantes :
+
+1. l’OCR groupé de plusieurs preuves dans une même opération n’est pas pris en
+   charge ;
+2. le statut contrôlé d’authenticité du document et la justification
+   obligatoire des statuts affirmatifs ne sont pas implémentés ;
+3. la relation factuelle typée entre personne et preuve et certains états
+   d’identification demandés restent incomplets ;
+4. une partie du vocabulaire des rôles demeure codée en dur ;
+5. la provenance uniforme de tous les dérivés et la projection des seules
+   valeurs OCR confirmées vers les attributs structurés de la personne restent
+   partielles ;
+6. les tests négatifs garantissant l’absence de relation automatique
+   attribuant l’identité ou le rôle d’auteur doivent encore être renforcés.
+
+Ces limites interdisent de présenter le ticket #109 comme terminé.
 
 ### Ticket #107 — Pivot e-mail forensique
 
