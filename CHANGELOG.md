@@ -2,6 +2,9 @@
 
 ### Added
 
+- Saisie et consultation, depuis la fiche preuve, d’un historique immuable
+  d’appréciations humaines d’authenticité documentaire avec justification et
+  `OcrRun` facultatif appartenant à la preuve, sans verdict automatique.
 - OCR d’identité contrôlé et révisable dans la création d’une personne,
   l’import normal et la fiche de preuve, avec texte brut immuable,
   transcription corrigée persistante, `manual_override`, `manual_entry` et

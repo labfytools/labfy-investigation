@@ -77,6 +77,18 @@ void document_authenticity_assessment_free(DocumentAuthenticityAssessment*a)
  g_free(a->ocr_run_identifier);g_free(a->status);g_free(a->justification);
  g_free(a->assessed_at);g_free(a->previous_identifier);
  g_free(a->technical_note);g_free(a->origin);g_free(a);}
+#define AUTH_GETTER(name,field) \
+const char *document_authenticity_assessment_get_##name( \
+ const DocumentAuthenticityAssessment*a){return a?a->field:NULL;}
+AUTH_GETTER(identifier,identifier)
+AUTH_GETTER(evidence_identifier,evidence_identifier)
+AUTH_GETTER(ocr_run_identifier,ocr_run_identifier)
+AUTH_GETTER(status,status)
+AUTH_GETTER(justification,justification)
+AUTH_GETTER(assessed_at,assessed_at)
+AUTH_GETTER(previous_identifier,previous_identifier)
+AUTH_GETTER(technical_note,technical_note)
+AUTH_GETTER(origin,origin)
 
 PersonEvidenceFactualRelation *person_evidence_factual_relation_new(
  const char *id,const char *person,const char *evidence,const char *run,

@@ -15,12 +15,37 @@ gboolean identity_traceability_dao_insert_authenticity(
 {
  DocumentAuthenticityAssessment*valid=a?document_authenticity_assessment_copy(a):NULL;
  if(!d||!valid){fail(e,"Évaluation d’authenticité invalide.");return FALSE;}
+ const char*run=document_authenticity_assessment_get_ocr_run_identifier(valid);
+ if(run){
+  DatabaseStatement*check=database_statement_prepare(d->database,
+   "SELECT 1 FROM identity_ocr_runs WHERE id=? AND evidence_id=?;");
+  gboolean compatible=check&&bind(check,1,run)&&bind(check,2,
+   document_authenticity_assessment_get_evidence_identifier(valid))&&
+   database_statement_step(check)==DATABASE_STATEMENT_STEP_ROW;
+  database_statement_finalize(check);
+  if(!compatible){document_authenticity_assessment_free(valid);
+   fail(e,"L’exécution OCR ne correspond pas à la preuve évaluée.");return FALSE;}
+ }
+ const char*previous=document_authenticity_assessment_get_previous_identifier(valid);
+ if(previous){
+  DatabaseStatement*check=database_statement_prepare(d->database,
+   "SELECT 1 FROM document_authenticity_assessments WHERE id=? AND evidence_id=?;");
+  gboolean compatible=check&&bind(check,1,previous)&&bind(check,2,
+   document_authenticity_assessment_get_evidence_identifier(valid))&&
+   database_statement_step(check)==DATABASE_STATEMENT_STEP_ROW;
+  database_statement_finalize(check);
+  if(!compatible){document_authenticity_assessment_free(valid);
+   fail(e,"L’appréciation précédente ne correspond pas à la preuve évaluée.");return FALSE;}
+ }
  DatabaseStatement*s=database_statement_prepare(d->database,
   "INSERT INTO document_authenticity_assessments VALUES(?,?,?,?,?,?,?,?,?);");
- gboolean ok=s&&bind(s,1,a->identifier)&&bind(s,2,a->evidence_identifier)&&
-  bind(s,3,a->ocr_run_identifier)&&bind(s,4,a->status)&&bind(s,5,a->justification)&&
-  bind(s,6,a->assessed_at)&&bind(s,7,a->previous_identifier)&&
-  bind(s,8,a->technical_note)&&bind(s,9,"human")&&
+ gboolean ok=s&&bind(s,1,document_authenticity_assessment_get_identifier(valid))&&
+  bind(s,2,document_authenticity_assessment_get_evidence_identifier(valid))&&
+  bind(s,3,run)&&bind(s,4,document_authenticity_assessment_get_status(valid))&&
+  bind(s,5,document_authenticity_assessment_get_justification(valid))&&
+  bind(s,6,document_authenticity_assessment_get_assessed_at(valid))&&
+  bind(s,7,document_authenticity_assessment_get_previous_identifier(valid))&&
+  bind(s,8,document_authenticity_assessment_get_technical_note(valid))&&bind(s,9,"human")&&
   database_statement_step(s)==DATABASE_STATEMENT_STEP_DONE;
  database_statement_finalize(s);document_authenticity_assessment_free(valid);
  if(!ok)fail(e,"Impossible de conserver l’évaluation d’authenticité.");
@@ -66,8 +91,10 @@ GPtrArray *identity_traceability_dao_list_authenticity(
 DocumentAuthenticityAssessment *identity_traceability_dao_current_authenticity(
  IdentityTraceabilityDao*d,const char*id,GError**e)
 {
- GPtrArray*a=auth_query(d,"SELECT * FROM document_authenticity_assessments "
-  "WHERE evidence_id=? ORDER BY assessed_at DESC,id DESC LIMIT 1;",id,e);
+ GPtrArray*a=auth_query(d,"SELECT a.* FROM document_authenticity_assessments a "
+  "WHERE a.evidence_id=? AND NOT EXISTS(SELECT 1 FROM "
+  "document_authenticity_assessments n WHERE n.previous_assessment_id=a.id) "
+  "ORDER BY a.assessed_at DESC,a.id DESC LIMIT 1;",id,e);
  if(!a)return NULL;
  DocumentAuthenticityAssessment*r=a->len?
   document_authenticity_assessment_copy(g_ptr_array_index(a,0)):NULL;

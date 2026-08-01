@@ -122,7 +122,11 @@ humaine et la qualification `complete`, `partial`, `uncertain` ou `invalid`
 sont orthogonales au statut de révision. Les contraintes SQLite et le service
 de validation interdisent la projection des valeurs rejetées, en conflit,
 incertaines ou invalides. Cette tranche ne réalise encore aucune projection
-automatique et ne fournit pas l’interface GTK complète de saisie.
+automatique. La fiche preuve délègue la saisie et la consultation de
+l’authenticité à `DocumentAuthenticityEditor`, qui appelle
+`DocumentAuthenticityService`; le widget n’accède jamais directement à
+SQLite. Le service ajoute chaque appréciation humaine dans une transaction et
+chaîne son identifiant à l’appréciation courante.
 
 ---
 

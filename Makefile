@@ -197,6 +197,7 @@ TEST_EVIDENCE_IDENTITY_IMPORT_GTK := tests/test_evidence_identity_import_gtk
 TEST_WORKSPACE_IDENTITY_OCR_GTK := tests/test_workspace_identity_ocr_gtk
 TEST_DIALOG_GEOMETRY_GTK := tests/test_dialog_geometry_gtk
 TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK := tests/test_person_factual_relation_editor_gtk
+TEST_DOCUMENT_AUTHENTICITY_EDITOR_GTK := tests/test_document_authenticity_editor_gtk
 FAKE_DOCUMENT_TOOL := tests/fake_document_tool
 
 DOCUMENT_ANALYSIS_TEST_SOURCES := \
@@ -225,6 +226,16 @@ $(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK): \
 	src/database/error.c src/core/relation_type_normalizer.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
+$(TEST_DOCUMENT_AUTHENTICITY_EDITOR_GTK): \
+	tests/test_document_authenticity_editor_gtk.c \
+	src/views/document_authenticity_editor.c \
+	src/core/document_authenticity_service.c src/models/identity_traceability.c \
+	src/models/identity_ocr.c src/dao/identity_ocr_dao.c \
+	src/dao/identity_traceability_dao.c src/database/database.c \
+	src/database/schema.c src/database/statement.c src/database/transaction.c \
+	src/database/error.c src/core/relation_type_normalizer.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
 all: $(TARGET)
 
 $(TEST_IDENTITY_OCR): tests/test_identity_ocr.c \
@@ -244,6 +255,7 @@ $(TEST_IDENTITY_OCR_PREPROCESSOR): tests/test_identity_ocr_preprocessor.c \
 
 $(TEST_IDENTITY_TRACEABILITY): tests/test_identity_traceability.c \
 	src/models/identity_traceability.c src/dao/identity_traceability_dao.c \
+	src/core/document_authenticity_service.c \
 	src/views/person_vocabulary_adapter.c \
 	src/views/person_factual_relation_editor.c \
 	src/models/person_role_assignment.c \
@@ -1199,7 +1211,8 @@ test: \
 	$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK) \
 	$(TEST_WORKSPACE_IDENTITY_OCR_GTK) \
 	$(TEST_DIALOG_GEOMETRY_GTK) \
-	$(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK)
+	$(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK) \
+	$(TEST_DOCUMENT_AUTHENTICITY_EDITOR_GTK)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -1296,6 +1309,7 @@ test: \
 	@$(TEST_WORKSPACE_IDENTITY_OCR_GTK)
 	@$(TEST_DIALOG_GEOMETRY_GTK)
 	@$(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK)
+	@$(TEST_DOCUMENT_AUTHENTICITY_EDITOR_GTK)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -1396,7 +1410,8 @@ clean:
 	$(TEST_WORKSPACE_IDENTITY_OCR_GTK) \
 	$(TEST_DIALOG_GEOMETRY_GTK) \
 	$(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK) \
-		$(FAKE_DOCUMENT_TOOL)
+	$(TEST_DOCUMENT_AUTHENTICITY_EDITOR_GTK) \
+	$(FAKE_DOCUMENT_TOOL)
 
 
 

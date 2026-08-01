@@ -17,6 +17,10 @@ Labfy Investigation est un poste de travail libre d’investigation numérique e
 
 Le projet vise à fournir un environnement local, modulaire et traçable pour organiser une enquête, préserver les preuves originales, analyser des données, corréler des entités et produire des rapports exploitables.
 
+La fiche d’une preuve permet aussi de consigner une appréciation humaine
+d’authenticité documentaire. Cet historique est immuable, justifié selon le
+statut choisi et ne peut jamais être produit automatiquement par l’OCR.
+
 > **État du projet : développement actif**
 >
 > Le logiciel n’est pas encore prêt pour un usage opérationnel en production. Les formats internes, l’interface et les mécanismes d’intégration peuvent encore évoluer.

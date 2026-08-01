@@ -3,6 +3,7 @@
 #include "dao/identity_ocr_dao.h"
 #include "database/database.h"
 #include "models/identity_traceability.h"
+#include "core/document_authenticity_service.h"
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <sqlite3.h>
@@ -66,6 +67,11 @@ static void fixture_free(Fixture*f)
 
 static void test_models(void)
 {
+ gsize status_count=0;const DocumentAuthenticityStatus*auth_statuses=
+  document_authenticity_service_statuses(&status_count);
+ static const char*auth_codes[]={"indeterminate","presumed_authentic","suspicious","presumed_forged","confirmed_forged"};
+ static const char*auth_labels[]={"Authenticité indéterminée","Document présumé authentique","Document présentant des éléments suspects","Document présumé falsifié","Falsification confirmée"};
+ g_assert_cmpuint(status_count,==,5);for(guint i=0;i<status_count;i++){g_assert_cmpstr(auth_statuses[i].code,==,auth_codes[i]);g_assert_cmpstr(auth_statuses[i].label,==,auth_labels[i]);g_assert_nonnull(auth_statuses[i].description);}
  static const char *codes[]={"identity_observed_in",
   "document_presented_in_name_of","declared_holder_in","data_extracted_from"};
  static const char *labels[]={"Identité observée dans la preuve",
@@ -95,6 +101,18 @@ static void test_models(void)
  g_assert_nonnull(a);DocumentAuthenticityAssessment*c=
   document_authenticity_assessment_copy(a);g_assert_cmpstr(c->status,==,a->status);
  document_authenticity_assessment_free(c);document_authenticity_assessment_free(a);
+}
+static void test_authenticity_service(void)
+{
+ Fixture f=fixture_new();GError*error=NULL;DocumentAuthenticityAssessment*created=NULL;
+ g_assert_false(document_authenticity_service_add(f.database,EVIDENCE,"suspicious","   ",NULL,NULL,&created,&error));g_assert_error(error,g_quark_from_static_string("document-authenticity-service"),1);g_clear_error(&error);
+ g_assert_true(document_authenticity_service_add(f.database,EVIDENCE,"indeterminate",NULL,"Note SPECIMEN",NULL,&created,&error));g_assert_no_error(error);g_assert_null(document_authenticity_assessment_get_previous_identifier(created));document_authenticity_assessment_free(created);
+ g_assert_true(document_authenticity_service_add(f.database,EVIDENCE,"suspicious","Élément SPECIMEN",NULL,RUN,&created,&error));g_assert_no_error(error);g_assert_nonnull(document_authenticity_assessment_get_previous_identifier(created));document_authenticity_assessment_free(created);
+ GPtrArray*h=document_authenticity_service_history(f.database,EVIDENCE,&error);g_assert_no_error(error);g_assert_cmpuint(h->len,==,2);g_ptr_array_unref(h);
+ g_assert_false(document_authenticity_service_add(f.database,EVIDENCE,
+  "indeterminate",NULL,NULL,"30000000-0000-4000-8000-000000000099",
+  NULL,&error));g_assert_nonnull(error);g_clear_error(&error);
+ h=document_authenticity_service_history(f.database,EVIDENCE,&error);g_assert_cmpuint(h->len,==,2);g_ptr_array_unref(h);fixture_free(&f);
 }
 static void test_dao_history_and_relations(void)
 {
@@ -248,6 +266,7 @@ static void test_migrate_v17_preserves_ocr(void)
 int main(int argc,char**argv)
 {g_test_init(&argc,&argv,NULL);g_test_add_func("/v18/models",test_models);
  g_test_add_func("/v18/dao-history-relations",test_dao_history_and_relations);
+ g_test_add_func("/v18/authenticity-service",test_authenticity_service);
  g_test_add_func("/v18/sqlite-negative-guards",test_sqlite_negative_guards);
  g_test_add_func("/v18/migrate-v17",test_migrate_v17_preserves_ocr);
  return g_test_run();}

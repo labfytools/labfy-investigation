@@ -41,6 +41,15 @@ DocumentAuthenticityAssessment *document_authenticity_assessment_copy(
     const DocumentAuthenticityAssessment *assessment);
 void document_authenticity_assessment_free(
     DocumentAuthenticityAssessment *assessment);
+const char *document_authenticity_assessment_get_identifier(const DocumentAuthenticityAssessment *assessment);
+const char *document_authenticity_assessment_get_evidence_identifier(const DocumentAuthenticityAssessment *assessment);
+const char *document_authenticity_assessment_get_ocr_run_identifier(const DocumentAuthenticityAssessment *assessment);
+const char *document_authenticity_assessment_get_status(const DocumentAuthenticityAssessment *assessment);
+const char *document_authenticity_assessment_get_justification(const DocumentAuthenticityAssessment *assessment);
+const char *document_authenticity_assessment_get_assessed_at(const DocumentAuthenticityAssessment *assessment);
+const char *document_authenticity_assessment_get_previous_identifier(const DocumentAuthenticityAssessment *assessment);
+const char *document_authenticity_assessment_get_technical_note(const DocumentAuthenticityAssessment *assessment);
+const char *document_authenticity_assessment_get_origin(const DocumentAuthenticityAssessment *assessment);
 
 PersonEvidenceFactualRelation *person_evidence_factual_relation_new(
     const char *identifier, const char *person_identifier,

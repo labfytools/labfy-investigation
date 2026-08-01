@@ -16,8 +16,13 @@ contraintes refusent toute confirmation d’un champ rejeté, en conflit,
 incertain ou invalide. Aucun OCR ne crée une évaluation d’authenticité, une
 relation factuelle, un rôle sensible ou un état `confirmed`.
 
+Les insertions d’authenticité vérifient hors GTK qu’un `ocr_run_id` facultatif
+appartient à la même preuve. `previous_assessment_id` forme une chaîne
+append-only ; l’ajout et la détermination du maillon courant sont coordonnés
+dans une transaction.
+
 > **Statut :** architecture courante  
-> **Version du schéma :** V10  
+> **Version du schéma :** V18
 > **Dernière mise à jour :** 2026-07-24  
 > **Source de vérité détaillée :** `SCHEMA_AUDIT_CURRENT.md`
 

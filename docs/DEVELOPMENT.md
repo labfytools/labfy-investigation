@@ -14,6 +14,12 @@ répertoire temporaire : JPEG avec APP1 EXIF, HEIC/HEIF via libheif et PDF
 multipage via Cairo. Elles ne doivent jamais être remplacées par un document
 réel.
 
+L’authenticité documentaire se valide avec
+`tests/test_identity_traceability` et
+`tests/test_document_authenticity_editor_gtk`. Ce dernier doit être exécuté
+sur un affichage GTK réel avec `G_DEBUG=fatal-criticals`; ses données et sa
+base SQLite sont exclusivement temporaires et marquées `SPECIMEN`.
+
 La validation ciblée de l’aperçu partagé comprend
 `test_evidence_preview_widget_gtk`, `test_evidence_preview`,
 `test_evidence_video_preview_controller` et

@@ -178,13 +178,15 @@ PARTIEL — VALIDATION MANUELLE DES TRANCHES LIVRÉES RÉUSSIE
 - fondations V18 : authenticité humaine historisée, relations factuelles
   typées, vocabulaires d’identification et de rôles, cycle OCR jusqu’à la
   valeur explicitement confirmée et contraintes anti-automatisme.
+- interface GTK de saisie et de consultation de l’authenticité documentaire
+  depuis la fiche preuve, avec OcrRun facultatif filtré et historique immuable.
 
 Limitations restantes :
 
 1. l’OCR groupé de plusieurs preuves dans une même opération n’est pas pris en
    charge ;
-2. l’interface GTK complète de saisie de l’authenticité, des relations
-   factuelles, des états et des rôles V18 reste à construire ;
+2. les interfaces GTK complètes des états d’identification et des rôles V18
+   restent à construire ;
 3. la provenance uniforme de tous les dérivés et la projection des seules
    valeurs OCR confirmées vers les attributs structurés de la personne restent
    partielles ;

@@ -12,6 +12,7 @@
 #include "dao/entity_dao.h"
 #include "views/evidence_identity_ocr_dialog.h"
 #include "views/person_vocabulary_adapter.h"
+#include "views/document_authenticity_editor.h"
 #include "widgets/ocr_provenance_overlay.h"
 
 struct EvidenceMetadataDialogResult
@@ -48,6 +49,7 @@ typedef struct
     guint64 ocr_generation;
     gpointer user_data;
     gboolean completed;
+    DocumentAuthenticityEditor *authenticity_editor;
 } EvidenceMetadataDialogContext;
 
 static void evidence_metadata_dialog_complete(
@@ -89,6 +91,7 @@ static void evidence_metadata_dialog_context_free(gpointer data)
     g_clear_pointer(&context->ocr_documents, g_ptr_array_unref);
     g_clear_pointer(&context->ocr_run_identifiers, g_ptr_array_unref);
     g_clear_object(&context->ocr_run_labels);
+    document_authenticity_editor_free(context->authenticity_editor);
     g_free(context->investigation_root);
     g_free(context->evidence_identifier);
     g_free(context);
@@ -542,6 +545,15 @@ gboolean evidence_metadata_dialog_present_with_ocr(
     }
 
     if (database != NULL) {
+        context->authenticity_editor = document_authenticity_editor_new(
+            database, evidence_record_get_identifier(record));
+        if (context->authenticity_editor != NULL) {
+            GtkWidget *auth_scroll = gtk_scrolled_window_new();
+            gtk_widget_set_size_request(auth_scroll, -1, 300);
+            gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(auth_scroll),
+                document_authenticity_editor_get_widget(context->authenticity_editor));
+            gtk_box_append(GTK_BOX(main_box), auth_scroll);
+        }
         IdentityTraceabilityDao *trace_dao = identity_traceability_dao_new(database);
         if (trace_dao != NULL) {
             GPtrArray *relations = identity_traceability_dao_list_factual_relations_by_evidence(
