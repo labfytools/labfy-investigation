@@ -195,6 +195,8 @@ void entity_details_panel_set_osint_callback(EntityDetailsPanel *details_panel,
  */
 void entity_details_panel_set_person_evidences(
     EntityDetailsPanel *details_panel, const GPtrArray *evidence_records);
+void entity_details_panel_set_person_factual_relations(
+    EntityDetailsPanel *details_panel, const GPtrArray *relations, const GPtrArray *evidence_records);
 
 /**
  * @brief Indique si le volet est actuellement ouvert.

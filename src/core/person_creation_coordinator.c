@@ -11,6 +11,7 @@
 #include <glib/gstdio.h>
 #include <string.h>
 
+
 static GQuark coordinator_error(void)
 {
     return g_quark_from_static_string("person-creation-coordinator-error");

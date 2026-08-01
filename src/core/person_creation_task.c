@@ -12,11 +12,13 @@ struct PersonCreationTaskRequest {
     GPtrArray *roles;
     PersonEvidenceSelection *selection;
     GPtrArray *ocr_runs;
+    GPtrArray *factual_relations;
 };
 PersonCreationTaskRequest *person_creation_task_request_new(
     const char *database_path, const char *root,
     const PersonEntityInput *person,
-    const PersonEvidenceSelection *selection, const GPtrArray *ocr_runs)
+    const PersonEvidenceSelection *selection, const GPtrArray *ocr_runs,
+    const GPtrArray *factual_relations)
 {
     PersonCreationTaskRequest *request;
     if (database_path == NULL || root == NULL || person == NULL) return NULL;
@@ -49,6 +51,21 @@ PersonCreationTaskRequest *person_creation_task_request_new(
     for (guint i = 0; ocr_runs != NULL && i < ocr_runs->len; i++)
         g_ptr_array_add(request->ocr_runs,
             identity_ocr_run_copy(g_ptr_array_index((GPtrArray *) ocr_runs,i)));
+
+    request->factual_relations = NULL;
+    if (factual_relations != NULL) {
+        request->factual_relations = g_ptr_array_new_with_free_func(g_free);
+        for (guint i = 0; i < factual_relations->len; i++) {
+            PersonCreationFactualRelationInput *orig = g_ptr_array_index((GPtrArray *) factual_relations, i);
+            PersonCreationFactualRelationInput *copy_rel = g_new0(PersonCreationFactualRelationInput, 1);
+            copy_rel->evidence_selection_identifier = g_strdup(orig->evidence_selection_identifier);
+            copy_rel->ocr_run_identifier = g_strdup(orig->ocr_run_identifier);
+            copy_rel->relation_type = g_strdup(orig->relation_type);
+            copy_rel->factual_note = g_strdup(orig->factual_note);
+            g_ptr_array_add(request->factual_relations, copy_rel);
+        }
+    }
+
     return request;
 }
 void person_creation_task_request_free(PersonCreationTaskRequest *request)
@@ -60,6 +77,16 @@ void person_creation_task_request_free(PersonCreationTaskRequest *request)
     g_free(request->notes); g_ptr_array_unref(request->roles);
     person_evidence_selection_free(request->selection);
     g_ptr_array_unref(request->ocr_runs);
+    if (request->factual_relations) {
+        for (guint i = 0; i < request->factual_relations->len; i++) {
+            PersonCreationFactualRelationInput *rel = g_ptr_array_index(request->factual_relations, i);
+            g_free((char*)rel->evidence_selection_identifier);
+            g_free((char*)rel->ocr_run_identifier);
+            g_free((char*)rel->relation_type);
+            g_free((char*)rel->factual_note);
+        }
+        g_ptr_array_unref(request->factual_relations);
+    }
     g_free(request);
 }
 static gboolean worker(BackgroundTask *task, GCancellable *cancellable,
@@ -75,9 +102,17 @@ static gboolean worker(BackgroundTask *task, GCancellable *cancellable,
             "Impossible d’ouvrir la base de l’enquête.");
         return FALSE;
     }
-    *result = person_creation_coordinator_execute(database, request->root,
-        &request->person, request->selection, request->ocr_runs,
-        cancellable, error);
+    if (request->factual_relations != NULL && request->factual_relations->len > 0) {
+        PersonCreationCoordinatorOptions options = {0};
+        options.factual_relations = request->factual_relations;
+        *result = person_creation_coordinator_execute_with_options(database, request->root,
+            &request->person, request->selection, request->ocr_runs, &options,
+            cancellable, error);
+    } else {
+        *result = person_creation_coordinator_execute(database, request->root,
+            &request->person, request->selection, request->ocr_runs,
+            cancellable, error);
+    }
     database_close(database);
     return *result != NULL;
 }
@@ -92,7 +127,7 @@ BackgroundTask *person_creation_task_start(TaskManager *manager,
     task = background_task_new("Création de la personne et import des preuves");
     copy = person_creation_task_request_new(request->database_path,
         request->root, &request->person, request->selection,
-        request->ocr_runs);
+        request->ocr_runs, request->factual_relations);
     if (task == NULL || copy == NULL ||
         !task_manager_add(manager, task, error) ||
         !background_task_start(task, worker, copy,

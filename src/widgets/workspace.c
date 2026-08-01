@@ -3911,12 +3911,11 @@ void workspace_set_entity_selected_callback(Workspace *workspace,
     workspace->entity_selected_callback = callback;
     workspace->entity_selected_user_data = user_data;
 }
-void workspace_set_person_evidences(Workspace *workspace,
-    const GPtrArray *records)
-{
-    if (workspace == NULL) return;
-    entity_details_panel_set_person_evidences(
-        workspace->entity_details_panel, records);
+void workspace_set_person_evidences(Workspace *workspace, const GPtrArray *records) {
+    if (workspace) entity_details_panel_set_person_evidences(workspace->entity_details_panel, records);
+}
+void workspace_set_person_factual_relations(Workspace *workspace, const GPtrArray *relations, const GPtrArray *evidence_records) {
+    if (workspace) entity_details_panel_set_person_factual_relations(workspace->entity_details_panel, relations, evidence_records);
 }
 
 void workspace_reset_graph_layout(

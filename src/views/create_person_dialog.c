@@ -6,6 +6,7 @@
 #include "views/dialog_geometry.h"
 #include "views/person_vocabulary_adapter.h"
 #include "views/identity_ocr_option_adapter.h"
+#include "views/person_factual_relation_editor.h"
 #include "core/evidence_staging.h"
 #include "core/evidence_staging_task.h"
 #include "core/person_confirmation_summary.h"
@@ -33,6 +34,7 @@ struct CreatePersonDialogResult
     PersonEvidenceSelection *evidence_selection;
     EvidenceStaging *staging;
     GPtrArray *ocr_runs;
+    GPtrArray *factual_relations;
 };
 typedef struct
 {
@@ -107,6 +109,7 @@ typedef struct
     gulong retained_selected_handler;
     gboolean updating_evidence;
     gboolean updating_retained;
+    PersonFactualRelationEditor *factual_relation_editor;
 } CreatePersonDialogState;
 
 typedef struct {
@@ -152,8 +155,7 @@ static void identity_languages_worker(GTask *task, gpointer source,
     GError *error = NULL;
     char *raw = ocr_analysis_list_languages(job->executable, cancellable,
         &error);
-    GPtrArray *parsed = raw != NULL
-        ? ocr_analysis_parse_languages(raw) : NULL;
+    GPtrArray *parsed = raw != NULL ? ocr_analysis_parse_languages(raw) : NULL;
     GPtrArray *choices = parsed != NULL
         ? ocr_analysis_build_language_choices(parsed) : NULL;
     g_free(raw);
@@ -163,35 +165,6 @@ static void identity_languages_worker(GTask *task, gpointer source,
         (GDestroyNotify) g_ptr_array_unref);
     else g_task_return_error(task, error);
 }
-
-static const char *create_person_dialog_effective_ocr_mime(
-    const PersonEvidenceSelectionItem *item)
-{
-    const char *mime =
-        person_evidence_selection_item_get_mime_type(item);
-    const char *name;
-    const char *suffix;
-
-    if (mime != NULL && mime[0] != '\0')
-        return mime;
-    name = person_evidence_selection_item_get_original_name(item);
-    suffix = name != NULL ? strrchr(name, '.') : NULL;
-    if (suffix == NULL)
-        return NULL;
-    if (g_ascii_strcasecmp(suffix, ".png") == 0)
-        return "image/png";
-    if (g_ascii_strcasecmp(suffix, ".jpg") == 0 ||
-        g_ascii_strcasecmp(suffix, ".jpeg") == 0)
-        return "image/jpeg";
-    if (g_ascii_strcasecmp(suffix, ".heic") == 0)
-        return "image/heic";
-    if (g_ascii_strcasecmp(suffix, ".heif") == 0)
-        return "image/heif";
-    if (g_ascii_strcasecmp(suffix, ".pdf") == 0)
-        return "application/pdf";
-    return NULL;
-}
-
 static void identity_languages_completed(GObject *source,
     GAsyncResult *result, gpointer data)
 {
@@ -231,15 +204,6 @@ static void identity_languages_completed(GObject *source,
     g_clear_object(&window);
 }
 
-/** @brief Copie et nettoie un texte facultatif. */
-static char *create_person_dialog_copy(const char *text)
-{
-    char *copy = text != NULL ? g_strdup(text) : NULL;
-    if (copy == NULL) return NULL;
-    g_strstrip(copy);
-    if (copy[0] == '\0') { g_free(copy); return NULL; }
-    return copy;
-}
 /** @brief Extrait les notes de la zone de texte. */
 static char *create_person_dialog_get_notes(CreatePersonDialogState *state)
 {
@@ -611,6 +575,10 @@ static void create_person_dialog_ocr_completed(GObject *source,
                     g_ptr_array_index((GPtrArray *) fields, 0),
                     state->ocr_generation);
             g_ptr_array_add(state->ocr_runs, run);
+            if (state->factual_relation_editor != NULL) {
+                person_factual_relation_editor_set_available_ocr_runs(
+                    state->factual_relation_editor, state->ocr_runs);
+            }
             run = NULL;
             gtk_label_set_text(state->ocr_status,
                 "OCR terminé. Chaque proposition reste À vérifier.");
@@ -660,7 +628,7 @@ static void create_person_dialog_on_ocr_start(GtkButton *button,
     job->identifier = g_strdup(
         person_evidence_selection_item_get_identifier(item));
     job->sha256 = g_strdup(person_evidence_selection_item_get_sha256(item));
-    job->mime = g_strdup(create_person_dialog_effective_ocr_mime(item));
+    job->mime = g_strdup(person_evidence_selection_item_get_effective_ocr_mime(item));
     if (person_evidence_selection_item_get_origin(item) ==
         PERSON_EVIDENCE_ORIGIN_EXISTING) {
         record = person_evidence_selection_item_get_record(item);
@@ -743,6 +711,7 @@ static void create_person_dialog_state_free(gpointer data)
     g_free(state->investigation_root_path);
     g_free(state->tesseract_path);
     g_free(state->tesseract_version);
+    person_factual_relation_editor_free(state->factual_relation_editor);
     if (state->user_data_destroy != NULL)
         state->user_data_destroy(state->user_data);
     g_free(state);
@@ -1298,15 +1267,15 @@ static void create_person_dialog_on_create(GtkButton *button, gpointer data)
     }
     notes = create_person_dialog_get_notes(state);
     result = g_new0(CreatePersonDialogResult, 1);
-    result->designation = create_person_dialog_copy(
-        gtk_editable_get_text(GTK_EDITABLE(state->designation)));
-    result->declared_name = create_person_dialog_copy(
-        gtk_editable_get_text(GTK_EDITABLE(state->name)));
-    result->pseudonym = create_person_dialog_copy(
-        gtk_editable_get_text(GTK_EDITABLE(state->pseudonym)));
-    result->status = g_strdup(person_vocabulary_adapter_status_code(
-        state->vocabularies, status));
-    result->notes = create_person_dialog_copy(notes);
+    result->designation = g_strdup(gtk_editable_get_text(GTK_EDITABLE(state->designation)));
+    result->declared_name = g_strdup(gtk_editable_get_text(GTK_EDITABLE(state->name)));
+    result->pseudonym = g_strdup(gtk_editable_get_text(GTK_EDITABLE(state->pseudonym)));
+    result->status = g_strdup(person_vocabulary_adapter_status_code(state->vocabularies, status));
+    result->notes = g_strdup(notes);
+    if (result->designation) { g_strstrip(result->designation); if (result->designation[0] == '\0') { g_free(result->designation); result->designation = NULL; } }
+    if (result->declared_name) { g_strstrip(result->declared_name); if (result->declared_name[0] == '\0') { g_free(result->declared_name); result->declared_name = NULL; } }
+    if (result->pseudonym) { g_strstrip(result->pseudonym); if (result->pseudonym[0] == '\0') { g_free(result->pseudonym); result->pseudonym = NULL; } }
+    if (result->notes) { g_strstrip(result->notes); if (result->notes[0] == '\0') { g_free(result->notes); result->notes = NULL; } }
     if (person_evidence_selection_get_count(
             state->person_evidence_selection) > 0) {
         const PersonEvidenceSelectionItem *first =
@@ -1327,6 +1296,14 @@ static void create_person_dialog_on_create(GtkButton *button, gpointer data)
             state->vocabularies, state->role_buttons,
             result->evidence_identifier);
     result->input.role_assignments = result->role_assignments;
+    GError *relation_error = NULL;
+    if (!person_factual_relation_editor_collect_relations(state->factual_relation_editor,
+            &result->factual_relations, &relation_error)) {
+        gtk_label_set_text(state->error, relation_error->message);
+        gtk_widget_set_visible(GTK_WIDGET(state->error), TRUE);
+        g_clear_error(&relation_error); create_person_dialog_result_free(result);
+        g_free(notes); return;
+    }
     result->evidence_selection = state->person_evidence_selection;
     state->person_evidence_selection = NULL;
     result->staging = state->staging;
@@ -1346,10 +1323,10 @@ static void create_person_dialog_on_create(GtkButton *button, gpointer data)
 static void create_person_dialog_update_navigation(CreatePersonDialogState *state)
 {
     static const char *const pages[] = {
-        "person", "roles", "evidence", "identity-ocr", "summary"};
+        "person", "roles", "evidence", "identity-ocr", "factual-relations", "summary"};
     static const char *const steps[] = {
         "1 Personne", "2 Rôles", "3 Preuves", "4 OCR identité",
-        "5 Confirmation"};
+        "5 Relations factuelles", "6 Confirmation"};
     GString *progress = g_string_new(NULL);
     gtk_stack_set_visible_child_name(state->stack, pages[state->step]);
     for (guint i = 0; i < G_N_ELEMENTS(steps); i++) {
@@ -1363,7 +1340,7 @@ static void create_person_dialog_update_navigation(CreatePersonDialogState *stat
     }
     gtk_label_set_markup(state->progress, progress->str);
     g_string_free(progress, TRUE);
-    if (state->step == 4) {
+    if (state->step == 5) {
         GPtrArray *role_labels =
             person_vocabulary_adapter_selected_role_labels(
                 state->role_buttons);
@@ -1381,6 +1358,8 @@ static void create_person_dialog_update_navigation(CreatePersonDialogState *stat
             gtk_spin_button_get_value_as_int(state->confidence), notes,
             role_labels, state->person_evidence_selection);
         GString *confirmation = g_string_new(text);
+        person_factual_relation_editor_append_summary(state->factual_relation_editor,
+            confirmation);
         g_string_append(confirmation,
             "\n\nOCR identité\nL’OCR peut contenir des erreurs. Ces "
             "informations sont seulement présentées sur le document ; "
@@ -1436,10 +1415,11 @@ static void create_person_dialog_update_navigation(CreatePersonDialogState *stat
         g_ptr_array_unref(role_labels);
     }
     gtk_widget_set_sensitive(GTK_WIDGET(state->previous), state->step > 0);
-    gtk_widget_set_visible(GTK_WIDGET(state->next), state->step < 4);
-    gtk_widget_set_visible(GTK_WIDGET(state->create), state->step == 4);
+    gtk_widget_set_visible(GTK_WIDGET(state->next), state->step < 5);
+    gtk_widget_set_visible(GTK_WIDGET(state->create), state->step == 5);
     gtk_widget_set_sensitive(GTK_WIDGET(state->create),
-        state->step == 4 &&
+        state->step == 5 &&
+        gtk_editable_get_text(GTK_EDITABLE(state->designation))[0] != '\0' &&
         person_evidence_selection_is_confirmable(
             state->person_evidence_selection));
 }
@@ -1463,8 +1443,17 @@ static void create_person_dialog_on_next(GtkButton *button, gpointer data)
         create_person_dialog_capture_corrected_transcription(state);
     if (state->step == 3)
         create_person_dialog_capture_factual_notes(state);
+    if (state->step == 4) {
+        GError *error = NULL;
+        if (!person_factual_relation_editor_validate(state->factual_relation_editor,
+                &error)) {
+            gtk_label_set_text(state->error, error->message);
+            gtk_widget_set_visible(GTK_WIDGET(state->error), TRUE);
+            g_clear_error(&error); return;
+        }
+    }
     gtk_widget_set_visible(GTK_WIDGET(state->error), FALSE);
-    if (state->step < 4) state->step++;
+    if (state->step < 5) state->step++;
     create_person_dialog_update_navigation(state);
 }
 /** @brief Ajoute une ligne libellée au formulaire. */
@@ -1870,8 +1859,21 @@ gboolean create_person_dialog_present(GtkWindow *parent,
         state->summary_scroll, FALSE);
     gtk_widget_set_vexpand(GTK_WIDGET(state->summary_scroll), TRUE);
     gtk_scrolled_window_set_child(state->summary_scroll, summary);
+
+    state->factual_relation_editor = person_factual_relation_editor_new();
+    person_factual_relation_editor_set_available_evidence(state->factual_relation_editor,
+        state->evidence_labels, state->evidence_identifiers);
+    person_factual_relation_editor_set_available_ocr_runs(state->factual_relation_editor,
+        state->ocr_runs);
+    GtkWidget *relation_scroll = gtk_scrolled_window_new(); gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(relation_scroll),
+        GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(relation_scroll),
+        person_factual_relation_editor_get_widget(state->factual_relation_editor));
+    gtk_stack_add_titled(state->stack, relation_scroll, "factual-relations",
+        "5 — Relations factuelles");
+
     gtk_stack_add_titled(state->stack,
-        GTK_WIDGET(state->summary_scroll), "summary", "5 — Confirmation");
+        GTK_WIDGET(state->summary_scroll), "summary", "6 — Confirmation");
     state->error = GTK_LABEL(gtk_label_new(NULL)); gtk_widget_set_visible(GTK_WIDGET(state->error), FALSE);
     actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_widget_set_name(actions, "create-person-actions");
@@ -1950,6 +1952,9 @@ void create_person_dialog_result_free(CreatePersonDialogResult *result)
         person_evidence_selection_free);
     g_clear_pointer(&result->staging, evidence_staging_free);
     g_clear_pointer(&result->ocr_runs, g_ptr_array_unref);
+    if (result->factual_relations) {
+        g_ptr_array_unref(result->factual_relations);
+    }
     g_free(result);
 }
 const PersonEntityInput *create_person_dialog_result_get_input(
@@ -1974,6 +1979,11 @@ const GPtrArray *create_person_dialog_result_get_ocr_runs(
     const CreatePersonDialogResult *result)
 {
     return result != NULL ? result->ocr_runs : NULL;
+}
+const GPtrArray *create_person_dialog_result_get_factual_relations(
+    const CreatePersonDialogResult *result)
+{
+    return result != NULL ? result->factual_relations : NULL;
 }
 gboolean create_person_dialog_test_overlay_has_region(GtkWindow *window)
 {

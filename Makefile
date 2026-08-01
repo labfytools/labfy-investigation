@@ -196,6 +196,7 @@ TEST_EVIDENCE_METADATA_DIALOG_GTK := tests/test_evidence_metadata_dialog_gtk
 TEST_EVIDENCE_IDENTITY_IMPORT_GTK := tests/test_evidence_identity_import_gtk
 TEST_WORKSPACE_IDENTITY_OCR_GTK := tests/test_workspace_identity_ocr_gtk
 TEST_DIALOG_GEOMETRY_GTK := tests/test_dialog_geometry_gtk
+TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK := tests/test_person_factual_relation_editor_gtk
 FAKE_DOCUMENT_TOOL := tests/fake_document_tool
 
 DOCUMENT_ANALYSIS_TEST_SOURCES := \
@@ -212,6 +213,16 @@ $(TEST_DOCUMENT_TOOL_RUNNER): tests/test_document_tool_runner.c \
 
 $(TEST_DIALOG_GEOMETRY_GTK): tests/test_dialog_geometry_gtk.c \
 	src/views/dialog_geometry.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+$(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK): \
+	tests/test_person_factual_relation_editor_gtk.c \
+	src/views/person_factual_relation_editor.c \
+	src/views/person_vocabulary_adapter.c src/models/identity_ocr.c \
+	src/models/identity_traceability.c src/models/person_role_assignment.c \
+	src/dao/identity_traceability_dao.c src/database/database.c \
+	src/database/schema.c src/database/statement.c src/database/transaction.c \
+	src/database/error.c src/core/relation_type_normalizer.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 all: $(TARGET)
@@ -234,6 +245,7 @@ $(TEST_IDENTITY_OCR_PREPROCESSOR): tests/test_identity_ocr_preprocessor.c \
 $(TEST_IDENTITY_TRACEABILITY): tests/test_identity_traceability.c \
 	src/models/identity_traceability.c src/dao/identity_traceability_dao.c \
 	src/views/person_vocabulary_adapter.c \
+	src/views/person_factual_relation_editor.c \
 	src/models/person_role_assignment.c \
 	src/models/identity_ocr.c src/dao/identity_ocr_dao.c \
 	src/core/relation_type_normalizer.c \
@@ -933,6 +945,7 @@ $(TEST_PERSON_DIALOG_LIFECYCLE): tests/test_person_dialog_lifecycle.c \
 $(TEST_CREATE_PERSON_DIALOG_GTK): tests/test_create_person_dialog_gtk.c \
 	src/views/create_person_dialog.c src/views/dialog_geometry.c \
 	src/views/person_vocabulary_adapter.c \
+	src/views/person_factual_relation_editor.c \
 	src/views/identity_ocr_option_adapter.c \
 	src/core/person_dialog_lifecycle.c \
 	src/core/person_confirmation_summary.c \
@@ -963,6 +976,7 @@ $(TEST_CREATE_PERSON_DIALOG_OCR_GTK): \
 	tests/test_create_person_dialog_ocr_gtk.c \
 	src/views/create_person_dialog.c src/views/dialog_geometry.c \
 	src/views/person_vocabulary_adapter.c \
+	src/views/person_factual_relation_editor.c \
 	src/views/identity_ocr_option_adapter.c \
 	src/core/person_dialog_lifecycle.c \
 	src/core/person_confirmation_summary.c \
@@ -1184,7 +1198,8 @@ test: \
 	$(TEST_EVIDENCE_METADATA_DIALOG_GTK) \
 	$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK) \
 	$(TEST_WORKSPACE_IDENTITY_OCR_GTK) \
-	$(TEST_DIALOG_GEOMETRY_GTK)
+	$(TEST_DIALOG_GEOMETRY_GTK) \
+	$(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -1280,6 +1295,7 @@ test: \
 	@$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK)
 	@$(TEST_WORKSPACE_IDENTITY_OCR_GTK)
 	@$(TEST_DIALOG_GEOMETRY_GTK)
+	@$(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -1379,6 +1395,7 @@ clean:
 	$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK) \
 	$(TEST_WORKSPACE_IDENTITY_OCR_GTK) \
 	$(TEST_DIALOG_GEOMETRY_GTK) \
+	$(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK) \
 		$(FAKE_DOCUMENT_TOOL)
 
 

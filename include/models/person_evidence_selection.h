@@ -72,6 +72,8 @@ const char *person_evidence_selection_item_get_original_name(
     const PersonEvidenceSelectionItem *item);
 const char *person_evidence_selection_item_get_mime_type(
     const PersonEvidenceSelectionItem *item);
+const char *person_evidence_selection_item_get_effective_ocr_mime(
+    const PersonEvidenceSelectionItem *item);
 const char *person_evidence_selection_item_get_type_identifier(
     const PersonEvidenceSelectionItem *item);
 const char *person_evidence_selection_item_get_sha256(

@@ -223,6 +223,9 @@ static gboolean click_cancel(gpointer data)
         "L’OCR produit des propositions à vérifier"));
     g_signal_emit_by_name(button, "clicked");
     g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
+        "Relations factuelles"));
+    g_signal_emit_by_name(button, "clicked");
+    g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
         "Désignation : SPECIMEN"));
     g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
         "SPECIMEN-recherche.png"));

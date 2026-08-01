@@ -51,6 +51,15 @@ PersonEvidenceFactualRelation *person_evidence_factual_relation_copy(
     const PersonEvidenceFactualRelation *relation);
 void person_evidence_factual_relation_free(
     PersonEvidenceFactualRelation *relation);
+const char *person_evidence_factual_relation_get_identifier(const PersonEvidenceFactualRelation *relation);
+const char *person_evidence_factual_relation_get_person_identifier(const PersonEvidenceFactualRelation *relation);
+const char *person_evidence_factual_relation_get_evidence_identifier(const PersonEvidenceFactualRelation *relation);
+const char *person_evidence_factual_relation_get_ocr_run_identifier(const PersonEvidenceFactualRelation *relation);
+const char *person_evidence_factual_relation_get_relation_type(const PersonEvidenceFactualRelation *relation);
+const char *person_evidence_factual_relation_get_factual_note(const PersonEvidenceFactualRelation *relation);
+const char *person_evidence_factual_relation_get_observed_at(const PersonEvidenceFactualRelation *relation);
+const char *person_evidence_factual_relation_get_origin(const PersonEvidenceFactualRelation *relation);
+gboolean person_evidence_factual_relation_get_active(const PersonEvidenceFactualRelation *relation);
 void person_role_vocabulary_entry_free(PersonRoleVocabularyEntry *entry);
 void identification_status_vocabulary_entry_free(
     IdentificationStatusVocabularyEntry *entry);

@@ -7,6 +7,8 @@
 
 #include "models/entity_record.h"
 #include "models/evidence_record.h"
+#include "models/identity_traceability.h"
+#include "views/person_vocabulary_adapter.h"
 
 #include <glib.h>
 
@@ -39,6 +41,7 @@ struct EntityDetailsPanel
     GtkWidget *person_name_button;
     GtkWidget *person_evidence_button;
     GtkWidget *person_evidence_summary_label;
+    GtkWidget *person_factual_relations_box;
     GtkWidget *entity_evidence_box;
     GtkWidget *evidence_buttons_box;
 
@@ -885,6 +888,8 @@ EntityDetailsPanel *entity_details_panel_new(void)
     gtk_box_append(GTK_BOX(details_panel->entity_evidence_box),
         details_panel->person_evidence_button);
     gtk_box_append(GTK_BOX(details_box), details_panel->person_role_box);
+    details_panel->person_factual_relations_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_box_append(GTK_BOX(details_box), details_panel->person_factual_relations_box);
     gtk_box_append(GTK_BOX(details_box), details_panel->entity_evidence_box);
     g_signal_connect(details_panel->person_role_dropdown, "notify::selected",
         G_CALLBACK(entity_details_panel_on_person_role_changed), details_panel);
@@ -1387,6 +1392,63 @@ void entity_details_panel_set_person_evidences(EntityDetailsPanel *panel,
             gtk_box_append(GTK_BOX(panel->evidence_buttons_box), button);
             g_free(label);
         }
+    }
+}
+
+void entity_details_panel_set_person_factual_relations(
+    EntityDetailsPanel *panel, const GPtrArray *relations, const GPtrArray *evidence_records)
+{
+    GtkWidget *child = NULL;
+    if (panel == NULL || panel->person_factual_relations_box == NULL) return;
+    while ((child = gtk_widget_get_first_child(panel->person_factual_relations_box)) != NULL)
+        gtk_box_remove(GTK_BOX(panel->person_factual_relations_box), child);
+
+    if (relations == NULL || relations->len == 0) {
+        gtk_widget_set_visible(panel->person_factual_relations_box, FALSE);
+        return;
+    }
+
+    gtk_widget_set_visible(panel->person_factual_relations_box, TRUE);
+    GtkWidget *title = gtk_label_new("Relations factuelles dans les preuves");
+    gtk_label_set_wrap(GTK_LABEL(title), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(title), 0.0f);
+    gtk_box_append(GTK_BOX(panel->person_factual_relations_box), title);
+
+    for (guint i = 0; i < relations->len; i++) {
+        PersonEvidenceFactualRelation *rel = g_ptr_array_index(relations, i);
+        const char *evidence_id = person_evidence_factual_relation_get_evidence_identifier(rel);
+        const char *rel_type = person_vocabulary_adapter_relation_label(
+            person_evidence_factual_relation_get_relation_type(rel));
+        const char *note = person_evidence_factual_relation_get_factual_note(rel);
+
+        const char *evidence_name = "Preuve inconnue";
+        if (evidence_records != NULL) {
+            for (guint j = 0; j < evidence_records->len; j++) {
+                const EvidenceRecord *er = g_ptr_array_index(evidence_records, j);
+                if (g_strcmp0(evidence_record_get_identifier(er), evidence_id) == 0) {
+                    evidence_name = evidence_record_get_original_name(er);
+                    break;
+                }
+            }
+        }
+
+        const char *run = person_evidence_factual_relation_get_ocr_run_identifier(rel);
+        char *text = g_strdup_printf("• %s : %s\n  Date : %s — Origine : %s%s%s",
+            evidence_name, rel_type,
+            person_evidence_factual_relation_get_observed_at(rel),
+            person_evidence_factual_relation_get_origin(rel),
+            run ? " — OcrRun : " : "", run ? run : "");
+        if (note && note[0]) {
+            char *tmp = g_strdup_printf("%s\n  Note : %s", text, note);
+            g_free(text);
+            text = tmp;
+        }
+
+        GtkWidget *label = gtk_label_new(text);
+        gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+        gtk_box_append(GTK_BOX(panel->person_factual_relations_box), label);
+        g_free(text);
     }
 }
 

@@ -78,12 +78,27 @@ gboolean identity_traceability_dao_insert_factual_relation(
 {
  PersonEvidenceFactualRelation*valid=r?person_evidence_factual_relation_copy(r):NULL;
  if(!d||!valid){fail(e,"Relation factuelle invalide.");return FALSE;}
+ const char*run=person_evidence_factual_relation_get_ocr_run_identifier(valid);
+ if(run){
+  DatabaseStatement*check=database_statement_prepare(d->database,
+   "SELECT 1 FROM identity_ocr_runs WHERE id=? AND evidence_id=?;");
+  gboolean compatible=check&&bind(check,1,run)&&bind(check,2,
+   person_evidence_factual_relation_get_evidence_identifier(valid))&&
+   database_statement_step(check)==DATABASE_STATEMENT_STEP_ROW;
+  database_statement_finalize(check);
+  if(!compatible){person_evidence_factual_relation_free(valid);
+   fail(e,"L’exécution OCR ne correspond pas à la preuve choisie.");return FALSE;}
+ }
  DatabaseStatement*s=database_statement_prepare(d->database,
   "INSERT INTO person_evidence_factual_relations VALUES(?,?,?,?,?,?,?,?,?);");
- gboolean ok=s&&bind(s,1,r->identifier)&&bind(s,2,r->person_identifier)&&
-  bind(s,3,r->evidence_identifier)&&bind(s,4,r->ocr_run_identifier)&&
-  bind(s,5,r->relation_type)&&bind(s,6,r->factual_note)&&bind(s,7,r->observed_at)&&
-  bind(s,8,"human")&&database_statement_bind_int64(s,9,r->active?1:0)&&
+ gboolean ok=s&&bind(s,1,person_evidence_factual_relation_get_identifier(valid))&&
+  bind(s,2,person_evidence_factual_relation_get_person_identifier(valid))&&
+  bind(s,3,person_evidence_factual_relation_get_evidence_identifier(valid))&&
+  bind(s,4,run)&&bind(s,5,person_evidence_factual_relation_get_relation_type(valid))&&
+  bind(s,6,person_evidence_factual_relation_get_factual_note(valid))&&
+  bind(s,7,person_evidence_factual_relation_get_observed_at(valid))&&
+  bind(s,8,"human")&&database_statement_bind_int64(s,9,
+   person_evidence_factual_relation_get_active(valid)?1:0)&&
   database_statement_step(s)==DATABASE_STATEMENT_STEP_DONE;
  database_statement_finalize(s);person_evidence_factual_relation_free(valid);
  if(!ok)fail(e,"Impossible de conserver la relation factuelle.");
@@ -113,6 +128,35 @@ GPtrArray *identity_traceability_dao_list_factual_relations(
   g_ptr_array_add(a,r);}
  database_statement_finalize(s);return a;
 bad:database_statement_finalize(s);g_ptr_array_unref(a);
+ fail(e,"Impossible de lire les relations factuelles.");return NULL;
+}
+GPtrArray *identity_traceability_dao_list_factual_relations_by_evidence(
+ IdentityTraceabilityDao*d,const char*id,GError**e)
+{return identity_traceability_dao_list_factual_relations(d,id,e);}
+GPtrArray *identity_traceability_dao_list_factual_relations_by_person(
+ IdentityTraceabilityDao*d,const char*id,GError**e)
+{
+ if(!d||!id){fail(e,"Lecture des relations factuelles invalide.");return NULL;}
+ DatabaseStatement*s=database_statement_prepare(d->database,
+  "SELECT id,person_id,evidence_id,ocr_run_id,relation_type,factual_note,"
+  "observed_at,origin,active FROM person_evidence_factual_relations "
+  "WHERE person_id=? ORDER BY observed_at,id;");
+ GPtrArray*a=g_ptr_array_new_with_free_func(
+  (GDestroyNotify)person_evidence_factual_relation_free);
+ if(!s||!bind(s,1,id))goto bad2;
+ for(;;){DatabaseStatementStepResult step=database_statement_step(s);
+  if(step==DATABASE_STATEMENT_STEP_DONE)break;
+  if(step!=DATABASE_STATEMENT_STEP_ROW)goto bad2;
+  char*v[8]={0};gint64 active=0;gboolean ok=TRUE;
+  for(int i=0;i<8;i++)ok=ok&&database_statement_column_text(s,i,&v[i]);
+  ok=ok&&database_statement_column_int64(s,8,&active);
+  PersonEvidenceFactualRelation*r=ok?person_evidence_factual_relation_new(
+   v[0],v[1],v[2],v[3],v[4],v[5],v[6],active!=0):NULL;
+  for(int i=0;i<8;i++)g_free(v[i]);
+  if(!r)goto bad2;
+  g_ptr_array_add(a,r);}
+ database_statement_finalize(s);return a;
+bad2:database_statement_finalize(s);g_ptr_array_unref(a);
  fail(e,"Impossible de lire les relations factuelles.");return NULL;
 }
 GPtrArray *identity_traceability_dao_list_roles(

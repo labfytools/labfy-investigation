@@ -26,5 +26,6 @@ void labfy_dialog_present(GtkWindow *window);
 
 void labfy_paned_apply_initial_ratio(
     GtkPaned *paned, double ratio, int minimum_start, int minimum_end);
+gboolean labfy_paned_initial_ratio_applied(GtkPaned *paned);
 
 #endif

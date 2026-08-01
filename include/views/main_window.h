@@ -322,6 +322,13 @@ void main_window_set_relation_evidences(
     const GPtrArray *evidence_records
 );
 
+/** @brief Transmet les preuves associées à l'entité sélectionnée. */
+void main_window_set_person_evidences(MainWindow *main_window,
+    const GPtrArray *records);
+void main_window_set_person_factual_relations(MainWindow *main_window,
+    const GPtrArray *relations, const GPtrArray *evidence_records);
+
+
 /** @brief Définit le callback de catégorisation d'une personne. */
 void main_window_set_person_role_callback(MainWindow *main_window,
     MainWindowPersonRoleCallback callback, gpointer user_data);

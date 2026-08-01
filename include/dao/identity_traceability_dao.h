@@ -21,6 +21,10 @@ gboolean identity_traceability_dao_insert_factual_relation(
  GError **error);
 GPtrArray *identity_traceability_dao_list_factual_relations(
  IdentityTraceabilityDao *dao,const char *evidence_identifier,GError **error);
+GPtrArray *identity_traceability_dao_list_factual_relations_by_evidence(
+ IdentityTraceabilityDao *dao,const char *evidence_identifier,GError **error);
+GPtrArray *identity_traceability_dao_list_factual_relations_by_person(
+ IdentityTraceabilityDao *dao,const char *person_identifier,GError **error);
 GPtrArray *identity_traceability_dao_list_roles(
  IdentityTraceabilityDao *dao,gboolean include_inactive,GError **error);
 GPtrArray *identity_traceability_dao_list_identification_statuses(

@@ -102,6 +102,19 @@ void person_evidence_factual_relation_free(PersonEvidenceFactualRelation*r)
  g_free(r->evidence_identifier);g_free(r->ocr_run_identifier);
  g_free(r->relation_type);g_free(r->factual_note);g_free(r->observed_at);
  g_free(r->origin);g_free(r);}
+#define FACTUAL_GETTER(name,field) \
+const char *person_evidence_factual_relation_get_##name( \
+ const PersonEvidenceFactualRelation*r){return r?r->field:NULL;}
+FACTUAL_GETTER(identifier,identifier)
+FACTUAL_GETTER(person_identifier,person_identifier)
+FACTUAL_GETTER(evidence_identifier,evidence_identifier)
+FACTUAL_GETTER(ocr_run_identifier,ocr_run_identifier)
+FACTUAL_GETTER(relation_type,relation_type)
+FACTUAL_GETTER(factual_note,factual_note)
+FACTUAL_GETTER(observed_at,observed_at)
+FACTUAL_GETTER(origin,origin)
+gboolean person_evidence_factual_relation_get_active(
+ const PersonEvidenceFactualRelation*r){return r?r->active:FALSE;}
 void person_role_vocabulary_entry_free(PersonRoleVocabularyEntry*e)
 {if(!e)return;g_free(e->code);g_free(e->label);g_free(e->description);g_free(e);}
 void identification_status_vocabulary_entry_free(

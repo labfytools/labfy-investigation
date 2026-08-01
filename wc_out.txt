@@ -1,0 +1,10 @@
+  9339 src/core/application.c
+   142 src/core/person_creation_task.c
+  2037 src/views/create_person_dialog.c
+   660 src/views/evidence_metadata_dialog.c
+  2245 src/views/main_window.c
+   286 src/views/person_factual_relation_editor.c
+   193 src/views/person_vocabulary_adapter.c
+  1550 src/widgets/entity_details_panel.c
+  4078 src/widgets/workspace.c
+ 20530 total

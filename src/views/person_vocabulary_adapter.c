@@ -63,6 +63,59 @@ GtkStringList *person_vocabulary_adapter_create_status_labels(
     const PersonVocabularyAdapter *adapter)
 { return create_labels(person_vocabulary_adapter_get_statuses(adapter)); }
 
+static const char *const factual_relation_types[] = {
+    "identity_observed_in",
+    "document_presented_in_name_of",
+    "declared_holder_in",
+    "data_extracted_from"
+};
+
+static const char *const factual_relation_labels[] = {
+    "Identité observée dans la preuve",
+    "Document présenté au nom de la personne",
+    "Titulaire déclaré dans la preuve",
+    "Donnée extraite de la preuve"
+};
+static const char *const factual_relation_descriptions[] = {
+    "Une identité est visible ou mentionnée dans cette preuve.",
+    "Le document a été présenté au nom de cette personne, sans conclure à son authenticité.",
+    "La preuve déclare cette personne comme titulaire, sans vérification automatique.",
+    "Une donnée concernant cette personne a été extraite de cette preuve."
+};
+
+GtkStringList *person_vocabulary_adapter_create_relation_labels(void)
+{
+    GtkStringList *labels = gtk_string_list_new(NULL);
+    for (guint i = 0; i < 4; i++) {
+        gtk_string_list_append(labels, factual_relation_labels[i]);
+    }
+    return labels;
+}
+
+const char *person_vocabulary_adapter_relation_code(guint index)
+{
+    if (index < 4) return factual_relation_types[index];
+    return NULL;
+}
+
+const char *person_vocabulary_adapter_relation_label(const char *code)
+{
+    if (code == NULL) return "Inconnu";
+    for (guint i = 0; i < 4; i++) {
+        if (g_strcmp0(code, factual_relation_types[i]) == 0)
+            return factual_relation_labels[i];
+    }
+    return "Inconnu";
+}
+const char *person_vocabulary_adapter_relation_description(const char *code)
+{
+    if (code == NULL) return NULL;
+    for (guint i = 0; i < G_N_ELEMENTS(factual_relation_types); i++)
+        if (g_strcmp0(code, factual_relation_types[i]) == 0)
+            return factual_relation_descriptions[i];
+    return NULL;
+}
+
 const char *person_vocabulary_adapter_status_code(
     const PersonVocabularyAdapter *adapter, guint index)
 {

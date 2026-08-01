@@ -16,6 +16,10 @@ GtkStringList *person_vocabulary_adapter_create_role_labels(
     const PersonVocabularyAdapter *adapter);
 GtkStringList *person_vocabulary_adapter_create_status_labels(
     const PersonVocabularyAdapter *adapter);
+GtkStringList *person_vocabulary_adapter_create_relation_labels(void);
+const char *person_vocabulary_adapter_relation_code(guint index);
+const char *person_vocabulary_adapter_relation_label(const char *code);
+const char *person_vocabulary_adapter_relation_description(const char *code);
 const char *person_vocabulary_adapter_status_code(
     const PersonVocabularyAdapter *adapter, guint index);
 const char *person_vocabulary_adapter_status_label(

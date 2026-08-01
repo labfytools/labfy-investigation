@@ -279,6 +279,25 @@ const char *person_evidence_selection_find_existing_by_sha256(
     }
     return NULL;
 }
+
+
+
+const char *person_evidence_selection_item_get_effective_ocr_mime(
+    const PersonEvidenceSelectionItem *item)
+{
+    const char *mime = person_evidence_selection_item_get_mime_type(item);
+    if (mime != NULL && mime[0] != '\0') return mime;
+    const char *name = person_evidence_selection_item_get_original_name(item);
+    const char *suffix = name != NULL ? strrchr(name, '.') : NULL;
+    if (suffix == NULL) return NULL;
+    if (g_ascii_strcasecmp(suffix, ".png") == 0) return "image/png";
+    if (g_ascii_strcasecmp(suffix, ".jpg") == 0 || g_ascii_strcasecmp(suffix, ".jpeg") == 0) return "image/jpeg";
+    if (g_ascii_strcasecmp(suffix, ".heic") == 0) return "image/heic";
+    if (g_ascii_strcasecmp(suffix, ".heif") == 0) return "image/heif";
+    if (g_ascii_strcasecmp(suffix, ".pdf") == 0) return "application/pdf";
+    return NULL;
+}
+
 #define ITEM_GETTER(name, type, field) \
 type person_evidence_selection_item_get_##name( \
     const PersonEvidenceSelectionItem *item) { \

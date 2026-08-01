@@ -8,7 +8,10 @@
 
 #include "models/evidence_type.h"
 #include "dao/identity_ocr_dao.h"
+#include "dao/identity_traceability_dao.h"
+#include "dao/entity_dao.h"
 #include "views/evidence_identity_ocr_dialog.h"
+#include "views/person_vocabulary_adapter.h"
 #include "widgets/ocr_provenance_overlay.h"
 
 struct EvidenceMetadataDialogResult
@@ -537,6 +540,61 @@ gboolean evidence_metadata_dialog_present_with_ocr(
         gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(ocr_scroll), ocr);
         gtk_box_append(GTK_BOX(main_box), ocr_scroll);
     }
+
+    if (database != NULL) {
+        IdentityTraceabilityDao *trace_dao = identity_traceability_dao_new(database);
+        if (trace_dao != NULL) {
+            GPtrArray *relations = identity_traceability_dao_list_factual_relations_by_evidence(
+                trace_dao, evidence_record_get_identifier(record), NULL);
+            if (relations != NULL && relations->len > 0) {
+                GtkWidget *rel_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+                gtk_box_append(GTK_BOX(rel_box), gtk_label_new("Relations factuelles avec les personnes"));
+                EntityDao *entity_dao = entity_dao_new(database, NULL);
+                for (guint i = 0; i < relations->len; i++) {
+                    PersonEvidenceFactualRelation *rel = g_ptr_array_index(relations, i);
+                    const char *person_id = person_evidence_factual_relation_get_person_identifier(rel);
+                    const char *rel_type = person_vocabulary_adapter_relation_label(
+                        person_evidence_factual_relation_get_relation_type(rel));
+                    const char *note = person_evidence_factual_relation_get_factual_note(rel);
+                    char *designation = NULL;
+                    if (entity_dao != NULL) {
+                        EntityRecord *person = entity_dao_find_by_identifier(entity_dao, person_id, NULL);
+                        if (person != NULL) {
+                            const char *label = entity_record_get_label(person);
+                            const char *value = entity_record_get_value(person);
+                            designation = g_strdup(label && label[0] ? label : (value ? value : ""));
+                            entity_record_free(person);
+                        }
+                    }
+                    if (designation == NULL) designation = g_strdup("Personne inconnue");
+                    const char *run = person_evidence_factual_relation_get_ocr_run_identifier(rel);
+                    char *text = g_strdup_printf("• %s : %s\n  Date : %s — Origine : %s%s%s",
+                        designation, rel_type,
+                        person_evidence_factual_relation_get_observed_at(rel),
+                        person_evidence_factual_relation_get_origin(rel),
+                        run ? " — OcrRun : " : "", run ? run : "");
+                    if (note && note[0]) {
+                        char *tmp = g_strdup_printf("%s\n  Note : %s", text, note);
+                        g_free(text);
+                        text = tmp;
+                    }
+                    GtkWidget *label = gtk_label_new(text);
+                    gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+                    gtk_box_append(GTK_BOX(rel_box), label);
+                    g_free(text);
+                    g_free(designation);
+                }
+                if (entity_dao != NULL) entity_dao_free(entity_dao);
+                GtkWidget *rel_scroll = gtk_scrolled_window_new();
+                gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(rel_scroll), rel_box);
+                gtk_widget_set_size_request(rel_scroll, -1, 100);
+                gtk_box_append(GTK_BOX(main_box), rel_scroll);
+                g_ptr_array_unref(relations);
+            }
+            identity_traceability_dao_free(trace_dao);
+        }
+    }
+
     buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_widget_set_halign(buttons, GTK_ALIGN_END);
     cancel = gtk_button_new_with_label("Annuler");

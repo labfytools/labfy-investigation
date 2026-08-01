@@ -10,6 +10,7 @@
 #include "models/evidence_type.h"
 #include "views/evidence_identity_ocr_dialog.h"
 #include "views/evidence_import_dialog.h"
+#include "views/dialog_geometry.h"
 #include "views/main_window.h"
 #include "widgets/workspace.h"
 #include <cairo.h>
@@ -497,7 +498,7 @@ static gboolean drive(gpointer data)
         g_assert_nonnull(gtk_paned_get_end_child(GTK_PANED(paned)));
         g_assert_false(is_descendant_of(actions, form_scroll));
         if (gtk_widget_get_width(paned) <= 0 ||
-            gtk_paned_get_position(GTK_PANED(paned)) <= 0)
+            !labfy_paned_initial_ratio_applied(GTK_PANED(paned)))
             return G_SOURCE_CONTINUE;
         if (!context->layout_resize_pending) {
             int initial_position =
@@ -564,12 +565,8 @@ static gboolean drive(gpointer data)
             context, "Import — OCR d’identité facultatif");
         if (dialog == NULL) return G_SOURCE_CONTINUE;
         GtkWidget *root = GTK_WIDGET(dialog);
-        int default_width = 0;
-        int default_height = 0;
-        gtk_window_get_default_size(
-            dialog, &default_width, &default_height);
-        g_assert_cmpint(default_width, ==, 760);
-        g_assert_cmpint(default_height, ==, 560);
+        g_assert_cmpint(gtk_widget_get_width(GTK_WIDGET(dialog)), >=, 800);
+        g_assert_cmpint(gtk_widget_get_height(GTK_WIDGET(dialog)), >=, 600);
         GtkWidget *continue_button =
             find_button(root, "Continuer l’import avec OCR");
         if (!gtk_widget_get_sensitive(continue_button))

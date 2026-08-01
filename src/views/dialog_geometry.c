@@ -10,6 +10,8 @@ typedef struct {
     double ratio;
     int minimum_start;
     int minimum_end;
+    int previous_width;
+    guint stable_frames;
 } LabfyPanedGeometry;
 
 LabfyDialogGeometry labfy_dialog_geometry_calculate(
@@ -115,17 +117,38 @@ static void paned_geometry_apply(
     gtk_paned_set_position(paned, position);
 }
 
-static gboolean paned_geometry_idle(gpointer data)
+static gboolean paned_geometry_tick(GtkWidget *widget, GdkFrameClock *clock,
+    gpointer data)
 {
-    GtkPaned *paned = GTK_PANED(data);
+    GtkPaned *paned = GTK_PANED(widget);
     LabfyPanedGeometry *geometry = g_object_get_data(
         G_OBJECT(paned), "labfy-paned-initial-geometry");
+    int width;
+    (void) clock;
+    (void) data;
     if (geometry == NULL) return G_SOURCE_REMOVE;
-    if (gtk_widget_get_width(GTK_WIDGET(paned)) <
-        geometry->minimum_start + geometry->minimum_end)
+    width = gtk_widget_get_width(widget);
+    if (width < geometry->minimum_start + geometry->minimum_end) {
+        geometry->previous_width = width;
+        geometry->stable_frames = 0;
         return G_SOURCE_CONTINUE;
+    }
+    if (width != geometry->previous_width) {
+        geometry->previous_width = width;
+        geometry->stable_frames = 0;
+        return G_SOURCE_CONTINUE;
+    }
+    if (geometry->stable_frames++ < 1) return G_SOURCE_CONTINUE;
     paned_geometry_apply(paned, geometry);
+    g_object_set_data(G_OBJECT(paned), "labfy-paned-initial-ratio-applied",
+        GINT_TO_POINTER(1));
     return G_SOURCE_REMOVE;
+}
+
+gboolean labfy_paned_initial_ratio_applied(GtkPaned *paned)
+{
+    return GTK_IS_PANED(paned) && g_object_get_data(G_OBJECT(paned),
+        "labfy-paned-initial-ratio-applied") != NULL;
 }
 
 void labfy_paned_apply_initial_ratio(
@@ -142,6 +165,6 @@ void labfy_paned_apply_initial_ratio(
     geometry->minimum_end = MAX(0, minimum_end);
     g_object_set_data_full(G_OBJECT(paned),
         "labfy-paned-initial-geometry", geometry, g_free);
-    g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, paned_geometry_idle,
-        g_object_ref(paned), g_object_unref);
+    gtk_widget_add_tick_callback(GTK_WIDGET(paned), paned_geometry_tick,
+        NULL, NULL);
 }

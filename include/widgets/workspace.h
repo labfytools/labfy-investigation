@@ -472,7 +472,9 @@ void workspace_set_entity_selected_callback(Workspace *workspace,
     WorkspaceEntitySelectedCallback callback, gpointer user_data);
 /** @brief Affiche les preuves de la personne sélectionnée. */
 void workspace_set_person_evidences(Workspace *workspace,
-    const GPtrArray *evidence_records);
+    const GPtrArray *records);
+void workspace_set_person_factual_relations(Workspace *workspace,
+    const GPtrArray *relations, const GPtrArray *evidence_records);
 
 /**
  * @brief Affiche le graphe chargé avec sa disposition persistée.

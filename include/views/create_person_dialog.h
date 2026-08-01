@@ -44,6 +44,8 @@ EvidenceStaging *create_person_dialog_result_steal_staging(
     CreatePersonDialogResult *result);
 const GPtrArray *create_person_dialog_result_get_ocr_runs(
     const CreatePersonDialogResult *result);
+const GPtrArray *create_person_dialog_result_get_factual_relations(
+    const CreatePersonDialogResult *result);
 gboolean create_person_dialog_test_overlay_has_region(GtkWindow *window);
 guint64 create_person_dialog_test_ocr_generation(GtkWindow *window);
 G_END_DECLS

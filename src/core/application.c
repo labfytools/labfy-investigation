@@ -47,6 +47,7 @@
 #include "dao/evidence_dao.h"
 #include "dao/identity_ocr_dao.h"
 #include "dao/evidence_entity_dao.h"
+#include "core/person_details_provider.h"
 #include "dao/entity_dao.h"
 #include "dao/relation_dao.h"
 #include "dao/relation_evidence_dao.h"
@@ -6044,7 +6045,8 @@ static void application_on_person_completed(
         goto changed_session;
     request = person_creation_task_request_new(active_database, active_root,
         input, create_person_dialog_result_get_evidence_selection(result),
-        create_person_dialog_result_get_ocr_runs(result));
+        create_person_dialog_result_get_ocr_runs(result),
+        create_person_dialog_result_get_factual_relations(result));
     task_context = g_new0(ApplicationPersonCreationTaskContext, 1);
     task_context->application = application;
     task_context->generation = application->session_generation;
@@ -7058,36 +7060,26 @@ static void application_on_person_name_changed(const char *entity_identifier,
 static void application_on_entity_selected(const char *entity_identifier,
     gpointer user_data)
 {
-    Application *application = user_data; Database *database = NULL;
-    EvidenceEntityDao *link_dao = NULL; EvidenceDao *evidence_dao = NULL;
-    GPtrArray *identifiers = NULL; GPtrArray *records = NULL;
-    GError *error = NULL;
+    Application *application = user_data;
     if (application == NULL || application->session == NULL ||
         entity_identifier == NULL) return;
-    database = investigation_session_get_database(application->session);
-    link_dao = evidence_entity_dao_new(database, &error);
-    if (link_dao == NULL) goto cleanup;
-    evidence_dao = evidence_dao_new(database, &error);
-    if (evidence_dao == NULL) goto cleanup;
-    identifiers = evidence_entity_dao_list_evidence_identifiers(link_dao,
-        entity_identifier, &error);
-    if (identifiers == NULL) goto cleanup;
-    records = g_ptr_array_new_with_free_func((GDestroyNotify)
-        evidence_record_free);
-    for (guint index = 0; index < identifiers->len; index++)
-    {
-        EvidenceRecord *record = evidence_dao_find_by_identifier(evidence_dao,
-            g_ptr_array_index(identifiers, index), &error);
-        if (record == NULL) goto cleanup;
-        g_ptr_array_add(records, record);
+    Database *database = investigation_session_get_database(application->session);
+    GError *error = NULL;
+    GPtrArray *records = person_details_provider_get_evidences(database, entity_identifier, &error);
+    GPtrArray *relations = NULL;
+    if (records != NULL) {
+        relations = person_details_provider_get_factual_relations(database, entity_identifier, NULL);
     }
+
     main_window_set_person_evidences(application->main_window, records);
-cleanup:
-    if (error != NULL)
-        main_window_set_person_evidences(application->main_window, NULL);
-    g_clear_error(&error); g_clear_pointer(&records, g_ptr_array_unref);
-    g_clear_pointer(&identifiers, g_ptr_array_unref);
-    evidence_dao_free(evidence_dao); evidence_entity_dao_free(link_dao);
+    main_window_set_person_factual_relations(application->main_window, relations, records);
+
+    if (error != NULL) {
+        application_present_error(application, "Erreur de chargement", error->message);
+        g_clear_error(&error);
+    }
+    if (records != NULL) g_ptr_array_unref(records);
+    if (relations != NULL) g_ptr_array_unref(relations);
 }
 
 /** @brief Contexte possédé par la gestion des preuves d'une personne. */

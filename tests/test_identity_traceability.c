@@ -66,6 +66,16 @@ static void fixture_free(Fixture*f)
 
 static void test_models(void)
 {
+ static const char *codes[]={"identity_observed_in",
+  "document_presented_in_name_of","declared_holder_in","data_extracted_from"};
+ static const char *labels[]={"Identité observée dans la preuve",
+  "Document présenté au nom de la personne","Titulaire déclaré dans la preuve",
+  "Donnée extraite de la preuve"};
+ for(guint i=0;i<G_N_ELEMENTS(codes);i++){
+  g_assert_cmpstr(person_vocabulary_adapter_relation_code(i),==,codes[i]);
+  g_assert_cmpstr(person_vocabulary_adapter_relation_label(codes[i]),==,labels[i]);
+  g_assert_nonnull(person_vocabulary_adapter_relation_description(codes[i]));
+ }
  PersonRoleVocabularyEntry justified={.requires_justification=TRUE};
  g_assert_false(person_vocabulary_adapter_justification_valid(
   &justified,"   "));
@@ -107,6 +117,16 @@ static void test_dao_history_and_relations(void)
  g_assert_true(identity_traceability_dao_insert_factual_relation(d,r,&e));
  GPtrArray*relations=identity_traceability_dao_list_factual_relations(d,EVIDENCE,&e);
  g_assert_cmpuint(relations->len,==,1);g_ptr_array_unref(relations);
+ relations=identity_traceability_dao_list_factual_relations_by_person(d,PERSON,&e);
+ g_assert_cmpuint(relations->len,==,1);g_ptr_array_unref(relations);
+ PersonEvidenceFactualRelation*foreign=person_evidence_factual_relation_new(
+  "70000000-0000-4000-8000-000000000019",PERSON,
+  "10000000-0000-4000-8000-000000000019",RUN,"data_extracted_from",
+  "Run étranger SPECIMEN",AT,TRUE);
+ g_assert_false(identity_traceability_dao_insert_factual_relation(d,foreign,&e));
+ g_assert_error(e,g_quark_from_static_string("identity-traceability-dao"),1);
+ g_assert_nonnull(strstr(e->message,"ne correspond pas"));g_clear_error(&e);
+ person_evidence_factual_relation_free(foreign);
  GPtrArray*roles=identity_traceability_dao_list_roles(d,TRUE,&e);
  g_assert_cmpuint(roles->len,>=,14);g_ptr_array_unref(roles);
  roles=identity_traceability_dao_list_roles(d,FALSE,&e);

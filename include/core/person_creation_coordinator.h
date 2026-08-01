@@ -45,6 +45,8 @@ typedef struct {
     const char *relation_type;
     const char *factual_note;
 } PersonCreationFactualRelationInput;
+
+
 typedef gboolean (*PersonCreationSessionCheck)(gpointer user_data);
 typedef struct {
     PersonCreationFailurePoint failure_point;
