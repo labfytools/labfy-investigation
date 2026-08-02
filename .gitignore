@@ -20,6 +20,9 @@ compile_commands.json
 /AGENTS.md
 /prompt.md
 
+# Copies locales des tickets Forgejo
+/ticket[0-9]*.md
+
 # OpenCode local
 /opencode.json
 /.opencode/

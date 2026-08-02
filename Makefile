@@ -175,6 +175,7 @@ TEST_PERSON_CREATION_COORDINATOR := tests/test_person_creation_coordinator
 TEST_EML_ANALYZER := tests/test_eml_analyzer
 TEST_EML_INTEGRATION := tests/test_eml_integration
 TEST_IBAN_ANALYZER := tests/test_iban_analyzer
+TEST_FINANCIAL_FOUNDATION := tests/test_financial_foundation
 TEST_EXIFTOOL_METADATA := tests/test_exiftool_metadata
 TEST_PDF_PASSWORD_RECOVERY := tests/test_pdf_password_recovery
 TEST_EXTRACTION_DROP_SERVICE := tests/test_extraction_drop_service
@@ -1130,6 +1131,12 @@ $(TEST_EML_INTEGRATION): tests/test_eml_integration.c \
 $(TEST_IBAN_ANALYZER): tests/test_iban_analyzer.c src/core/iban_analyzer.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+$(TEST_FINANCIAL_FOUNDATION): tests/test_financial_foundation.c \
+	src/models/financial_foundation.c src/core/bank_text_extractor.c \
+	src/core/bic_validator.c src/core/french_bban.c \
+	src/core/iban_analyzer.c src/core/bank_proposal.c src/core/controlled_vocab.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
+
 $(TEST_EXIFTOOL_METADATA): tests/test_exiftool_metadata.c \
 	src/core/exiftool_metadata.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
@@ -1238,6 +1245,7 @@ test: \
 	$(TEST_EML_ANALYZER) \
 	$(TEST_EML_INTEGRATION) \
 	$(TEST_IBAN_ANALYZER) \
+	$(TEST_FINANCIAL_FOUNDATION) \
 	$(TEST_EXIFTOOL_METADATA) \
 	$(TEST_PDF_PASSWORD_RECOVERY) \
 	$(TEST_EXTRACTION_DROP_SERVICE) \
@@ -1339,6 +1347,7 @@ test: \
 	@$(TEST_EML_ANALYZER)
 	@$(TEST_EML_INTEGRATION)
 	@$(TEST_IBAN_ANALYZER)
+	@$(TEST_FINANCIAL_FOUNDATION)
 	@$(TEST_EXIFTOOL_METADATA)
 	@$(TEST_PDF_PASSWORD_RECOVERY)
 	@$(TEST_EXTRACTION_DROP_SERVICE)
@@ -1451,6 +1460,7 @@ clean:
 		$(TEST_RELATION_TYPE_SERVICE) \
 		$(TEST_CONTROLLED_VOCAB) \
 		$(TEST_BANK_PROPOSAL) \
+		$(TEST_FINANCIAL_FOUNDATION) \
 		$(TEST_EML_PIPELINE_TASK) \
 		$(TEST_EML_MIME_EXTRACTOR) \
 		$(TEST_EXIFTOOL_ANALYSIS) \

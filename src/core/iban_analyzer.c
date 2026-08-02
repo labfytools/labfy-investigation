@@ -3,6 +3,18 @@
  * @brief Normalisation, validation et extraction locale d'IBAN.
  ******************************************************************************/
 #include "core/iban_analyzer.h"
+#include <string.h>
+char *iban_analyzer_normalize_canonical(const char *text)
+{
+    if(text==NULL||strlen(text)>(1024U * 1024U))return NULL;
+    GString *r=g_string_new(NULL);
+    for(const unsigned char *p=(const unsigned char *)text;*p;p++) {
+        if(*p==' '||*p=='\t'||*p=='\r'||*p=='\n'||*p=='-')continue;
+        if(!g_ascii_isalnum(*p)){g_string_free(r,TRUE);return NULL;}
+        g_string_append_c(r,g_ascii_toupper(*p));
+    }
+    if(r->len==0){g_string_free(r,TRUE);return NULL;}return g_string_free(r,FALSE);
+}
 char *iban_analyzer_normalize(const char *text)
 {
     GString *result = NULL;
@@ -37,6 +49,32 @@ gboolean iban_analyzer_validate(const char *iban)
         else { g_free(normalized); return FALSE; }
     }
     g_free(normalized); return remainder == 1;
+}
+IbanAnalyzerResult iban_analyzer_validate_canonical_result(const char *iban)
+{
+    char *normalized=iban_analyzer_normalize_canonical(iban);
+    static const struct { const char *country; gsize length; } lengths[]={
+        {"BE",16},{"DE",22},{"ES",24},{"FR",27},{"GB",22},
+        {"IT",27},{"LU",20},{"NL",18},{"PT",25}};
+    if(normalized==NULL||strlen(normalized)<15||strlen(normalized)>34||
+       !g_ascii_isalpha(normalized[0])||!g_ascii_isalpha(normalized[1])||
+       !g_ascii_isdigit(normalized[2])||!g_ascii_isdigit(normalized[3])) {
+        g_free(normalized);return IBAN_ANALYZER_RESULT_INVALID;
+    }
+    for(guint i=0;i<G_N_ELEMENTS(lengths);i++) {
+        if(g_str_has_prefix(normalized,lengths[i].country)) {
+            gboolean valid=strlen(normalized)==lengths[i].length&&
+                iban_analyzer_validate(normalized);
+            g_free(normalized);return valid?IBAN_ANALYZER_RESULT_VALID:
+                IBAN_ANALYZER_RESULT_INVALID;
+        }
+    }
+    g_free(normalized);return IBAN_ANALYZER_RESULT_UNSUPPORTED_COUNTRY;
+}
+gboolean iban_analyzer_validate_canonical(const char *iban)
+{
+    return iban_analyzer_validate_canonical_result(iban)==
+        IBAN_ANALYZER_RESULT_VALID;
 }
 GPtrArray *iban_analyzer_extract(const char *text)
 {
