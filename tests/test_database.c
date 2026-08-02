@@ -525,7 +525,7 @@ static void test_database_initialize_valid_database(void)
         "FROM investigation;"
     );
 
-    assert(strcmp(schema_version, "19") == 0);
+    assert(strcmp(schema_version, "20") == 0);
     test_database_assert_table_exists(database, "person_role_assignments");
     test_database_assert_table_exists(database, "bank_account_entities");
     test_database_assert_table_exists(database, "relation_types");
@@ -543,6 +543,15 @@ static void test_database_initialize_valid_database(void)
         "person_role_vocabulary");
     test_database_assert_table_exists(database,
         "identification_status_vocabulary");
+    test_database_assert_table_exists(database, "person_profile_fields");
+    test_database_assert_table_exists(database,
+        "document_identity_misuse_assessments");
+    test_database_assert_table_exists(database,
+        "person_ocr_field_projections");
+    test_database_assert_column_exists(database,
+        "person_ocr_field_projections", "previous_value");
+    test_database_assert_column_exists(database,
+        "person_ocr_field_projections", "origin");
     assert(strcmp(application_name, "Labfy Investigation") == 0);
 
     assert(created_at[0] != '\0');
@@ -1001,7 +1010,7 @@ static void test_database_migrate_v1_to_v2(void)
     assert(
         strcmp(
             schema_version,
-            "19"
+            "20"
         ) == 0
     );
 
@@ -1431,6 +1440,7 @@ static void test_database_migrate_v12_to_v13_preserves_legacy_link(void)
         "'20000000-0000-4000-8000-000000000014','alleged_scammer',"
         "'2026-07-28T08:00:00Z');"
         "DROP TABLE person_ocr_field_projections;"
+        "DROP TABLE document_identity_misuse_assessments;"
         "DROP TABLE person_profile_fields;"
         "DROP TABLE person_identification_assessments;"
         "DROP TABLE person_evidence_factual_relations;"
@@ -1466,7 +1476,7 @@ static void test_database_migrate_v12_to_v13_preserves_legacy_link(void)
     legacy_sources = test_database_read_single_text(sqlite_database,
         "SELECT COUNT(*) FROM preuve_entite_sources "
         "WHERE source_kind='legacy_manual';");
-    assert(strcmp(version, "19") == 0);
+    assert(strcmp(version, "20") == 0);
     assert(strcmp(legacy_sources, "1") == 0);
     char *legacy_role = test_database_read_single_text(sqlite_database,
         "SELECT role_code || ':' || provenance_kind "

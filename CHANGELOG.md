@@ -2,6 +2,8 @@
 
 ### Added
 
+- Assistant de création de personne en sept étapes séparant la révision OCR,
+  la projection facultative et les relations factuelles avant confirmation.
 - Projection contrôlée des champs OCR confirmés vers les attributs structurés
   d’une personne, avec provenance append-only, conflits explicites et rollback.
 - Saisie et consultation, depuis la fiche preuve, d’un historique immuable
@@ -40,6 +42,12 @@
 
 ### Fixed
 
+- Schéma de création directe aligné sur la V19, avec champs structurés,
+  provenance des projections et garde SQLite identique à la migration V19.
+- Migration V20 pour l’évaluation humaine append-only de l’usage d’identité,
+  distincte de l’authenticité et sans automatisme OCR.
+- Consultation V20 sur la fiche preuve et test GTK des relations et champs
+  structurés affichés sur la fiche Person.
 - Rafraîchissement immédiat de Workspace après import ou révision OCR et
   persistance des données sur l’UUID définitif de la preuve, y compris après
   fermeture et réouverture de SQLite.

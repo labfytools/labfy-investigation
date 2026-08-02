@@ -439,6 +439,12 @@ bool schema_install_v19(Database *database)
         "la migration SQLite V19");
 }
 
+bool schema_install_v20(Database *database)
+{
+    return schema_execute_file(database, "database/schema_v20.sql",
+        "la migration SQLite V20");
+}
+
 bool schema_ensure_current(
     Database *database
 )

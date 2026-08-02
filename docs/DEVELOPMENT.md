@@ -25,6 +25,10 @@ La projection OCR se valide avec `test_person_ocr_projection`,
 `test_person_ocr_projection_editor_gtk`, ce dernier sous affichage réel et
 `G_DEBUG=fatal-criticals`.
 
+L’assistant complet se valide également avec
+`tests/test_create_person_dialog_gtk` : il vérifie l’ordre des sept pages,
+leur séparation et les trois rubriques du résumé final.
+
 La validation ciblée de l’aperçu partagé comprend
 `test_evidence_preview_widget_gtk`, `test_evidence_preview`,
 `test_evidence_video_preview_controller` et
@@ -306,6 +310,9 @@ make -j8 \
     tests/test_workspace_identity_ocr_gtk \
     tests/test_evidence_preview_widget_gtk \
     tests/test_dialog_geometry_gtk
+    tests/test_person_factual_relation_editor_gtk \
+    tests/test_document_authenticity_editor_gtk \
+    tests/test_person_ocr_projection_editor_gtk
 
 G_DEBUG=fatal-criticals timeout 30s ./tests/test_create_person_dialog_ocr_gtk
 G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_identity_import_gtk
@@ -313,6 +320,9 @@ G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_metadata_dialog_gtk
 G_DEBUG=fatal-criticals timeout 30s ./tests/test_workspace_identity_ocr_gtk
 G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_preview_widget_gtk
 G_DEBUG=fatal-criticals timeout 30s ./tests/test_dialog_geometry_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_person_factual_relation_editor_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_document_authenticity_editor_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_person_ocr_projection_editor_gtk
 ```
 
 Ils doivent cliquer sur les contrôles de production, passer par `MainWindow`
@@ -655,9 +665,18 @@ Les tests doivent utiliser :
 Avant chaque commit :
 
 ```sh
+make clean
+make -j8
+make check-source-size
+DISPLAY="$DISPLAY" WAYLAND_DISPLAY="$WAYLAND_DISPLAY" make -j8 test
 git diff --check
 git status --short
 ```
+
+Les validations ASan/UBSan ciblées produisent leurs binaires dans `/tmp`.
+Lorsque `ASAN_OPTIONS=detect_leaks=0` est nécessaire sous l’environnement GTK
+tracé, cela valide AddressSanitizer et UndefinedBehaviorSanitizer, pas
+LeakSanitizer.
 
 Inspecter tout nouveau fichier inhabituel à la racine du dépôt.
 
@@ -729,5 +748,10 @@ Utiliser exclusivement une enquête, une base SQLite et des documents
 6. dialogues à 1200 × 800 et 760 × 560 : parent transitoire, formulaire
    défilable, répartition 2/3–1/3 et actions toujours visibles.
 
-La validation manuelle réussie confirme ces parcours, mais ne clôt pas le
-ticket #109 et ne couvre pas les limitations encore listées dans la roadmap.
+Contrôler aussi les sept étapes de l’assistant, les trois rubriques du résumé,
+la projection vide par défaut et l’absence de relation automatique.
+
+La validation manuelle doit également couvrir la section V20 distincte de
+l’authenticité. La justification des rôles sensibles et l’historisation
+complète de l’identification sont des renforcements de cohérence, pas des
+critères d’acceptation explicites du ticket #109.

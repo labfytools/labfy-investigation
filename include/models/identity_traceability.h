@@ -10,6 +10,12 @@ typedef struct {
 } DocumentAuthenticityAssessment;
 
 typedef struct {
+    char *identifier, *evidence_identifier, *ocr_run_identifier;
+    char *status, *justification, *assessed_at;
+    char *previous_identifier, *origin;
+} DocumentIdentityMisuseAssessment;
+
+typedef struct {
     char *identifier, *person_identifier, *evidence_identifier;
     char *ocr_run_identifier, *relation_type, *factual_note;
     char *observed_at, *origin;
@@ -25,6 +31,7 @@ typedef struct {
 typedef PersonRoleVocabularyEntry IdentificationStatusVocabularyEntry;
 
 gboolean identity_traceability_authenticity_status_valid(const char *status);
+gboolean identity_traceability_identity_misuse_status_valid(const char *status);
 gboolean identity_traceability_relation_type_valid(const char *type);
 gboolean identity_traceability_identification_status_valid(const char *status);
 gboolean identity_traceability_value_quality_valid(const char *quality);
@@ -50,6 +57,24 @@ const char *document_authenticity_assessment_get_assessed_at(const DocumentAuthe
 const char *document_authenticity_assessment_get_previous_identifier(const DocumentAuthenticityAssessment *assessment);
 const char *document_authenticity_assessment_get_technical_note(const DocumentAuthenticityAssessment *assessment);
 const char *document_authenticity_assessment_get_origin(const DocumentAuthenticityAssessment *assessment);
+
+DocumentIdentityMisuseAssessment *document_identity_misuse_assessment_new(
+    const char *identifier, const char *evidence_identifier,
+    const char *ocr_run_identifier, const char *status,
+    const char *justification, const char *assessed_at,
+    const char *previous_identifier);
+DocumentIdentityMisuseAssessment *document_identity_misuse_assessment_copy(
+    const DocumentIdentityMisuseAssessment *assessment);
+void document_identity_misuse_assessment_free(
+    DocumentIdentityMisuseAssessment *assessment);
+const char *document_identity_misuse_assessment_get_identifier(const DocumentIdentityMisuseAssessment *assessment);
+const char *document_identity_misuse_assessment_get_evidence_identifier(const DocumentIdentityMisuseAssessment *assessment);
+const char *document_identity_misuse_assessment_get_ocr_run_identifier(const DocumentIdentityMisuseAssessment *assessment);
+const char *document_identity_misuse_assessment_get_status(const DocumentIdentityMisuseAssessment *assessment);
+const char *document_identity_misuse_assessment_get_justification(const DocumentIdentityMisuseAssessment *assessment);
+const char *document_identity_misuse_assessment_get_assessed_at(const DocumentIdentityMisuseAssessment *assessment);
+const char *document_identity_misuse_assessment_get_previous_identifier(const DocumentIdentityMisuseAssessment *assessment);
+const char *document_identity_misuse_assessment_get_origin(const DocumentIdentityMisuseAssessment *assessment);
 
 PersonEvidenceFactualRelation *person_evidence_factual_relation_new(
     const char *identifier, const char *person_identifier,

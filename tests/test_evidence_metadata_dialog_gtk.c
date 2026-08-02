@@ -329,6 +329,8 @@ static gboolean drive(gpointer data)
         g_assert_true(gtk_window_get_destroy_with_parent(dialog));
         g_assert_nonnull(find_named(GTK_WIDGET(dialog),
             "document-authenticity-editor"));
+        g_assert_nonnull(find_named(GTK_WIDGET(dialog),
+            "document-identity-misuse-editor"));
     }
     if (dialog == NULL) {
         if (context->phase == 1) {

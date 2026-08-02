@@ -26,9 +26,12 @@ dernière table conserve personne, cible, valeurs précédente et nouvelle,
 preuve, OcrRun, champ OCR, qualité, stratégie, date et origine humaine. Un
 trigger refuse une source devenue non projectable.
 
-> **Statut :** architecture courante  
-> **Version du schéma :** V19
-> **Dernière mise à jour :** 2026-07-24  
+> **Statut :** architecture courante
+V20 ajoute l’historique humain append-only
+`document_identity_misuse_assessments`, distinct de l’authenticité.
+
+> **Version du schéma :** V20
+> **Dernière mise à jour :** 2026-08-02
 > **Source de vérité détaillée :** `SCHEMA_AUDIT_CURRENT.md`
 
 ---
@@ -71,7 +74,7 @@ docs/database/SCHEMA_AUDIT_CURRENT.md
 L'état réel du schéma est déterminé par :
 
 1. les constantes de version dans le code ;
-2. `database/schema_v1.sql` à `database/schema_v10.sql` ;
+2. `database/schema_v1.sql` à `database/schema_v19.sql` ;
 3. `database/schema_current.sql` ;
 4. les fonctions d'installation et de migration ;
 5. `tests/test_database.c` et les tests DAO ;
@@ -242,6 +245,7 @@ database/schema_v7.sql
 database/schema_v8.sql
 database/schema_v9.sql
 database/schema_v10.sql
+database/schema_v11.sql à database/schema_v19.sql
 ```
 
 `database/schema_current.sql` contient des extensions ou réparations
@@ -264,7 +268,7 @@ PRAGMA foreign_keys = ON
     ↓
 BEGIN
     ↓
-installation V1 à V10
+installation du socle historique puis du schéma courant V20
     ↓
 application du schéma courant idempotent
     ↓
@@ -278,7 +282,7 @@ Un échec provoque un rollback.
 Une base neuve doit aboutir directement à :
 
 ```text
-schema_version = 10
+schema_version = 19
 ```
 
 ---

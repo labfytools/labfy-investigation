@@ -24,6 +24,11 @@ gboolean identity_traceability_authenticity_status_valid(const char *value)
         "suspicious","presumed_forged","confirmed_forged"};
     return in_values(value,values,G_N_ELEMENTS(values));
 }
+gboolean identity_traceability_identity_misuse_status_valid(const char *value)
+{
+    static const char *const values[]={"indeterminate","presumed","confirmed"};
+    return in_values(value,values,G_N_ELEMENTS(values));
+}
 gboolean identity_traceability_relation_type_valid(const char *value)
 {
     static const char *const values[]={"identity_observed_in",
@@ -89,6 +94,42 @@ AUTH_GETTER(assessed_at,assessed_at)
 AUTH_GETTER(previous_identifier,previous_identifier)
 AUTH_GETTER(technical_note,technical_note)
 AUTH_GETTER(origin,origin)
+
+DocumentIdentityMisuseAssessment *document_identity_misuse_assessment_new(
+ const char *id,const char *evidence,const char *run,const char *status,
+ const char *justification,const char *at,const char *previous)
+{
+ if(!g_uuid_string_is_valid(id)||!g_uuid_string_is_valid(evidence)||
+    !uuid_or_null(run)||!uuid_or_null(previous)||
+    !identity_traceability_identity_misuse_status_valid(status)||
+    !timestamp(at)||!optional_text(justification)||
+    (g_strcmp0(status,"indeterminate")!=0&&!text(justification)))return NULL;
+ DocumentIdentityMisuseAssessment*a=g_new0(DocumentIdentityMisuseAssessment,1);
+ a->identifier=g_strdup(id);a->evidence_identifier=g_strdup(evidence);
+ a->ocr_run_identifier=g_strdup(run);a->status=g_strdup(status);
+ a->justification=g_strdup(justification);a->assessed_at=g_strdup(at);
+ a->previous_identifier=g_strdup(previous);a->origin=g_strdup("human");return a;
+}
+DocumentIdentityMisuseAssessment *document_identity_misuse_assessment_copy(
+ const DocumentIdentityMisuseAssessment*a)
+{return a?document_identity_misuse_assessment_new(a->identifier,
+ a->evidence_identifier,a->ocr_run_identifier,a->status,a->justification,
+ a->assessed_at,a->previous_identifier):NULL;}
+void document_identity_misuse_assessment_free(DocumentIdentityMisuseAssessment*a)
+{if(!a)return;g_free(a->identifier);g_free(a->evidence_identifier);
+ g_free(a->ocr_run_identifier);g_free(a->status);g_free(a->justification);
+ g_free(a->assessed_at);g_free(a->previous_identifier);g_free(a->origin);g_free(a);}
+#define MISUSE_GETTER(name,field) \
+const char *document_identity_misuse_assessment_get_##name( \
+ const DocumentIdentityMisuseAssessment*a){return a?a->field:NULL;}
+MISUSE_GETTER(identifier,identifier)
+MISUSE_GETTER(evidence_identifier,evidence_identifier)
+MISUSE_GETTER(ocr_run_identifier,ocr_run_identifier)
+MISUSE_GETTER(status,status)
+MISUSE_GETTER(justification,justification)
+MISUSE_GETTER(assessed_at,assessed_at)
+MISUSE_GETTER(previous_identifier,previous_identifier)
+MISUSE_GETTER(origin,origin)
 
 PersonEvidenceFactualRelation *person_evidence_factual_relation_new(
  const char *id,const char *person,const char *evidence,const char *run,

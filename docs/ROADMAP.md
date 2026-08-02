@@ -15,9 +15,9 @@ formulaire défilable, un aperçu redimensionnable et des actions fixes.
 La validation manuelle de ces parcours est réussie. Elle ne vaut pas
 achèvement du ticket #109.
 
-> **Dernière mise à jour :** 2026-07-30
+> **Dernière mise à jour :** 2026-08-02
 > **État du projet :** développement actif  
-> **Schéma SQLite courant :** V18
+> **Schéma SQLite courant :** V20
 > **Usage opérationnel :** non prêt pour la production
 
 ---
@@ -131,7 +131,7 @@ La branche `main` contient notamment :
 
 - création, validation et ouverture d'enquêtes ;
 - session d'enquête remplaçable proprement ;
-- infrastructure SQLite et migrations jusqu'à V18 ;
+- infrastructure SQLite et migrations jusqu'à V20 ;
 - couche Database, DAO et services métier ;
 - import de preuves avec copie contrôlée et SHA-256 ;
 - vérification d'intégrité et reclassement des preuves ;
@@ -185,13 +185,15 @@ PARTIEL — VALIDATION MANUELLE DES TRANCHES LIVRÉES RÉUSSIE
 
 Limitations restantes :
 
-1. l’OCR groupé de plusieurs preuves dans une même opération n’est pas pris en
-   charge ;
-2. les interfaces GTK complètes des états d’identification et des rôles V18
-   restent à construire ;
-3. la provenance uniforme de tous les autres dérivés reste partielle ;
+1. la justification des rôles sensibles et l’alimentation complète de
+   `person_identification_assessments` restent des renforcements de cohérence,
+   sans être des exigences explicites du ticket #109 ;
+2. l’OCR groupé n’est volontairement pas pris en charge : après un import
+   multiple, chaque preuve est analysée individuellement ;
+3. la provenance uniforme des dérivés hors parcours OCR reste partielle.
 
-Ces limites interdisent de présenter le ticket #109 comme terminé.
+La V20 couvre distinctement les états contractuels d’usage d’identité présumé
+et confirmé. Une validation manuelle finale reste requise avant clôture.
 
 ### Ticket #107 — Pivot e-mail forensique
 

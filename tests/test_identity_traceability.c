@@ -4,6 +4,7 @@
 #include "database/database.h"
 #include "models/identity_traceability.h"
 #include "core/document_authenticity_service.h"
+#include "core/document_identity_misuse_service.h"
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <sqlite3.h>
@@ -16,6 +17,8 @@
 #define ASSESSMENT1 "60000000-0000-4000-8000-000000000018"
 #define ASSESSMENT2 "60000000-0000-4000-8000-000000000019"
 #define FACT "70000000-0000-4000-8000-000000000018"
+#define MISUSE1 "90000000-0000-4000-8000-000000000018"
+#define MISUSE2 "90000000-0000-4000-8000-000000000019"
 #define AT "2026-07-30T10:00:00Z"
 
 typedef struct{char*dir,*path;Database*database;}Fixture;
@@ -113,6 +116,73 @@ static void test_authenticity_service(void)
   "indeterminate",NULL,NULL,"30000000-0000-4000-8000-000000000099",
   NULL,&error));g_assert_nonnull(error);g_clear_error(&error);
  h=document_authenticity_service_history(f.database,EVIDENCE,&error);g_assert_cmpuint(h->len,==,2);g_ptr_array_unref(h);fixture_free(&f);
+}
+static void test_identity_misuse_service(void)
+{
+ gsize count=0;const DocumentIdentityMisuseStatus*statuses=
+  document_identity_misuse_service_statuses(&count);
+ static const char*codes[]={"indeterminate","presumed","confirmed"};
+ static const char*labels[]={"Hypothèse d’usurpation indéterminée",
+  "Document présumé utilisé dans une usurpation d’identité",
+  "Utilisation dans une usurpation d’identité confirmée"};
+ g_assert_cmpuint(count,==,3);for(guint i=0;i<count;i++){
+  g_assert_cmpstr(statuses[i].code,==,codes[i]);g_assert_cmpstr(statuses[i].label,==,labels[i]);}
+ g_assert_null(document_identity_misuse_assessment_new(MISUSE1,EVIDENCE,NULL,
+  "presumed",NULL,AT,NULL));
+ Fixture f=fixture_new();GError*error=NULL;DocumentIdentityMisuseAssessment*created=NULL;
+ g_assert_true(document_identity_misuse_service_add(f.database,EVIDENCE,
+  "indeterminate",NULL,NULL,&created,&error));g_assert_no_error(error);
+ g_assert_cmpstr(document_identity_misuse_assessment_get_origin(created),==,"human");
+ document_identity_misuse_assessment_free(created);
+ g_assert_true(document_identity_misuse_service_add(f.database,EVIDENCE,
+  "presumed","Indices SPECIMEN",RUN,&created,&error));g_assert_no_error(error);
+ g_assert_nonnull(document_identity_misuse_assessment_get_previous_identifier(created));
+ document_identity_misuse_assessment_free(created);
+ g_assert_false(document_identity_misuse_service_add(f.database,EVIDENCE,
+  "confirmed","Conclusion SPECIMEN","30000000-0000-4000-8000-000000000099",
+  NULL,&error));g_assert_nonnull(error);g_clear_error(&error);
+ GPtrArray*h=document_identity_misuse_service_history(f.database,EVIDENCE,&error);
+ g_assert_no_error(error);g_assert_cmpuint(h->len,==,2);g_ptr_array_unref(h);
+ database_close(f.database);f.database=database_open(f.path);g_assert_nonnull(f.database);
+ h=document_identity_misuse_service_history(f.database,EVIDENCE,&error);
+ g_assert_cmpuint(h->len,==,2);g_ptr_array_unref(h);
+ database_close(f.database);f.database=NULL;sqlite3*d=NULL;
+ g_assert_cmpint(sqlite3_open(f.path,&d),==,SQLITE_OK);
+ char*automatic=scalar(d,"SELECT (SELECT COUNT(*) FROM person_role_assignments)"
+  "||(SELECT COUNT(*) FROM person_evidence_factual_relations)"
+  "||(SELECT COUNT(*) FROM person_identification_assessments)"
+  "||(SELECT COUNT(*) FROM document_authenticity_assessments);");
+ g_assert_cmpstr(automatic,==,"0000");g_free(automatic);char*message=NULL;
+ g_assert_cmpint(sqlite3_exec(d,"UPDATE document_identity_misuse_assessments "
+  "SET status='confirmed';",NULL,NULL,&message),!=,SQLITE_OK);
+ sqlite3_free(message);message=NULL;g_assert_cmpint(sqlite3_exec(d,
+  "DELETE FROM document_identity_misuse_assessments;",NULL,NULL,&message),!=,SQLITE_OK);
+ sqlite3_free(message);sqlite3_close(d);f.database=database_open(f.path);
+ g_assert_nonnull(f.database);fixture_free(&f);
+}
+static void test_migrate_v19_to_v20(void)
+{
+ Fixture f=fixture_new();database_close(f.database);f.database=NULL;sqlite3*d=NULL;
+ g_assert_cmpint(sqlite3_open(f.path,&d),==,SQLITE_OK);
+ exec_ok(d,"DROP TABLE document_identity_misuse_assessments;"
+  "UPDATE metadata SET value='19' WHERE key='schema_version';");sqlite3_close(d);
+ f.database=database_open(f.path);g_assert_nonnull(f.database);
+ g_assert_true(database_migrate_to_latest(f.database));database_close(f.database);f.database=NULL;
+ g_assert_cmpint(sqlite3_open(f.path,&d),==,SQLITE_OK);char*version=scalar(d,
+  "SELECT value FROM metadata WHERE key='schema_version';");char*table=scalar(d,
+  "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='document_identity_misuse_assessments';");
+ g_assert_cmpstr(version,==,"20");g_assert_cmpstr(table,==,"1");g_free(version);g_free(table);
+ exec_ok(d,"DROP TABLE document_identity_misuse_assessments;"
+  "UPDATE metadata SET value='19' WHERE key='schema_version';"
+  "CREATE TABLE document_identity_misuse_assessments(dummy TEXT);");sqlite3_close(d);
+ f.database=database_open(f.path);g_test_expect_message(NULL,G_LOG_LEVEL_WARNING,
+  "*Impossible d’installer la migration SQLite V20*");
+ g_assert_false(database_migrate_to_latest(f.database));g_test_assert_expected_messages();
+ database_close(f.database);f.database=NULL;g_assert_cmpint(sqlite3_open(f.path,&d),==,SQLITE_OK);
+ version=scalar(d,"SELECT value FROM metadata WHERE key='schema_version';");
+ g_assert_cmpstr(version,==,"19");g_free(version);exec_ok(d,
+  "DROP TABLE document_identity_misuse_assessments;");sqlite3_close(d);
+ f.database=database_open(f.path);g_assert_true(database_migrate_to_latest(f.database));fixture_free(&f);
 }
 static void test_dao_history_and_relations(void)
 {
@@ -218,6 +288,7 @@ static void test_migrate_v17_preserves_ocr(void)
  Fixture f=fixture_new();database_close(f.database);f.database=NULL;
  sqlite3*d=NULL;g_assert_cmpint(sqlite3_open(f.path,&d),==,SQLITE_OK);
  exec_ok(d,"PRAGMA foreign_keys=OFF;"
+ "DROP TABLE document_identity_misuse_assessments;"
  "DROP TABLE person_ocr_field_projections;DROP TABLE person_profile_fields;"
  "DROP TABLE person_identification_assessments;"
  "DROP TABLE person_evidence_factual_relations;"
@@ -258,7 +329,7 @@ static void test_migrate_v17_preserves_ocr(void)
  char*version=scalar(d,"SELECT value FROM metadata WHERE key='schema_version';");
  char*values=scalar(d,"SELECT raw_value||':'||normalized_value||':'||corrected_value"
  "||':'||confirmation_state FROM identity_field_observations WHERE id='" FIELD "';");
- g_assert_cmpstr(version,==,"19");
+ g_assert_cmpstr(version,==,"20");
  g_assert_cmpstr(values,==,"BRUT SPECIMEN:BRUT SPECIMEN:CORRIGÉ SPECIMEN:unconfirmed");
  sqlite3_close(d);g_free(version);g_free(values);
  f.database=database_open(f.path);g_assert_true(database_migrate_to_latest(f.database));
@@ -268,6 +339,8 @@ int main(int argc,char**argv)
 {g_test_init(&argc,&argv,NULL);g_test_add_func("/v18/models",test_models);
  g_test_add_func("/v18/dao-history-relations",test_dao_history_and_relations);
  g_test_add_func("/v18/authenticity-service",test_authenticity_service);
+ g_test_add_func("/v20/identity-misuse-service",test_identity_misuse_service);
+ g_test_add_func("/v20/migrate-v19",test_migrate_v19_to_v20);
  g_test_add_func("/v18/sqlite-negative-guards",test_sqlite_negative_guards);
  g_test_add_func("/v18/migrate-v17",test_migrate_v17_preserves_ocr);
  return g_test_run();}

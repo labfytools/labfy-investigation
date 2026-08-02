@@ -30,7 +30,7 @@ pause, retour au début, détachement et libération via des actions injectées.
 
 > **Version :** 3.2
 > **Dernière mise à jour :** 2026-07-30
-> **Schéma SQLite courant :** V18
+> **Schéma SQLite courant :** V20
 
 ## Personnes contextuelles — SQLite V14
 
@@ -133,6 +133,21 @@ OCR humaines. `PersonOcrProjectionEditor` ne sélectionne rien par défaut ; le
 service relit le champ V18 avant COMMIT et conserve la valeur existante par
 défaut en cas de conflit. La fiche personne relit ces champs par
 `PersonDetailsProvider` et le DAO de projection.
+
+`CreatePersonDialog` sépare sept pages : personne, rôles, preuves, révision
+OCR, projection OCR, relations factuelles et confirmation. La page de
+projection contient uniquement `PersonOcrProjectionEditor`; la page suivante
+contient uniquement `PersonFactualRelationEditor`. Le résumé distingue la
+correction OCR persistée, les projections choisies et les relations préparées.
+
+La V20 ajoute `document_identity_misuse_assessments`, domaine distinct de
+l’authenticité documentaire. Ses états `indeterminate`, `presumed` et
+`confirmed` sont exclusivement humains, chaînés et append-only. La fiche de
+preuve affiche séparément leur origine et leur justification.
+
+La collecte des justifications des rôles sensibles et l’alimentation plus
+complète de `person_identification_assessments` restent des renforcements de
+cohérence, non des exigences contractuelles explicites du ticket #109.
 
 ---
 
@@ -430,7 +445,7 @@ validation du chemin
     ↓
 création de l'arborescence
     ↓
-initialisation transactionnelle de SQLite V18
+initialisation transactionnelle de SQLite V20
     ↓
 création de l'identité de l'enquête
     ↓
@@ -879,7 +894,8 @@ Validation :
 ```sh
 make clean
 make -j8
-make -j8 test
+make check-source-size
+DISPLAY="$DISPLAY" WAYLAND_DISPLAY="$WAYLAND_DISPLAY" make -j8 test
 git diff --check
 ```
 

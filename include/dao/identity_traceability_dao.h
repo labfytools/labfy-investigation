@@ -16,6 +16,13 @@ GPtrArray *identity_traceability_dao_list_authenticity(
  IdentityTraceabilityDao *dao,const char *evidence_identifier,GError **error);
 DocumentAuthenticityAssessment *identity_traceability_dao_current_authenticity(
  IdentityTraceabilityDao *dao,const char *evidence_identifier,GError **error);
+gboolean identity_traceability_dao_insert_identity_misuse(
+ IdentityTraceabilityDao *dao,const DocumentIdentityMisuseAssessment *assessment,
+ GError **error);
+GPtrArray *identity_traceability_dao_list_identity_misuse(
+ IdentityTraceabilityDao *dao,const char *evidence_identifier,GError **error);
+DocumentIdentityMisuseAssessment *identity_traceability_dao_current_identity_misuse(
+ IdentityTraceabilityDao *dao,const char *evidence_identifier,GError **error);
 gboolean identity_traceability_dao_insert_factual_relation(
  IdentityTraceabilityDao *dao,const PersonEvidenceFactualRelation *relation,
  GError **error);

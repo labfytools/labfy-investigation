@@ -1,7 +1,7 @@
 /******************************************************************************
  * Labfy Investigation
  *
- * Extensions idempotentes du schéma SQLite courant V9
+ * Extensions idempotentes du schéma SQLite courant V20
  ******************************************************************************/
 
 /*
@@ -436,3 +436,64 @@ BEFORE UPDATE ON identity_field_observations BEGIN
  WHEN NEW.confirmation_state='human_confirmed' AND NEW.confirmed_value IS NULL
   THEN RAISE(ABORT,'confirmed value required') END;
 END;
+
+CREATE TABLE IF NOT EXISTS person_profile_fields(
+ person_id TEXT NOT NULL,field_code TEXT NOT NULL,value TEXT NOT NULL,
+ updated_at TEXT NOT NULL CHECK(length(updated_at)=20),
+ PRIMARY KEY(person_id,field_code),
+ CHECK(field_code IN('declared_name','surname','given_names','birth_date',
+ 'birth_place','nationality','sex_as_printed','address_as_printed')),
+ CHECK(length(trim(value))>0),
+ FOREIGN KEY(person_id) REFERENCES entites(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS person_ocr_field_projections(
+ id TEXT PRIMARY KEY,person_id TEXT NOT NULL,person_field_code TEXT NOT NULL,
+ previous_value TEXT,new_value TEXT NOT NULL,evidence_id TEXT NOT NULL,
+ ocr_run_id TEXT NOT NULL,ocr_field_id TEXT NOT NULL,ocr_field_code TEXT NOT NULL,
+ value_quality TEXT NOT NULL CHECK(value_quality IN('complete','partial')),
+ review_status TEXT NOT NULL CHECK(review_status IN('accepted','modified')),
+ strategy TEXT NOT NULL CHECK(strategy IN('fill_empty','replace_existing')),
+ projected_at TEXT NOT NULL CHECK(length(projected_at)=20),
+ origin TEXT NOT NULL CHECK(origin='human'),
+ FOREIGN KEY(person_id) REFERENCES entites(id) ON DELETE RESTRICT,
+ FOREIGN KEY(evidence_id) REFERENCES preuves(id) ON DELETE RESTRICT,
+ FOREIGN KEY(ocr_run_id) REFERENCES identity_ocr_runs(id) ON DELETE RESTRICT,
+ FOREIGN KEY(ocr_field_id) REFERENCES identity_field_observations(id)
+   ON DELETE RESTRICT);
+CREATE INDEX IF NOT EXISTS idx_person_projection_person
+ ON person_ocr_field_projections(person_id,projected_at,id);
+CREATE TRIGGER IF NOT EXISTS projection_v19_consistency
+BEFORE INSERT ON person_ocr_field_projections BEGIN
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM identity_field_observations f
+  WHERE f.id=NEW.ocr_field_id AND f.ocr_run_id=NEW.ocr_run_id
+  AND f.evidence_id=NEW.evidence_id AND f.field_code=NEW.ocr_field_code
+  AND f.confirmation_state='human_confirmed'
+  AND length(trim(f.confirmed_value))>0
+  AND f.review_status IN('accepted','modified')
+  AND f.value_quality IN('complete','partial')
+  AND f.confirmed_value=NEW.new_value)
+ THEN RAISE(ABORT,'OCR field is no longer projectable') END;
+END;
+
+/* V20 — évaluations humaines distinctes de l’usage abusif d’identité. */
+CREATE TABLE IF NOT EXISTS document_identity_misuse_assessments(
+ id TEXT PRIMARY KEY,evidence_id TEXT NOT NULL,ocr_run_id TEXT,
+ status TEXT NOT NULL CHECK(status IN('indeterminate','presumed','confirmed')),
+ justification TEXT,assessed_at TEXT NOT NULL CHECK(length(assessed_at)=20),
+ previous_assessment_id TEXT,origin TEXT NOT NULL CHECK(origin='human'),
+ CHECK(status='indeterminate' OR length(trim(justification))>0),
+ FOREIGN KEY(evidence_id) REFERENCES preuves(id) ON DELETE RESTRICT,
+ FOREIGN KEY(ocr_run_id) REFERENCES identity_ocr_runs(id) ON DELETE RESTRICT,
+ FOREIGN KEY(previous_assessment_id) REFERENCES document_identity_misuse_assessments(id) ON DELETE RESTRICT);
+CREATE INDEX IF NOT EXISTS idx_identity_misuse_evidence_history
+ ON document_identity_misuse_assessments(evidence_id,assessed_at,id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_misuse_previous
+ ON document_identity_misuse_assessments(previous_assessment_id)
+ WHERE previous_assessment_id IS NOT NULL;
+CREATE TRIGGER IF NOT EXISTS identity_misuse_consistency BEFORE INSERT ON document_identity_misuse_assessments BEGIN
+ SELECT CASE WHEN NEW.ocr_run_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM identity_ocr_runs r WHERE r.id=NEW.ocr_run_id AND r.evidence_id=NEW.evidence_id) THEN RAISE(ABORT,'OCR run does not belong to evidence') END;
+ SELECT CASE WHEN NEW.previous_assessment_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM document_identity_misuse_assessments p WHERE p.id=NEW.previous_assessment_id AND p.evidence_id=NEW.evidence_id) THEN RAISE(ABORT,'previous assessment does not belong to evidence') END;
+ SELECT CASE WHEN EXISTS(SELECT 1 FROM document_identity_misuse_assessments p WHERE p.evidence_id=NEW.evidence_id) AND NEW.previous_assessment_id IS NULL THEN RAISE(ABORT,'previous assessment is required') END;
+ SELECT CASE WHEN NEW.previous_assessment_id IS NOT NULL AND EXISTS(SELECT 1 FROM document_identity_misuse_assessments n WHERE n.previous_assessment_id=NEW.previous_assessment_id) THEN RAISE(ABORT,'previous assessment is not current') END;
+END;
+CREATE TRIGGER IF NOT EXISTS identity_misuse_append_only_update BEFORE UPDATE ON document_identity_misuse_assessments BEGIN SELECT RAISE(ABORT,'identity misuse history is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS identity_misuse_append_only_delete BEFORE DELETE ON document_identity_misuse_assessments BEGIN SELECT RAISE(ABORT,'identity misuse history is append-only'); END;

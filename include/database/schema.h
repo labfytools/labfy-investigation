@@ -100,6 +100,7 @@ bool schema_install_v16(Database *database);
 bool schema_install_v17(Database *database);
 bool schema_install_v18(Database *database);
 bool schema_install_v19(Database *database);
+bool schema_install_v20(Database *database);
 
 /**
  * @brief Garantit la présence des extensions du schéma courant V2.

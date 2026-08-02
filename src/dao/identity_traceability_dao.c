@@ -100,6 +100,83 @@ DocumentAuthenticityAssessment *identity_traceability_dao_current_authenticity(
   document_authenticity_assessment_copy(g_ptr_array_index(a,0)):NULL;
  g_ptr_array_unref(a);return r;
 }
+gboolean identity_traceability_dao_insert_identity_misuse(
+ IdentityTraceabilityDao*d,const DocumentIdentityMisuseAssessment*a,GError**e)
+{
+ DocumentIdentityMisuseAssessment*valid=a?document_identity_misuse_assessment_copy(a):NULL;
+ if(!d||!valid){fail(e,"Évaluation d’usage d’identité invalide.");return FALSE;}
+ const char*run=document_identity_misuse_assessment_get_ocr_run_identifier(valid);
+ if(run){DatabaseStatement*check=database_statement_prepare(d->database,
+  "SELECT 1 FROM identity_ocr_runs WHERE id=? AND evidence_id=?;");
+  gboolean compatible=check&&bind(check,1,run)&&bind(check,2,
+   document_identity_misuse_assessment_get_evidence_identifier(valid))&&
+   database_statement_step(check)==DATABASE_STATEMENT_STEP_ROW;
+  database_statement_finalize(check);if(!compatible){
+   document_identity_misuse_assessment_free(valid);
+   fail(e,"L’exécution OCR ne correspond pas à la preuve évaluée.");return FALSE;}}
+ const char*previous=document_identity_misuse_assessment_get_previous_identifier(valid);
+ if(previous){DatabaseStatement*check=database_statement_prepare(d->database,
+  "SELECT 1 FROM document_identity_misuse_assessments WHERE id=? AND evidence_id=?;");
+  gboolean compatible=check&&bind(check,1,previous)&&bind(check,2,
+   document_identity_misuse_assessment_get_evidence_identifier(valid))&&
+   database_statement_step(check)==DATABASE_STATEMENT_STEP_ROW;
+  database_statement_finalize(check);if(!compatible){
+   document_identity_misuse_assessment_free(valid);
+   fail(e,"L’évaluation précédente ne correspond pas à la preuve.");return FALSE;}}
+ DatabaseStatement*s=database_statement_prepare(d->database,
+  "INSERT INTO document_identity_misuse_assessments VALUES(?,?,?,?,?,?,?,?);");
+ gboolean ok=s&&bind(s,1,document_identity_misuse_assessment_get_identifier(valid))&&
+  bind(s,2,document_identity_misuse_assessment_get_evidence_identifier(valid))&&
+  bind(s,3,run)&&bind(s,4,document_identity_misuse_assessment_get_status(valid))&&
+  bind(s,5,document_identity_misuse_assessment_get_justification(valid))&&
+  bind(s,6,document_identity_misuse_assessment_get_assessed_at(valid))&&
+  bind(s,7,previous)&&bind(s,8,"human")&&
+  database_statement_step(s)==DATABASE_STATEMENT_STEP_DONE;
+ database_statement_finalize(s);document_identity_misuse_assessment_free(valid);
+ if(!ok)fail(e,"Impossible de conserver l’évaluation d’usage d’identité.");
+ return ok;
+}
+static DocumentIdentityMisuseAssessment *read_misuse(DatabaseStatement*s)
+{
+ char*v[8]={0};gboolean ok=TRUE;for(int i=0;i<8;i++)
+  ok=ok&&database_statement_column_text(s,i,&v[i]);
+ DocumentIdentityMisuseAssessment*a=ok?document_identity_misuse_assessment_new(
+  v[0],v[1],v[2],v[3],v[4],v[5],v[6]):NULL;
+ for(int i=0;i<8;i++)g_free(v[i]);
+ return a;
+}
+GPtrArray *identity_traceability_dao_list_identity_misuse(
+ IdentityTraceabilityDao*d,const char*evidence,GError**e)
+{
+ if(!d||!evidence){fail(e,"Lecture de l’usage d’identité invalide.");return NULL;}
+ DatabaseStatement*s=database_statement_prepare(d->database,
+  "SELECT id,evidence_id,ocr_run_id,status,justification,assessed_at,"
+  "previous_assessment_id,origin FROM document_identity_misuse_assessments "
+  "WHERE evidence_id=? ORDER BY assessed_at,id;");
+ GPtrArray*a=g_ptr_array_new_with_free_func((GDestroyNotify)
+  document_identity_misuse_assessment_free);if(!s||!bind(s,1,evidence))goto bad_misuse;
+ for(;;){DatabaseStatementStepResult step=database_statement_step(s);
+  if(step==DATABASE_STATEMENT_STEP_DONE)break;
+  if(step!=DATABASE_STATEMENT_STEP_ROW)goto bad_misuse;
+  DocumentIdentityMisuseAssessment*r=read_misuse(s);if(!r)goto bad_misuse;g_ptr_array_add(a,r);}
+ database_statement_finalize(s);return a;
+bad_misuse:database_statement_finalize(s);g_ptr_array_unref(a);
+ fail(e,"Impossible de lire l’historique d’usage d’identité.");return NULL;
+}
+DocumentIdentityMisuseAssessment *identity_traceability_dao_current_identity_misuse(
+ IdentityTraceabilityDao*d,const char*evidence,GError**e)
+{
+ GPtrArray*a=identity_traceability_dao_list_identity_misuse(d,evidence,e);if(!a)return NULL;
+ DocumentIdentityMisuseAssessment*current=NULL;
+ for(guint i=0;i<a->len;i++){DocumentIdentityMisuseAssessment*c=g_ptr_array_index(a,i);
+  gboolean has_next=FALSE;for(guint j=0;j<a->len;j++){
+   DocumentIdentityMisuseAssessment*n=g_ptr_array_index(a,j);
+   if(g_strcmp0(document_identity_misuse_assessment_get_previous_identifier(n),
+    document_identity_misuse_assessment_get_identifier(c))==0){has_next=TRUE;break;}}
+  if(!has_next)current=c;}
+ DocumentIdentityMisuseAssessment*r=document_identity_misuse_assessment_copy(current);
+ g_ptr_array_unref(a);return r;
+}
 gboolean identity_traceability_dao_insert_factual_relation(
  IdentityTraceabilityDao*d,const PersonEvidenceFactualRelation*r,GError**e)
 {

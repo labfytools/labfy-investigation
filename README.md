@@ -390,6 +390,18 @@ make clean
 
 Le projet est compilé en C17 avec les avertissements traités comme des erreurs.
 
+L’assistant de création d’une personne suit sept étapes distinctes :
+`Personne`, `Rôles`, `Preuves`, `OCR identité`, `Projection OCR`,
+`Relations factuelles`, puis `Confirmation`. La révision OCR conserve les
+valeurs brute, normalisée, corrigée et confirmée avant toute projection. La
+projection et les relations sont facultatives, vides par défaut et résumées
+séparément avant l’unique écriture transactionnelle finale.
+
+Le schéma SQLite courant est la V20. Une création neuve installe directement
+les extensions V19 et V20 ; une base V19 utilise `database/schema_v20.sql`.
+La fiche de preuve sépare l’authenticité de l’évaluation humaine de l’usage
+d’identité, dont l’historique est append-only et jamais produit par l’OCR.
+
 ---
 
 ## Tests
@@ -405,7 +417,8 @@ Vérifications recommandées avant chaque commit :
 ```bash
 make clean
 make -j8
-make -j8 test
+make check-source-size
+DISPLAY="$DISPLAY" WAYLAND_DISPLAY="$WAYLAND_DISPLAY" make -j8 test
 git diff --check
 ```
 
@@ -427,6 +440,9 @@ G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_identity_import_gtk
 G_DEBUG=fatal-criticals timeout 30s ./tests/test_workspace_identity_ocr_gtk
 G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_preview_widget_gtk
 G_DEBUG=fatal-criticals timeout 30s ./tests/test_dialog_geometry_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_person_factual_relation_editor_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_document_authenticity_editor_gtk
+G_DEBUG=fatal-criticals timeout 30s ./tests/test_person_ocr_projection_editor_gtk
 ```
 
 Les tests emploient uniquement des documents `SPECIMEN`, des fichiers
