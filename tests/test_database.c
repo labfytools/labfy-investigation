@@ -525,7 +525,7 @@ static void test_database_initialize_valid_database(void)
         "FROM investigation;"
     );
 
-    assert(strcmp(schema_version, "18") == 0);
+    assert(strcmp(schema_version, "19") == 0);
     test_database_assert_table_exists(database, "person_role_assignments");
     test_database_assert_table_exists(database, "bank_account_entities");
     test_database_assert_table_exists(database, "relation_types");
@@ -1001,7 +1001,7 @@ static void test_database_migrate_v1_to_v2(void)
     assert(
         strcmp(
             schema_version,
-            "18"
+            "19"
         ) == 0
     );
 
@@ -1430,6 +1430,8 @@ static void test_database_migrate_v12_to_v13_preserves_legacy_link(void)
         "INSERT INTO person_roles(entity_id,role,updated_at) VALUES("
         "'20000000-0000-4000-8000-000000000014','alleged_scammer',"
         "'2026-07-28T08:00:00Z');"
+        "DROP TABLE person_ocr_field_projections;"
+        "DROP TABLE person_profile_fields;"
         "DROP TABLE person_identification_assessments;"
         "DROP TABLE person_evidence_factual_relations;"
         "DROP TABLE document_authenticity_assessments;"
@@ -1464,7 +1466,7 @@ static void test_database_migrate_v12_to_v13_preserves_legacy_link(void)
     legacy_sources = test_database_read_single_text(sqlite_database,
         "SELECT COUNT(*) FROM preuve_entite_sources "
         "WHERE source_kind='legacy_manual';");
-    assert(strcmp(version, "18") == 0);
+    assert(strcmp(version, "19") == 0);
     assert(strcmp(legacy_sources, "1") == 0);
     char *legacy_role = test_database_read_single_text(sqlite_database,
         "SELECT role_code || ':' || provenance_kind "

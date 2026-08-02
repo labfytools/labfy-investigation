@@ -474,7 +474,7 @@ void workspace_set_entity_selected_callback(Workspace *workspace,
 void workspace_set_person_evidences(Workspace *workspace,
     const GPtrArray *records);
 void workspace_set_person_factual_relations(Workspace *workspace,
-    const GPtrArray *relations, const GPtrArray *evidence_records);
+    const GPtrArray *relations, const GPtrArray *evidence_records,const GHashTable *profile_fields);
 
 /**
  * @brief Affiche le graphe chargé avec sa disposition persistée.

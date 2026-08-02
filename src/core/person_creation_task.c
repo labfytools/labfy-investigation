@@ -1,4 +1,5 @@
 #include "core/person_creation_task.h"
+#include "models/person_ocr_projection.h"
 
 struct PersonCreationTaskRequest {
     char *database_path;
@@ -13,12 +14,13 @@ struct PersonCreationTaskRequest {
     PersonEvidenceSelection *selection;
     GPtrArray *ocr_runs;
     GPtrArray *factual_relations;
+    GPtrArray *ocr_projections;
 };
 PersonCreationTaskRequest *person_creation_task_request_new(
     const char *database_path, const char *root,
     const PersonEntityInput *person,
     const PersonEvidenceSelection *selection, const GPtrArray *ocr_runs,
-    const GPtrArray *factual_relations)
+    const GPtrArray *factual_relations,const GPtrArray *ocr_projections)
 {
     PersonCreationTaskRequest *request;
     if (database_path == NULL || root == NULL || person == NULL) return NULL;
@@ -65,6 +67,11 @@ PersonCreationTaskRequest *person_creation_task_request_new(
             g_ptr_array_add(request->factual_relations, copy_rel);
         }
     }
+    request->ocr_projections=g_ptr_array_new_with_free_func(
+        (GDestroyNotify)person_ocr_field_projection_free);
+    for(guint i=0;ocr_projections&&i<ocr_projections->len;i++)
+        g_ptr_array_add(request->ocr_projections,person_ocr_field_projection_copy(
+            g_ptr_array_index((GPtrArray*)ocr_projections,i)));
 
     return request;
 }
@@ -87,6 +94,7 @@ void person_creation_task_request_free(PersonCreationTaskRequest *request)
         }
         g_ptr_array_unref(request->factual_relations);
     }
+    g_ptr_array_unref(request->ocr_projections);
     g_free(request);
 }
 static gboolean worker(BackgroundTask *task, GCancellable *cancellable,
@@ -102,9 +110,10 @@ static gboolean worker(BackgroundTask *task, GCancellable *cancellable,
             "Impossible d’ouvrir la base de l’enquête.");
         return FALSE;
     }
-    if (request->factual_relations != NULL && request->factual_relations->len > 0) {
+    if ((request->factual_relations != NULL && request->factual_relations->len > 0)||request->ocr_projections->len>0) {
         PersonCreationCoordinatorOptions options = {0};
         options.factual_relations = request->factual_relations;
+        options.ocr_projections = request->ocr_projections;
         *result = person_creation_coordinator_execute_with_options(database, request->root,
             &request->person, request->selection, request->ocr_runs, &options,
             cancellable, error);
@@ -127,7 +136,7 @@ BackgroundTask *person_creation_task_start(TaskManager *manager,
     task = background_task_new("Création de la personne et import des preuves");
     copy = person_creation_task_request_new(request->database_path,
         request->root, &request->person, request->selection,
-        request->ocr_runs, request->factual_relations);
+        request->ocr_runs, request->factual_relations,request->ocr_projections);
     if (task == NULL || copy == NULL ||
         !task_manager_add(manager, task, error) ||
         !background_task_start(task, worker, copy,

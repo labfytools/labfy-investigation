@@ -64,7 +64,7 @@ gboolean identity_ocr_dao_insert(IdentityOcrDao*d,const char*person,
  const GPtrArray*fields=identity_ocr_run_get_fields(r);
  for(guint i=0;fields&&i<fields->len;i++){IdentityFieldObservation*f=g_ptr_array_index((GPtrArray*)fields,i);
   IdentityReviewStatus status=identity_field_observation_get_status(f);
-  const IdentitySourceBox*b=identity_field_observation_get_box(f);char*id=g_uuid_string_random();
+  const IdentitySourceBox*b=identity_field_observation_get_box(f);const char*id=identity_field_observation_get_identifier(f);
   s=database_statement_prepare(d->database,"INSERT INTO identity_field_observations("
    "id,observation_id,field_code,raw_value,corrected_value,normalized_value,"
    "confidence,review_status,"
@@ -92,7 +92,7 @@ gboolean identity_ocr_dao_insert(IdentityOcrDao*d,const char*person,
     ?"human_confirmed":"unconfirmed")&&
    bind_text(s,23,identity_field_observation_get_value_quality(f))&&
    database_statement_step(s)==DATABASE_STATEMENT_STEP_DONE;
-  database_statement_finalize(s);g_free(id);if(!ok){g_free(obs);goto fail;}}
+  database_statement_finalize(s);if(!ok){g_free(obs);goto fail;}}
  g_free(obs);return TRUE;
 fail:g_set_error_literal(error,g_quark_from_static_string("identity-ocr-dao"),1,
  "Impossible de conserver l’OCR d’identité.");return FALSE;
@@ -357,6 +357,7 @@ IdentityOcrRun *identity_ocr_dao_load_run(
     :identity_field_observation_new_manual(f->field_code,
       f->corrected_value,(guint)f->display_order);
    if(field==NULL)continue;
+   identity_field_observation_replace_identifier(field,f->id);
    if(f->corrected_value!=NULL)
     identity_field_observation_modify(field,f->corrected_value,f->review_note);
    if(g_strcmp0(f->review_status,"accepted")==0)
@@ -393,7 +394,7 @@ static gboolean update_review_fields(IdentityOcrDao*d,const char*observation,
  for(guint i=0;fields!=NULL&&i<fields->len;i++){
   IdentityFieldObservation*f=g_ptr_array_index((GPtrArray*)fields,i);
   const IdentitySourceBox*b=identity_field_observation_get_box(f);
-  char*id=g_uuid_string_random();
+  const char*id=identity_field_observation_get_identifier(f);
   DatabaseStatement*s=database_statement_prepare(d->database,
    "INSERT INTO identity_field_observations(id,observation_id,field_code,"
    "raw_value,corrected_value,normalized_value,confidence,review_status,origin,evidence_id,"
@@ -431,7 +432,7 @@ static gboolean update_review_fields(IdentityOcrDao*d,const char*observation,
     ?"human_confirmed":"unconfirmed")&&
    bind_text(s,23,identity_field_observation_get_value_quality(f))&&
    database_statement_step(s)==DATABASE_STATEMENT_STEP_DONE;
-  database_statement_finalize(s);g_free(id);if(!ok)return FALSE;
+  database_statement_finalize(s);if(!ok)return FALSE;
  }
  return TRUE;
 }

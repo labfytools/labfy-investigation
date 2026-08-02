@@ -42,6 +42,7 @@ struct EntityDetailsPanel
     GtkWidget *person_evidence_button;
     GtkWidget *person_evidence_summary_label;
     GtkWidget *person_factual_relations_box;
+    GtkWidget *person_profile_fields_box;
     GtkWidget *entity_evidence_box;
     GtkWidget *evidence_buttons_box;
 
@@ -889,6 +890,8 @@ EntityDetailsPanel *entity_details_panel_new(void)
         details_panel->person_evidence_button);
     gtk_box_append(GTK_BOX(details_box), details_panel->person_role_box);
     details_panel->person_factual_relations_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    details_panel->person_profile_fields_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_box_append(GTK_BOX(details_box), details_panel->person_profile_fields_box);
     gtk_box_append(GTK_BOX(details_box), details_panel->person_factual_relations_box);
     gtk_box_append(GTK_BOX(details_box), details_panel->entity_evidence_box);
     g_signal_connect(details_panel->person_role_dropdown, "notify::selected",
@@ -970,6 +973,41 @@ EntityDetailsPanel *entity_details_panel_new(void)
     );
 
     return details_panel;
+}
+
+void entity_details_panel_set_person_profile_fields(EntityDetailsPanel *panel,
+    const GHashTable *fields)
+{
+    static const struct { const char *code; const char *label; } rows[] = {
+        {"declared_name", "Nom déclaré"}, {"surname", "Nom"},
+        {"given_names", "Prénoms"}, {"birth_date", "Date de naissance"},
+        {"birth_place", "Lieu de naissance"}, {"nationality", "Nationalité"},
+        {"sex_as_printed", "Sexe imprimé"},
+        {"address_as_printed", "Adresse imprimée"}
+    };
+    if (panel == NULL || panel->person_profile_fields_box == NULL) return;
+    GtkWidget *child = NULL;
+    while ((child = gtk_widget_get_first_child(panel->person_profile_fields_box)))
+        gtk_box_remove(GTK_BOX(panel->person_profile_fields_box), child);
+    if (fields == NULL || g_hash_table_size((GHashTable *)fields) == 0) {
+        gtk_widget_set_visible(panel->person_profile_fields_box, FALSE);
+        return;
+    }
+    GtkWidget *title = gtk_label_new("Valeurs confirmées du profil");
+    gtk_label_set_xalign(GTK_LABEL(title), 0.0F);
+    gtk_box_append(GTK_BOX(panel->person_profile_fields_box), title);
+    for (guint i = 0; i < G_N_ELEMENTS(rows); i++) {
+        const char *value = g_hash_table_lookup((GHashTable *)fields, rows[i].code);
+        if (value == NULL) continue;
+        char *text = g_strdup_printf("%s : %s", rows[i].label, value);
+        GtkWidget *label = gtk_label_new(text);
+        gtk_label_set_xalign(GTK_LABEL(label), 0.0F);
+        gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+        gtk_label_set_selectable(GTK_LABEL(label), TRUE);
+        gtk_box_append(GTK_BOX(panel->person_profile_fields_box), label);
+        g_free(text);
+    }
+    gtk_widget_set_visible(panel->person_profile_fields_box, TRUE);
 }
 
 GtkWidget *entity_details_panel_get_widget(

@@ -3914,8 +3914,8 @@ void workspace_set_entity_selected_callback(Workspace *workspace,
 void workspace_set_person_evidences(Workspace *workspace, const GPtrArray *records) {
     if (workspace) entity_details_panel_set_person_evidences(workspace->entity_details_panel, records);
 }
-void workspace_set_person_factual_relations(Workspace *workspace, const GPtrArray *relations, const GPtrArray *evidence_records) {
-    if (workspace) entity_details_panel_set_person_factual_relations(workspace->entity_details_panel, relations, evidence_records);
+void workspace_set_person_factual_relations(Workspace *workspace, const GPtrArray *relations, const GPtrArray *evidence_records,const GHashTable *profile_fields) {
+    if (workspace) { entity_details_panel_set_person_factual_relations(workspace->entity_details_panel, relations, evidence_records);entity_details_panel_set_person_profile_fields(workspace->entity_details_panel,profile_fields); }
 }
 
 void workspace_reset_graph_layout(

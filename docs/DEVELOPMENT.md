@@ -20,6 +20,11 @@ L’authenticité documentaire se valide avec
 sur un affichage GTK réel avec `G_DEBUG=fatal-criticals`; ses données et sa
 base SQLite sont exclusivement temporaires et marquées `SPECIMEN`.
 
+La projection OCR se valide avec `test_person_ocr_projection`,
+`test_person_creation_coordinator` et
+`test_person_ocr_projection_editor_gtk`, ce dernier sous affichage réel et
+`G_DEBUG=fatal-criticals`.
+
 La validation ciblée de l’aperçu partagé comprend
 `test_evidence_preview_widget_gtk`, `test_evidence_preview`,
 `test_evidence_video_preview_controller` et

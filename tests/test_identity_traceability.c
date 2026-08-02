@@ -218,6 +218,7 @@ static void test_migrate_v17_preserves_ocr(void)
  Fixture f=fixture_new();database_close(f.database);f.database=NULL;
  sqlite3*d=NULL;g_assert_cmpint(sqlite3_open(f.path,&d),==,SQLITE_OK);
  exec_ok(d,"PRAGMA foreign_keys=OFF;"
+ "DROP TABLE person_ocr_field_projections;DROP TABLE person_profile_fields;"
  "DROP TABLE person_identification_assessments;"
  "DROP TABLE person_evidence_factual_relations;"
  "DROP TABLE document_authenticity_assessments;"
@@ -257,7 +258,7 @@ static void test_migrate_v17_preserves_ocr(void)
  char*version=scalar(d,"SELECT value FROM metadata WHERE key='schema_version';");
  char*values=scalar(d,"SELECT raw_value||':'||normalized_value||':'||corrected_value"
  "||':'||confirmation_state FROM identity_field_observations WHERE id='" FIELD "';");
- g_assert_cmpstr(version,==,"18");
+ g_assert_cmpstr(version,==,"19");
  g_assert_cmpstr(values,==,"BRUT SPECIMEN:BRUT SPECIMEN:CORRIGÉ SPECIMEN:unconfirmed");
  sqlite3_close(d);g_free(version);g_free(values);
  f.database=database_open(f.path);g_assert_true(database_migrate_to_latest(f.database));

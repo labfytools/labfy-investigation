@@ -157,6 +157,7 @@ PersonFactualRelationEditor *person_factual_relation_editor_new(void)
     PersonFactualRelationEditor *editor=g_new0(PersonFactualRelationEditor,1);
     editor->rows=g_ptr_array_new_with_free_func(row_free);
     editor->root=gtk_box_new(GTK_ORIENTATION_VERTICAL,8);
+    gtk_widget_set_name(editor->root,"person-factual-relation-editor");
     GtkWidget *header=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,8);
     GtkWidget *title=gtk_label_new("Relations factuelles");
     gtk_widget_set_hexpand(title,TRUE);gtk_widget_set_halign(title,GTK_ALIGN_START);

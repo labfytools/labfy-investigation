@@ -198,6 +198,8 @@ TEST_WORKSPACE_IDENTITY_OCR_GTK := tests/test_workspace_identity_ocr_gtk
 TEST_DIALOG_GEOMETRY_GTK := tests/test_dialog_geometry_gtk
 TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK := tests/test_person_factual_relation_editor_gtk
 TEST_DOCUMENT_AUTHENTICITY_EDITOR_GTK := tests/test_document_authenticity_editor_gtk
+TEST_PERSON_OCR_PROJECTION := tests/test_person_ocr_projection
+TEST_PERSON_OCR_PROJECTION_EDITOR_GTK := tests/test_person_ocr_projection_editor_gtk
 FAKE_DOCUMENT_TOOL := tests/fake_document_tool
 
 DOCUMENT_ANALYSIS_TEST_SOURCES := \
@@ -234,6 +236,21 @@ $(TEST_DOCUMENT_AUTHENTICITY_EDITOR_GTK): \
 	src/dao/identity_traceability_dao.c src/database/database.c \
 	src/database/schema.c src/database/statement.c src/database/transaction.c \
 	src/database/error.c src/core/relation_type_normalizer.c
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+PERSON_OCR_PROJECTION_SOURCES := src/models/person_ocr_projection.c \
+	src/core/person_ocr_projection_mapping.c src/core/person_ocr_projection_service.c \
+	src/dao/person_ocr_projection_dao.c src/dao/identity_ocr_dao.c \
+	src/models/identity_ocr.c src/models/identity_traceability.c \
+	src/dao/entity_dao.c src/models/entity_record.c src/database/database.c \
+	src/database/schema.c src/database/statement.c src/database/transaction.c \
+	src/database/error.c src/core/relation_type_normalizer.c
+$(TEST_PERSON_OCR_PROJECTION): tests/test_person_ocr_projection.c $(PERSON_OCR_PROJECTION_SOURCES)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+$(TEST_PERSON_OCR_PROJECTION_EDITOR_GTK): tests/test_person_ocr_projection_editor_gtk.c \
+	src/views/person_ocr_projection_editor.c src/models/person_ocr_projection.c \
+	src/core/person_ocr_projection_mapping.c src/models/identity_ocr.c \
+	src/models/identity_traceability.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 all: $(TARGET)
@@ -958,6 +975,9 @@ $(TEST_CREATE_PERSON_DIALOG_GTK): tests/test_create_person_dialog_gtk.c \
 	src/views/create_person_dialog.c src/views/dialog_geometry.c \
 	src/views/person_vocabulary_adapter.c \
 	src/views/person_factual_relation_editor.c \
+	src/views/person_ocr_projection_editor.c src/views/person_creation_confirmation.c \
+	src/models/person_ocr_projection.c \
+	src/core/person_ocr_projection_mapping.c \
 	src/views/identity_ocr_option_adapter.c \
 	src/core/person_dialog_lifecycle.c \
 	src/core/person_confirmation_summary.c \
@@ -989,6 +1009,7 @@ $(TEST_CREATE_PERSON_DIALOG_OCR_GTK): \
 	src/views/create_person_dialog.c src/views/dialog_geometry.c \
 	src/views/person_vocabulary_adapter.c \
 	src/views/person_factual_relation_editor.c \
+	src/views/person_ocr_projection_editor.c src/views/person_creation_confirmation.c \
 	src/views/identity_ocr_option_adapter.c \
 	src/core/person_dialog_lifecycle.c \
 	src/core/person_confirmation_summary.c \
@@ -1000,6 +1021,8 @@ $(TEST_CREATE_PERSON_DIALOG_OCR_GTK): \
 	src/core/identity_ocr_workflow.c \
 	src/core/identity_field_extractor.c src/core/ocr_analysis.c \
 	src/core/person_creation_coordinator.c \
+	src/models/person_ocr_projection.c src/core/person_ocr_projection_mapping.c \
+	src/core/person_ocr_projection_service.c src/dao/person_ocr_projection_dao.c \
 	src/core/document_analysis.c src/core/document_tool_runner.c \
 	src/core/tool_registry.c src/models/identity_ocr.c \
 	src/dao/identity_ocr_dao.c src/dao/entity_dao.c \
@@ -1056,6 +1079,8 @@ $(TEST_EVIDENCE_STAGING): tests/test_evidence_staging.c \
 $(TEST_PERSON_CREATION_COORDINATOR): \
 	tests/test_person_creation_coordinator.c \
 	src/core/person_creation_coordinator.c src/core/evidence_staging.c \
+	src/models/person_ocr_projection.c src/core/person_ocr_projection_mapping.c \
+	src/core/person_ocr_projection_service.c src/dao/person_ocr_projection_dao.c \
 	src/core/file_hash.c \
 	src/models/identity_ocr.c src/dao/identity_ocr_dao.c \
 	src/models/identity_traceability.c src/dao/identity_traceability_dao.c \
@@ -1212,7 +1237,9 @@ test: \
 	$(TEST_WORKSPACE_IDENTITY_OCR_GTK) \
 	$(TEST_DIALOG_GEOMETRY_GTK) \
 	$(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK) \
-	$(TEST_DOCUMENT_AUTHENTICITY_EDITOR_GTK)
+	$(TEST_DOCUMENT_AUTHENTICITY_EDITOR_GTK) \
+	$(TEST_PERSON_OCR_PROJECTION) \
+	$(TEST_PERSON_OCR_PROJECTION_EDITOR_GTK)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -1310,6 +1337,8 @@ test: \
 	@$(TEST_DIALOG_GEOMETRY_GTK)
 	@$(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK)
 	@$(TEST_DOCUMENT_AUTHENTICITY_EDITOR_GTK)
+	@$(TEST_PERSON_OCR_PROJECTION)
+	@$(TEST_PERSON_OCR_PROJECTION_EDITOR_GTK)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -1411,6 +1440,8 @@ clean:
 	$(TEST_DIALOG_GEOMETRY_GTK) \
 	$(TEST_PERSON_FACTUAL_RELATION_EDITOR_GTK) \
 	$(TEST_DOCUMENT_AUTHENTICITY_EDITOR_GTK) \
+	$(TEST_PERSON_OCR_PROJECTION) \
+	$(TEST_PERSON_OCR_PROJECTION_EDITOR_GTK) \
 	$(FAKE_DOCUMENT_TOOL)
 
 

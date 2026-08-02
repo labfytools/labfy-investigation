@@ -57,7 +57,8 @@ static void assert_empty_after_reopen(const char *database_path)
         "entites", "preuves", "preuve_entites", "preuve_entite_sources",
         "person_role_assignments", "identity_ocr_runs",
         "identity_document_observations", "identity_field_observations",
-        "person_evidence_factual_relations"
+        "person_evidence_factual_relations", "person_profile_fields",
+        "person_ocr_field_projections"
     };
     Database *database = database_open(database_path);
     g_assert_nonnull(database);
@@ -102,6 +103,7 @@ static void test_failure_matrix(void)
         {PERSON_CREATION_FAILURE_CREATE_SOURCE,1},
         {PERSON_CREATION_FAILURE_CREATE_SOURCE,2},
         {PERSON_CREATION_FAILURE_INSERT_FACTUAL_RELATION,0},
+        {PERSON_CREATION_FAILURE_APPLY_OCR_PROJECTION,0},
         {PERSON_CREATION_FAILURE_SESSION_BEFORE_COMMIT,0},
         {PERSON_CREATION_FAILURE_ARTIFACT_TEXT_CHANGED,0},
         {PERSON_CREATION_FAILURE_ARTIFACT_TSV_CHANGED,0},
@@ -152,6 +154,7 @@ static void test_failure_matrix(void)
                 identity_field_observation_new("surname", "SPECIMEN",
                     90, NULL, i);
             identity_field_observation_accept(field);
+            identity_field_observation_confirm(field,"SPECIMEN");
             identity_ocr_run_add_field(run, field);
             g_ptr_array_add(runs, run);
             PersonRoleAssignmentInput role = {
@@ -180,12 +183,23 @@ static void test_failure_matrix(void)
         };
         GPtrArray *factual_relations = g_ptr_array_new();
         g_ptr_array_add(factual_relations, &factual_relation);
+        IdentityOcrRun *projection_run=g_ptr_array_index(runs,0);
+        IdentityFieldObservation *projection_field=g_ptr_array_index(
+            (GPtrArray*)identity_ocr_run_get_fields(projection_run),0);
+        PersonOcrFieldProjection *projection=person_ocr_field_projection_new(
+            identity_ocr_run_get_evidence_id(projection_run),
+            identity_ocr_run_get_identifier(projection_run),
+            identity_field_observation_get_identifier(projection_field),
+            "surname","SPECIMEN","complete","accepted","surname",NULL,
+            PERSON_OCR_FILL_EMPTY,TRUE);
+        GPtrArray *projections=g_ptr_array_new();g_ptr_array_add(projections,projection);
         PersonCreationCoordinatorOptions options = {
             .failure_point = cases[scenario].point,
             .failure_occurrence = cases[scenario].occurrence,
             .inject_compensation_failure =
                 scenario == G_N_ELEMENTS(cases) - 1,
             .factual_relations = factual_relations
+            ,.ocr_projections = projections
         };
         char *ocr_parent=g_build_filename(root,"02_Preuves_Traitees",
             "OCR",NULL);
@@ -238,6 +252,7 @@ static void test_failure_matrix(void)
         }
         g_ptr_array_unref(roles);
         g_ptr_array_unref(factual_relations);
+        g_ptr_array_unref(projections);person_ocr_field_projection_free(projection);
         g_ptr_array_unref(runs);
         person_evidence_selection_free(selection);
         g_ptr_array_unref(prepared);

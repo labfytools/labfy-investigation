@@ -11,7 +11,7 @@ PersonCreationTaskRequest *person_creation_task_request_new(
     const char *database_path, const char *investigation_root_path,
     const PersonEntityInput *person,
     const PersonEvidenceSelection *selection, const GPtrArray *ocr_runs,
-    const GPtrArray *factual_relations);
+    const GPtrArray *factual_relations,const GPtrArray *ocr_projections);
 void person_creation_task_request_free(PersonCreationTaskRequest *request);
 BackgroundTask *person_creation_task_start(TaskManager *manager,
     const PersonCreationTaskRequest *request,

@@ -33,6 +33,8 @@ gboolean identity_field_observation_set_origin(
 void identity_field_observation_mark_conflict(IdentityFieldObservation *field);
 const char *identity_field_observation_get_code(
     const IdentityFieldObservation *field);
+const char *identity_field_observation_get_identifier(
+    const IdentityFieldObservation *field);
 const char *identity_field_observation_get_raw_value(
     const IdentityFieldObservation *field);
 const char *identity_field_observation_get_corrected_value(
@@ -53,6 +55,8 @@ void identity_field_observation_clear_confirmation(
     IdentityFieldObservation *field);
 gboolean identity_field_observation_is_human_confirmed(
     const IdentityFieldObservation *field);
+gboolean identity_field_observation_replace_identifier(
+    IdentityFieldObservation *field, const char *identifier);
 IdentityReviewStatus identity_field_observation_get_status(
     const IdentityFieldObservation *field);
 double identity_field_observation_get_confidence(

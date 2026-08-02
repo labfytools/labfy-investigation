@@ -1,6 +1,6 @@
 #include "models/identity_ocr.h"
 struct IdentityFieldObservation {
-    char *code, *raw_value, *corrected_value, *normalized_value, *note;
+    char *id, *code, *raw_value, *corrected_value, *normalized_value, *note;
     char *confirmed_value, *value_quality;
     char *origin;
     double confidence;
@@ -47,7 +47,7 @@ IdentityFieldObservation *identity_field_observation_new(
     if (!identity_ocr_field_code_is_valid(code) || raw == NULL ||
         raw[0]=='\0' || confidence < -1.0 || confidence > 100.0) return NULL;
     IdentityFieldObservation *f=g_new0(IdentityFieldObservation,1);
-    f->code=g_strdup(code); f->raw_value=g_strdup(raw);
+    f->id=g_uuid_string_random();f->code=g_strdup(code); f->raw_value=g_strdup(raw);
     f->confidence=confidence; f->status=IDENTITY_REVIEW_PROPOSED;
     f->origin=g_strdup("ocr"); f->value_quality=g_strdup("complete"); f->order=order;
     if (box != NULL) f->box=*box;
@@ -60,7 +60,7 @@ IdentityFieldObservation *identity_field_observation_new_manual(
         value[0] == '\0') return NULL;
     IdentityFieldObservation *field =
         g_new0(IdentityFieldObservation, 1);
-    field->code = g_strdup(code);
+    field->id = g_uuid_string_random();field->code = g_strdup(code);
     field->corrected_value = g_strdup(value);
     field->confidence = -1.0;
     field->status = IDENTITY_REVIEW_PROPOSED;
@@ -79,6 +79,7 @@ IdentityFieldObservation *identity_field_observation_copy(
         : identity_field_observation_new_manual(
             f->code,f->corrected_value,f->order);
     c->corrected_value=g_strdup(f->corrected_value);
+    g_free(c->id);c->id=g_strdup(f->id);
     c->normalized_value=g_strdup(f->normalized_value);
     c->confirmed_value=g_strdup(f->confirmed_value);
     g_free(c->value_quality);c->value_quality=g_strdup(f->value_quality);
@@ -88,7 +89,7 @@ IdentityFieldObservation *identity_field_observation_copy(
 void identity_field_observation_free(IdentityFieldObservation *f)
 {
     if(f==NULL)return;
-    g_free(f->code);g_free(f->raw_value);
+    g_free(f->id);g_free(f->code);g_free(f->raw_value);
     g_free(f->corrected_value);g_free(f->normalized_value);g_free(f->note);
     g_free(f->origin);g_free(f->confirmed_value);g_free(f->value_quality);g_free(f);
 }
@@ -129,7 +130,7 @@ void identity_field_observation_mark_conflict(IdentityFieldObservation*f)
  g_clear_pointer(&f->confirmed_value,g_free);}}
 #define FG(name,type,field,zero) type identity_field_observation_get_##name(\
  const IdentityFieldObservation*f){return f!=NULL?f->field:zero;}
-FG(code,const char*,code,NULL) FG(raw_value,const char*,raw_value,NULL)
+FG(identifier,const char*,id,NULL) FG(code,const char*,code,NULL) FG(raw_value,const char*,raw_value,NULL)
 FG(corrected_value,const char*,corrected_value,NULL)
 FG(normalized_value,const char*,normalized_value,NULL)
 FG(confirmed_value,const char*,confirmed_value,NULL)
@@ -140,6 +141,8 @@ FG(confidence,double,confidence,-1.0)
 FG(order,guint,order,0)
 const IdentitySourceBox *identity_field_observation_get_box(
  const IdentityFieldObservation*f){return f!=NULL?&f->box:NULL;}
+gboolean identity_field_observation_replace_identifier(IdentityFieldObservation*f,const char*id)
+{if(!f||!g_uuid_string_is_valid(id))return FALSE;g_free(f->id);f->id=g_strdup(id);return TRUE;}
 gboolean identity_field_observation_set_normalized_value(
  IdentityFieldObservation*f,const char*v)
 {if(!f||!v||!v[0]||!g_utf8_validate(v,-1,NULL))return FALSE;

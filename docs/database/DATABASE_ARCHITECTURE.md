@@ -21,8 +21,13 @@ appartient à la même preuve. `previous_assessment_id` forme une chaîne
 append-only ; l’ajout et la détermination du maillon courant sont coordonnés
 dans une transaction.
 
+V19 ajoute `person_profile_fields` et `person_ocr_field_projections`. Cette
+dernière table conserve personne, cible, valeurs précédente et nouvelle,
+preuve, OcrRun, champ OCR, qualité, stratégie, date et origine humaine. Un
+trigger refuse une source devenue non projectable.
+
 > **Statut :** architecture courante  
-> **Version du schéma :** V18
+> **Version du schéma :** V19
 > **Dernière mise à jour :** 2026-07-24  
 > **Source de vérité détaillée :** `SCHEMA_AUDIT_CURRENT.md`
 

@@ -180,6 +180,8 @@ PARTIEL — VALIDATION MANUELLE DES TRANCHES LIVRÉES RÉUSSIE
   valeur explicitement confirmée et contraintes anti-automatisme.
 - interface GTK de saisie et de consultation de l’authenticité documentaire
   depuis la fiche preuve, avec OcrRun facultatif filtré et historique immuable.
+- projection humaine explicite des seules valeurs OCR V18 confirmées vers les
+  champs structurés de la personne, avec provenance et rollback V19.
 
 Limitations restantes :
 
@@ -187,9 +189,7 @@ Limitations restantes :
    charge ;
 2. les interfaces GTK complètes des états d’identification et des rôles V18
    restent à construire ;
-3. la provenance uniforme de tous les dérivés et la projection des seules
-   valeurs OCR confirmées vers les attributs structurés de la personne restent
-   partielles ;
+3. la provenance uniforme de tous les autres dérivés reste partielle ;
 
 Ces limites interdisent de présenter le ticket #109 comme terminé.
 

@@ -570,8 +570,15 @@ static gboolean drive(gpointer data)
         context->confirmation_height=gtk_widget_get_height(
             GTK_WIDGET(context->dialog));
         g_signal_emit_by_name(find_button(root,"Suivant"),"clicked");
+        g_assert_nonnull(find_label(root,
+            "Appliquer des données OCR à la personne — facultatif"));
+        g_signal_emit_by_name(find_button(root,"Suivant"),"clicked");
         g_assert_nonnull(find_label(root,"Relations factuelles"));
         g_signal_emit_by_name(find_button(root,"Suivant"),"clicked");
+        g_assert_nonnull(find_label(root,"Correction OCR enregistrée"));
+        g_assert_nonnull(find_label(root,
+            "Valeurs OCR choisies pour projection"));
+        g_assert_nonnull(find_label(root,"Relations factuelles préparées"));
         g_assert_nonnull(find_label(root,"page 2"));
         g_assert_nonnull(find_label(root,"PAGE 2 VALEUR FINALE"));
         g_assert_nonnull(find_label(root,"authenticité n’est pas établie"));

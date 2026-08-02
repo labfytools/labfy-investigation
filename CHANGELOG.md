@@ -2,6 +2,8 @@
 
 ### Added
 
+- Projection contrôlée des champs OCR confirmés vers les attributs structurés
+  d’une personne, avec provenance append-only, conflits explicites et rollback.
 - Saisie et consultation, depuis la fiche preuve, d’un historique immuable
   d’appréciations humaines d’authenticité documentaire avec justification et
   `OcrRun` facultatif appartenant à la preuve, sans verdict automatique.

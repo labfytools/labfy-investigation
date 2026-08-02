@@ -2,6 +2,7 @@
 #include "dao/evidence_dao.h"
 #include "dao/evidence_entity_dao.h"
 #include "dao/identity_traceability_dao.h"
+#include "dao/person_ocr_projection_dao.h"
 #include "models/evidence_record.h"
 
 GPtrArray *person_details_provider_get_evidences(Database *database, const char *person_identifier, GError **error)
@@ -42,4 +43,15 @@ GPtrArray *person_details_provider_get_factual_relations(Database *database, con
     GPtrArray *relations = identity_traceability_dao_list_factual_relations_by_person(trace_dao, person_identifier, error);
     identity_traceability_dao_free(trace_dao);
     return relations;
+}
+
+GHashTable *person_details_provider_get_profile_fields(Database *database,
+    const char *person_identifier, GError **error)
+{
+    PersonOcrProjectionDao *dao = person_ocr_projection_dao_new(database);
+    if (dao == NULL) return NULL;
+    GHashTable *fields = person_ocr_projection_dao_list_profile_fields(
+        dao, person_identifier, error);
+    person_ocr_projection_dao_free(dao);
+    return fields;
 }

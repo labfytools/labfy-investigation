@@ -326,7 +326,7 @@ void main_window_set_relation_evidences(
 void main_window_set_person_evidences(MainWindow *main_window,
     const GPtrArray *records);
 void main_window_set_person_factual_relations(MainWindow *main_window,
-    const GPtrArray *relations, const GPtrArray *evidence_records);
+    const GPtrArray *relations, const GPtrArray *evidence_records,const GHashTable *profile_fields);
 
 
 /** @brief Définit le callback de catégorisation d'une personne. */

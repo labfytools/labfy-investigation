@@ -5,6 +5,7 @@
 #include "models/person_evidence_selection.h"
 #include "models/identity_ocr.h"
 #include "models/identity_traceability.h"
+#include "models/person_ocr_projection.h"
 #include <gio/gio.h>
 
 G_BEGIN_DECLS
@@ -33,6 +34,7 @@ typedef enum {
     PERSON_CREATION_FAILURE_INSERT_FIELD,
     PERSON_CREATION_FAILURE_CREATE_SOURCE,
     PERSON_CREATION_FAILURE_INSERT_FACTUAL_RELATION,
+    PERSON_CREATION_FAILURE_APPLY_OCR_PROJECTION,
     PERSON_CREATION_FAILURE_SESSION_BEFORE_COMMIT,
     PERSON_CREATION_FAILURE_ARTIFACT_TEXT_CHANGED,
     PERSON_CREATION_FAILURE_ARTIFACT_TSV_CHANGED,
@@ -56,6 +58,8 @@ typedef struct {
     gpointer session_check_data;
     /** PersonCreationFactualRelationInput* empruntés, choix humains explicites. */
     const GPtrArray *factual_relations;
+    /** PersonOcrFieldProjection* empruntées, toutes choisies explicitement. */
+    const GPtrArray *ocr_projections;
 } PersonCreationCoordinatorOptions;
 typedef struct {
     const char *collected_at;

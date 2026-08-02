@@ -6004,6 +6004,8 @@ static void application_on_person_creation_task_completed(
     }
     main_window_set_status(application->main_window,
         "Personne et preuves ajoutées. Actualisation des vues…");
+    PersonCreationCoordinatorResult *created = background_task_get_result(task);
+    g_free(application->pending_entity_selection_identifier); application->pending_entity_selection_identifier = created != NULL ? g_strdup(created->person_identifier) : NULL;
     {
         GError *refresh_error = NULL;
         application_refresh_investigation_tree(
@@ -6046,7 +6048,8 @@ static void application_on_person_completed(
     request = person_creation_task_request_new(active_database, active_root,
         input, create_person_dialog_result_get_evidence_selection(result),
         create_person_dialog_result_get_ocr_runs(result),
-        create_person_dialog_result_get_factual_relations(result));
+        create_person_dialog_result_get_factual_relations(result),
+        create_person_dialog_result_get_ocr_projections(result));
     task_context = g_new0(ApplicationPersonCreationTaskContext, 1);
     task_context->application = application;
     task_context->generation = application->session_generation;
@@ -7067,12 +7070,14 @@ static void application_on_entity_selected(const char *entity_identifier,
     GError *error = NULL;
     GPtrArray *records = person_details_provider_get_evidences(database, entity_identifier, &error);
     GPtrArray *relations = NULL;
+    GHashTable *profile_fields = NULL;
     if (records != NULL) {
         relations = person_details_provider_get_factual_relations(database, entity_identifier, NULL);
+        profile_fields = person_details_provider_get_profile_fields(database, entity_identifier, NULL);
     }
 
     main_window_set_person_evidences(application->main_window, records);
-    main_window_set_person_factual_relations(application->main_window, relations, records);
+    main_window_set_person_factual_relations(application->main_window, relations, records,profile_fields);
 
     if (error != NULL) {
         application_present_error(application, "Erreur de chargement", error->message);
@@ -7080,6 +7085,7 @@ static void application_on_entity_selected(const char *entity_identifier,
     }
     if (records != NULL) g_ptr_array_unref(records);
     if (relations != NULL) g_ptr_array_unref(relations);
+    if (profile_fields != NULL) g_hash_table_unref(profile_fields);
 }
 
 /** @brief Contexte possédé par la gestion des preuves d'une personne. */

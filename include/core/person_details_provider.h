@@ -6,5 +6,6 @@
 
 GPtrArray *person_details_provider_get_evidences(Database *database, const char *person_identifier, GError **error);
 GPtrArray *person_details_provider_get_factual_relations(Database *database, const char *person_identifier, GError **error);
+GHashTable *person_details_provider_get_profile_fields(Database *database, const char *person_identifier, GError **error);
 
 #endif

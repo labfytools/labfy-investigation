@@ -1965,8 +1965,8 @@ void main_window_set_entity_selected_callback(MainWindow *main_window,
 void main_window_set_person_evidences(MainWindow *main_window, const GPtrArray *records) {
     if (main_window) workspace_set_person_evidences(main_window->workspace, records);
 }
-void main_window_set_person_factual_relations(MainWindow *main_window, const GPtrArray *relations, const GPtrArray *evidence_records) {
-    if (main_window) workspace_set_person_factual_relations(main_window->workspace, relations, evidence_records);
+void main_window_set_person_factual_relations(MainWindow *main_window, const GPtrArray *relations, const GPtrArray *evidence_records,const GHashTable *profile_fields) {
+    if (main_window) workspace_set_person_factual_relations(main_window->workspace, relations, evidence_records,profile_fields);
 }
 
 void main_window_set_quit_callback(

@@ -128,6 +128,12 @@ l’authenticité à `DocumentAuthenticityEditor`, qui appelle
 SQLite. Le service ajoute chaque appréciation humaine dans une transaction et
 chaîne son identifiant à l’appréciation courante.
 
+La V19 ajoute les champs de profil structurés et l’historique des projections
+OCR humaines. `PersonOcrProjectionEditor` ne sélectionne rien par défaut ; le
+service relit le champ V18 avant COMMIT et conserve la valeur existante par
+défaut en cas de conflit. La fiche personne relit ces champs par
+`PersonDetailsProvider` et le DAO de projection.
+
 ---
 
 ## 1. Objectif

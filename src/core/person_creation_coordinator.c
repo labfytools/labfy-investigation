@@ -1,4 +1,5 @@
 #include "core/person_creation_coordinator.h"
+#include "core/person_ocr_projection_service.h"
 #include "core/file_hash.h"
 #include "dao/entity_dao.h"
 #include "dao/evidence_dao.h"
@@ -477,6 +478,30 @@ static PersonCreationCoordinatorResult *person_creation_coordinator_execute_inte
             options != NULL ? options->factual_relations : NULL,
             timestamp, &failure, error))
         goto cleanup;
+    if (options != NULL && options->ocr_projections != NULL) {
+        GPtrArray *projections = g_ptr_array_new_with_free_func(
+            (GDestroyNotify) person_ocr_field_projection_free);
+        for (guint i = 0; i < options->ocr_projections->len; i++) {
+            PersonOcrFieldProjection *projection =
+                person_ocr_field_projection_copy(g_ptr_array_index(
+                    (GPtrArray *) options->ocr_projections, i));
+            for (guint j = 0; projection != NULL && ocr_runs != NULL &&
+                 j < ocr_runs->len; j++) {
+                IdentityOcrRun *run = g_ptr_array_index((GPtrArray *) ocr_runs, j);
+                if (g_strcmp0(identity_ocr_run_get_identifier(run),
+                        person_ocr_field_projection_get_run_id(projection)) == 0)
+                    person_ocr_field_projection_replace_evidence_id(projection,
+                        identity_ocr_run_get_evidence_id(run));
+            }
+            if (projection != NULL) g_ptr_array_add(projections, projection);
+        }
+        gboolean projected = !fail_at(&failure,
+                PERSON_CREATION_FAILURE_APPLY_OCR_PROJECTION, error) &&
+            person_ocr_projection_service_apply(database,
+                result->person_identifier, projections, error);
+        g_ptr_array_unref(projections);
+        if (!projected) goto cleanup;
+    }
     for (guint i = 0; ocr_runs != NULL && i < ocr_runs->len; i++) {
         IdentityOcrRun *run = g_ptr_array_index((GPtrArray *) ocr_runs, i);
         char *directory = g_build_filename(root, "02_Preuves_Traitees",

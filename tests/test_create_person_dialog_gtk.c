@@ -82,6 +82,37 @@ static GtkWidget *find_named(GtkWidget *widget, const char *name)
     return NULL;
 }
 
+static guint count_label(GtkWidget *widget, const char *text)
+{
+    guint count = GTK_IS_LABEL(widget) &&
+        g_strcmp0(gtk_label_get_text(GTK_LABEL(widget)), text) == 0 ? 1 : 0;
+    for (GtkWidget *child = gtk_widget_get_first_child(widget);
+         child != NULL; child = gtk_widget_get_next_sibling(child))
+        count += count_label(child, text);
+    return count;
+}
+
+static void assert_assistant_steps(GtkWidget *dialog)
+{
+    static const char *const names[] = {"person", "roles", "evidence",
+        "identity-ocr", "ocr-projection", "factual-relations", "summary"};
+    static const char *const titles[] = {"1 — Personne", "2 — Rôles",
+        "3 — Preuves", "4 — OCR identité", "5 — Projection OCR",
+        "6 — Relations factuelles", "7 — Confirmation"};
+    GtkStack *stack = GTK_STACK(find_named(dialog,
+        "create-person-assistant-stack"));
+    g_assert_nonnull(stack);
+    GtkSelectionModel *selection = gtk_stack_get_pages(stack);
+    GListModel *pages = G_LIST_MODEL(selection);
+    g_assert_cmpuint(g_list_model_get_n_items(pages), ==, G_N_ELEMENTS(names));
+    for (guint i = 0; i < G_N_ELEMENTS(names); i++) {
+        GtkStackPage *page = g_list_model_get_item(pages, i);
+        g_assert_cmpstr(gtk_stack_page_get_name(page), ==, names[i]);
+        g_assert_cmpstr(gtk_stack_page_get_title(page), ==, titles[i]);
+        g_object_unref(page);
+    }
+}
+
 static gboolean frame_seen(GtkWidget *widget, GdkFrameClock *clock,
     gpointer data)
 {
@@ -163,6 +194,7 @@ static gboolean click_cancel(gpointer data)
         context->main_window);
     g_assert_true(gtk_window_get_modal(dialog));
     g_assert_true(gtk_window_get_destroy_with_parent(dialog));
+    assert_assistant_steps(GTK_WIDGET(dialog));
     gtk_window_set_default_size(dialog, 760, 560);
     wait_for_frame(GTK_WIDGET(dialog));
     designation = find_entry(GTK_WIDGET(dialog),
@@ -221,12 +253,35 @@ static gboolean click_cancel(gpointer data)
     g_signal_emit_by_name(button, "clicked");
     g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
         "L’OCR produit des propositions à vérifier"));
+    g_assert_nonnull(find_named(GTK_WIDGET(dialog),
+        "create-person-ocr-transcription-stack"));
+    g_signal_emit_by_name(button, "clicked");
+    GtkStack *stack = GTK_STACK(find_named(GTK_WIDGET(dialog),
+        "create-person-assistant-stack"));
+    g_assert_true(gtk_widget_is_ancestor(
+        find_named(GTK_WIDGET(dialog), "person-ocr-projection-editor"),
+        gtk_stack_get_visible_child(stack)));
+    const char *empty_projection =
+        "Aucune donnée OCR confirmée ne peut être appliquée à cette personne.\n"
+        "La transcription OCR reste enregistrée dans la preuve.";
+    g_assert_cmpuint(count_label(GTK_WIDGET(dialog), empty_projection), ==, 1);
+    g_assert_cmpuint(count_label(GTK_WIDGET(dialog),
+        "Valeurs OCR confirmées à appliquer explicitement"), ==, 0);
     g_signal_emit_by_name(button, "clicked");
     g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
         "Relations factuelles"));
+    g_assert_true(gtk_widget_is_ancestor(
+        find_named(GTK_WIDGET(dialog), "person-factual-relation-editor"),
+        gtk_stack_get_visible_child(stack)));
     g_signal_emit_by_name(button, "clicked");
     g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
         "Désignation : SPECIMEN"));
+    g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
+        "Correction OCR enregistrée"));
+    g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
+        "Valeurs OCR choisies pour projection"));
+    g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
+        "Relations factuelles préparées"));
     g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),
         "SPECIMEN-recherche.png"));
     g_assert_nonnull(find_label_containing(GTK_WIDGET(dialog),

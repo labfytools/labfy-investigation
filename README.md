@@ -20,6 +20,10 @@ Le projet vise à fournir un environnement local, modulaire et traçable pour or
 La fiche d’une preuve permet aussi de consigner une appréciation humaine
 d’authenticité documentaire. Cet historique est immuable, justifié selon le
 statut choisi et ne peut jamais être produit automatiquement par l’OCR.
+Les seules valeurs OCR pouvant alimenter un profil de personne sont celles
+confirmées par un humain, sélectionnées sans choix par défaut puis validées
+avec une cible et une stratégie de conflit explicites.
+La fiche personne relit ensuite ces champs structurés depuis SQLite.
 
 > **État du projet : développement actif**
 >
