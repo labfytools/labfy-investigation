@@ -1,0 +1,8 @@
+#!/bin/sh
+# CONTRACT: point d'entrée utilisateur Web-only. Le gestionnaire vérifie
+# l'identité de l'instance locale avant de la rejoindre et n'expose aucun code.
+set -eu
+repository=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+library=${LABFY_LIBRARY:-"${XDG_DATA_HOME:-$HOME/.local/share}/labfy-investigation/library"}
+exec python3 "$repository/prototypes/web-graph/web_app.py" start \
+  --library "$library" --automatic-session --open-browser "$@"

@@ -1,5 +1,17 @@
 ## [0.1.0-dev] — en préparation, non publiée
 
+### Interface Web finale locale
+
+- Web devient l’interface utilisateur `CURRENT` unique : coque Catppuccin
+  Mocha/Lavender Agent | Graphe | Activité, drawer transversal et cartes
+  SPECIMEN pour conversation, plan, hypothèse, autorisation et résultat.
+- Retrait du client, des vues, widgets, tests, headers et dépendance de build
+  GTK4 ; les services C, SQLite V20, fondation financière V21, capabilities et
+  JobStore V4 sont conservés.
+- Ajout de `tools/labfy` : instance loopback vérifiée, navigateur ouvert et
+  session HttpOnly/SameSite automatique sans code ni jeton dans l’URL ; les
+  mutations restent protégées par Host, Origin exact et CSRF.
+
 ### Connexion Web
 
 - La session de `3600` secondes (une heure) commence à l'authentification, et non au démarrage
@@ -145,6 +157,21 @@
   et normalisation prudente.
 - Finalisation JobStore V3 : budgets opposables au claim, temps monotone,
   réserve conservée après crash, états de plan exportés et scénario Firefox J8.
+
+# Changements locaux non publiés — recherche OSINT assistée V1
+
+- JobStore V4 additif à V3 : persistance atomique et idempotente des plans,
+  actions, grants, campagnes, résultats et reçus de recherche, sans évolution
+  de V20 ni de la tranche financière V21.
+- Policy explicite de sélection, exclusions, révocation, expiration, identité
+  d'enquête/plan/action et budgets ; aucune propagation implicite par seed,
+  CNAME, redirection ou nouvelle URL.
+- Transport commun indisponible sans backend lié et libcurl couvert seulement
+  par fixtures/loopback ; aucun fournisseur public n'est configuré ou qualifié.
+- Adapters normalisateurs DNS, RDAP, CDX, Brave, SearXNG et page, avec résultats
+  bornés, provenance C et absence de suivi implicite de liens, scripts ou pièces jointes.
+- Parcours Web synthétique de préparation, approbation/refus, deux vagues et
+  révocation durable, avec isolation vérifiée entre espaces de travail A/B.
 
 # Changements locaux non publiés — J9
 

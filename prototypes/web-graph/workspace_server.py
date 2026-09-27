@@ -49,7 +49,8 @@ class WorkspaceServer(ThreadingHTTPServer):
 
     def __init__(self, address, handler, *, workspace: Path, bridge: Path,
                  bootstrap: str, library=None, instance_id=None, config_id=None,
-                 session_ttl_seconds=SESSION_TTL_SECONDS):
+                 session_ttl_seconds=SESSION_TTL_SECONDS,
+                 research_fixture_authority=None, automatic_session=False):
         if (not isinstance(session_ttl_seconds, int) or
                 isinstance(session_ttl_seconds, bool) or session_ttl_seconds <= 0):
             raise ValueError("Durée de session invalide")
@@ -59,6 +60,9 @@ class WorkspaceServer(ThreadingHTTPServer):
         self.authority = f"127.0.0.1:{self.server_port}"
         self.origin = f"http://{self.authority}"
         self.bootstrap = bootstrap
+        # CONTRACT: ce mode est activé seulement par le lanceur possédé. Il
+        # émet un cookie HttpOnly local mais ne relâche jamais Origin/CSRF.
+        self.automatic_session = automatic_session
         self.library = library
         self.active_workspace_id = None
         self.library_generation = (library.snapshot(None)["generation"]
@@ -89,6 +93,9 @@ class WorkspaceServer(ThreadingHTTPServer):
         self.active_uploads = 0
         self.reserved_upload_bytes = 0
         self.upload_mutexes = {}
+        # CONTRACT: cette autorité de laboratoire n'est ni une donnée UI ni un
+        # réglage persistant. Le bridge C applique encore sa propre whitelist.
+        self.research_fixture_authority = research_fixture_authority
 
     def library_snapshot(self):
         if self.library is None:
@@ -160,7 +167,12 @@ class WorkspaceServer(ThreadingHTTPServer):
     def bridge_call(self, arguments, timeout=8):
         command = [str(self.bridge), arguments[0], "--workspace",
                    str(self.workspace), *arguments[1:]]
+        environment = os.environ.copy()
+        if self.research_fixture_authority is not None:
+            environment["LABFY_RESEARCH_FIXTURE_AUTHORITY"] = \
+                self.research_fixture_authority
         result = subprocess.run(command, cwd=self.bridge.parents[1], text=True,
+                                env=environment,
                                 capture_output=True, timeout=timeout, check=False)
         if result.returncode != 0:
             message = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "Commande C refusée"
@@ -406,6 +418,69 @@ class Handler(BaseHTTPRequestHandler):
                 raise TypeError("Champ de plan invalide")
         return value
 
+    def _research_body(self, kind):
+        value = self._json_body()
+        shapes = {
+            "prepare": {"selection_ids", "question", "exclusions",
+                        "idempotency_key"},
+            "grant": {"plan_id", "input_revision", "selected_action_ids",
+                      "decisions", "exclusions", "idempotency_key"},
+            "campaign": {"grant_id", "input_revision", "action_ids",
+                         "idempotency_key"},
+            "revoke": {"grant_id"},
+        }
+        if not isinstance(value, dict) or set(value) != shapes[kind]:
+            raise TypeError("Champs de recherche inattendus")
+        if kind == "grant":
+            decisions = value["decisions"]
+            if (not isinstance(decisions, list) or not decisions or
+                    len(decisions) > 8 or any(not isinstance(item, dict) or
+                    set(item) != {"action_id", "decision"}
+                    for item in decisions)):
+                raise TypeError("Décisions de recherche invalides")
+            decision_ids = []
+            for item in decisions:
+                if (not isinstance(item["action_id"], str) or
+                        not isinstance(item["decision"], str) or
+                        item["decision"] not in {"AUTHORIZE", "DEFER", "REFUSE"}):
+                    raise TypeError("Décision de recherche invalide")
+                try:
+                    uuid.UUID(item["action_id"])
+                except ValueError as error:
+                    raise TypeError("Identifiant de décision invalide") from error
+                decision_ids.append(item["action_id"])
+            if len(set(decision_ids)) != len(decision_ids):
+                raise TypeError("Décision de recherche dupliquée")
+            authorized = {item["action_id"] for item in decisions
+                          if item["decision"] == "AUTHORIZE"}
+            if not set(value["selected_action_ids"]) <= authorized:
+                raise TypeError("Action sélectionnée sans autorisation")
+        list_names = shapes[kind] & {
+            "selection_ids", "exclusions", "selected_action_ids", "action_ids"}
+        for name in list_names:
+            items = value[name]
+            if (not isinstance(items, list) or len(items) > 8 or
+                    (name != "exclusions" and not items) or
+                    len(set(items)) != len(items) or
+                    any(not isinstance(item, str) or not item or
+                        len(item) > 160 or "," in item for item in items)):
+                raise TypeError("Liste de recherche invalide")
+        for name, item in value.items():
+            if name in list_names or name == "decisions":
+                continue
+            if name == "input_revision":
+                if not isinstance(item, int) or isinstance(item, bool) or item < 0:
+                    raise TypeError("Révision de recherche invalide")
+            elif (not isinstance(item, str) or not item or len(item) > 512 or
+                  "\x00" in item):
+                raise TypeError("Champ de recherche invalide")
+        for name in shapes[kind] & {"plan_id", "grant_id", "idempotency_key"}:
+            try:
+                uuid.UUID(value[name])
+            except ValueError as error:
+                raise TypeError("Identifiant de recherche invalide") from error
+        return value
+
     def _report_preview_body(self):
         value = self._json_body()
         if not isinstance(value, dict) or set(value) != {"object_ids", "title",
@@ -487,6 +562,9 @@ class Handler(BaseHTTPRequestHandler):
                 "config_id": self.server.config_id})
             return
         if not self._authenticated():
+            if path == "/" and self.server.automatic_session:
+                self._open_automatic_session()
+                return
             if path in {"/", "/login.js", "/styles.css"}:
                 self._serve_static("/login.html" if path == "/" else path)
                 return
@@ -547,6 +625,14 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/v1/planner":
             self._serve_export("planner-snapshot.json",
                                "labfy.local_planner.snapshot.v1")
+        elif path == "/api/v1/research":
+            try:
+                value = json.loads(self.server.bridge_call(
+                    ["research-snapshot-json"]))
+                self._json(HTTPStatus.OK, value)
+            except (ValueError, json.JSONDecodeError,
+                    subprocess.TimeoutExpired) as error:
+                self._error(HTTPStatus.CONFLICT, "research_unavailable", str(error))
         elif path.startswith("/api/v1/reports/"):
             parts=path.split("/")
             report_id=parts[4] if len(parts)>4 else ""
@@ -709,6 +795,45 @@ class Handler(BaseHTTPRequestHandler):
                 self.server.start_worker()
                 self._json(HTTPStatus.ACCEPTED, json.loads(output))
                 return
+            if path == "/api/v1/research/prepare":
+                value = self._research_body("prepare")
+                graph = json.loads((self.server.workspace /
+                                    "core-snapshot.json").read_text())
+                revision = graph.get("revision")
+                if (not isinstance(revision, int) or isinstance(revision, bool)
+                        or revision < 0):
+                    raise ValueError("Révision du snapshot cœur invalide")
+                output = self.server.bridge_call(["research-prepare-json",
+                    "--selection", ",".join(value["selection_ids"]),
+                    "--question", value["question"], "--exclusions",
+                    ",".join(value["exclusions"]), "--revision",
+                    str(revision), "--key",
+                    value["idempotency_key"]], timeout=15)
+                self._json(HTTPStatus.OK, json.loads(output)); return
+            if path == "/api/v1/research/grants":
+                value = self._research_body("grant")
+                output = self.server.bridge_call(["research-grant-json",
+                    "--plan", value["plan_id"], "--revision",
+                    str(value["input_revision"]), "--actions",
+                    ",".join(value["selected_action_ids"]), "--decisions",
+                    ",".join(f'{item["action_id"]}={item["decision"]}'
+                             for item in value["decisions"]), "--exclusions",
+                    ",".join(value["exclusions"]), "--key",
+                    value["idempotency_key"]], timeout=15)
+                self._json(HTTPStatus.OK, json.loads(output)); return
+            if path == "/api/v1/research/campaigns":
+                value = self._research_body("campaign")
+                output = self.server.bridge_call(["research-campaign-json",
+                    "--grant", value["grant_id"], "--revision",
+                    str(value["input_revision"]), "--actions",
+                    ",".join(value["action_ids"]), "--key",
+                    value["idempotency_key"]], timeout=20)
+                self._json(HTTPStatus.OK, json.loads(output)); return
+            if path == "/api/v1/research/revoke":
+                value = self._research_body("revoke")
+                output = self.server.bridge_call(["research-revoke-json",
+                    "--grant", value["grant_id"]])
+                self._json(HTTPStatus.OK, json.loads(output)); return
             if path == "/api/v1/reports/preview":
                 value=self._report_preview_body();generated=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
                 output=self.server.bridge_call(["prepare-report-json","--objects",",".join(value["object_ids"]),"--title",value["title"],"--comment",value["comment"],"--generated-at",generated,"--sections",",".join(value["sections"])],timeout=15)
@@ -1017,6 +1142,24 @@ class Handler(BaseHTTPRequestHandler):
                       f"Path=/; Max-Age={self.server.session_ttl_seconds}")
         self._json(HTTPStatus.OK, {"contract": "labfy.workspace.session.v1",
                                    "authenticated": True}, cookie=cookie)
+
+    def _open_automatic_session(self):
+        with self.server.session_lock:
+            self.server.session = secrets.token_urlsafe(32)
+            self.server.csrf = secrets.token_urlsafe(32)
+            self.server.session_deadline = (time.monotonic() +
+                                            self.server.session_ttl_seconds)
+            cookie = (f"{self.server.cookie_name}={self.server.session}; "
+                      "HttpOnly; SameSite=Strict; "
+                      f"Path=/; Max-Age={self.server.session_ttl_seconds}")
+        # INVARIANT: aucun secret n'est inclus dans l'URL ou dans le document;
+        # l'application récupère seulement le CSRF depuis la même origine.
+        self.send_response(HTTPStatus.SEE_OTHER)
+        self._headers()
+        self.send_header("Set-Cookie", cookie)
+        self.send_header("Location", "/")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _serve_export(self, name, contract):
         path = self.server.workspace / name

@@ -1,6 +1,6 @@
 /******************************************************************************
  * @file local_job_store.h
- * @brief Stockage opérationnel V3 des jobs et plans locaux J5/J8.
+ * @brief Stockage opérationnel V4 des jobs, plans locaux et grants assistés.
  ******************************************************************************/
 #ifndef LABFY_INVESTIGATION_LOCAL_JOB_STORE_H
 #define LABFY_INVESTIGATION_LOCAL_JOB_STORE_H
@@ -9,7 +9,7 @@
 
 G_BEGIN_DECLS
 
-#define LOCAL_JOB_STORE_SCHEMA_VERSION 3
+#define LOCAL_JOB_STORE_SCHEMA_VERSION 4
 #define LOCAL_JOB_STORE_MAX_JOBS 128U
 #define LOCAL_JOB_STORE_MAX_ATTEMPTS 3U
 #define LOCAL_JOB_DIAGNOSTIC_MAX 2048U

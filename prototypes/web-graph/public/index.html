@@ -91,6 +91,20 @@
       </div>
     </nav>
     <main class="workbench">
+      <aside id="agent-panel" class="agent-panel" aria-label="Agent IA local">
+        <div class="panel-heading"><div><span class="eyebrow">Agent IA · préparation</span><h2>Mission</h2></div><button class="pane-toggle" data-pane="agent-panel" aria-expanded="true">Réduire</button></div>
+        <div class="agent-scroll">
+          <p class="agent-mission">Cartographier les relations autour de <strong>example.test</strong> en respectant les autorisations explicites.</p>
+          <ol class="agent-conversation" aria-label="Conversation SPECIMEN">
+            <li class="agent-card user"><b>USER</b><p>Montre les pivots passifs disponibles.</p></li>
+            <li class="agent-card plan"><b>PLAN</b><p>1. Lire les observations · 2. Proposer les capabilities · 3. Attendre l’accord.</p></li>
+            <li class="agent-card hypothesis"><b>HYPOTHESIS</b><p>Le domaine et l’adresse contact peuvent partager une provenance, sans confirmer une identité.</p></li>
+            <li class="agent-card authorization"><b>AUTHORIZATION</b><p><strong>rdap.lookup_domain</strong><br/>Cible : example.test · Provider : SPECIMEN loopback<br/>Sortie : nom de domaine · Exposition : passive · Budget : 1 requête<br/><button type="button">Examiner l’autorisation</button></p></li>
+            <li class="agent-card result"><b>RESULT</b><p>7 observations reçues ; aucune relation n’est promue automatiquement.</p></li>
+          </ol>
+          <label class="agent-prompt"><span>Prompt à l’agent</span><textarea id="agent-prompt" maxlength="2000" placeholder="Décrivez l’intention d’enquête…"></textarea><button type="button" id="agent-send">Préparer une demande</button></label>
+        </div>
+      </aside>
       <section id="graph-panel" aria-label="Graphe interactif">
         <div id="graph-state" role="alert"></div>
         <div class="graph-legend" aria-label="Légende">
@@ -147,10 +161,17 @@
       <aside id="inspector" aria-label="Inspecteur contextuel">
         <div class="panel-heading">
           <div>
-            <span class="eyebrow">Objet sélectionné</span>
-            <h2>Inspecteur</h2>
+            <span class="eyebrow">Activité · outils · jobs</span>
+            <h2>Activité</h2>
           </div>
+          <button class="pane-toggle" data-pane="inspector" aria-expanded="true">Réduire</button>
         </div>
+        <section class="activity-stream" aria-label="Timeline technique SPECIMEN">
+          <div class="activity-entry"><time>15:42:12</time><b>TOOL</b><span>rdap.lookup_domain<br/><code>target = example.test</code></span></div>
+          <div class="activity-entry policy"><time>15:42:12</time><b>POLICY</b><span>Autorisé · budget restant 18/20</span></div>
+          <div class="activity-entry result"><time>15:42:13</time><b>RESULT</b><span>1 artefact · 7 observations</span></div>
+        </section>
+        <details class="system-card"><summary>Système · ressources réelles</summary><dl><dt>CPU</dt><dd id="system-cpu">Disponible via backend</dd><dt>RAM</dt><dd id="system-ram">Disponible via backend</dd><dt>Jobs actifs</dt><dd id="system-jobs">Lecture JobStore</dd><dt>Instance Web</dt><dd id="system-instance">Loopback</dd><dt>Providers</dt><dd id="system-providers">Selon capabilities</dd></dl><p class="future-slots">Prévu : modèle · quantification · GPU AMD · KV cache · réserve RAM · swap · scratch IA.</p></details>
         <div class="tablist" role="tablist">
           <button role="tab" data-panel="details-panel" aria-selected="true">
             Détails</button
@@ -202,6 +223,7 @@
             ><button role="tab" data-work-panel="next-panel">
               Prochaines actions</button
             ><button role="tab" data-work-panel="plans-panel">Plans</button
+            ><button role="tab" data-work-panel="research-panel">Recherches</button
             ><button role="tab" data-work-panel="reports-panel">
               Rapports
             </button>
@@ -236,6 +258,25 @@
           <section id="plans-panel" class="work-tab-panel" hidden>
             <h3>Plans approuvés</h3>
             <ol id="plans-list"></ol>
+          </section>
+          <section id="research-panel" class="work-tab-panel" hidden>
+            <h3>Recherches assistées</h3>
+            <p id="research-note" role="status">
+              Sélectionnez une preuve ou une entité dans le graphe.
+            </p>
+            <form id="research-form" class="research-form">
+              <label>Question
+                <textarea id="research-question" maxlength="512" required></textarea>
+              </label>
+              <label>Exclusions explicites
+                <input id="research-exclusions" maxlength="512"
+                  placeholder="Un sujet exact par ligne" />
+              </label>
+              <button id="research-prepare" type="submit">Préparer le plan</button>
+            </form>
+            <div id="research-plan" aria-live="polite"></div>
+            <button id="research-launch" disabled>Autoriser et lancer la sélection</button>
+            <button id="research-revoke" disabled>Révoquer l’autorisation</button>
           </section>
           <section id="reports-panel" class="work-tab-panel" hidden>
             <div id="report-panel">

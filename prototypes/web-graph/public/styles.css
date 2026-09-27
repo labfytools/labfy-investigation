@@ -699,7 +699,48 @@ body.login .workbench {
 .observation-actions input {
   min-width: 12rem;
 }
+.research-form {
+  display: grid;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+.research-form label,
+.research-card {
+  display: grid;
+  gap: 0.35rem;
+}
+.research-card {
+  padding: 0.8rem;
+  margin: 0.7rem 0;
+  border: 1px solid var(--surface1);
+  border-radius: 0.65rem;
+  background: var(--mantle);
+}
+.research-card h5,
+.research-card p {
+  margin: 0;
+}
+.research-card fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  border-color: var(--surface1);
+}
+.research-contacted {
+  color: var(--green);
+}
+.research-uncontacted {
+  color: var(--yellow);
+}
+/* CONTRACT: la coque finale garde le graphe dominant ; les trois surfaces
+ * sont des vues de la même enquête, jamais des stores concurrents. */
+.workbench { grid-template-columns: minmax(15rem,20rem) minmax(0,1fr) minmax(18rem,23rem); grid-template-areas: "agent graph inspector" "work work work"; }
+.agent-panel { grid-area: agent; min-width:0; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr); background:linear-gradient(180deg,#181825,#11111b); border-right:1px solid var(--border); }
+.agent-scroll { min-height:0; overflow:auto; padding:.75rem; }.agent-mission { margin:0 0 .8rem; color:var(--muted); line-height:1.45; }.agent-conversation { display:grid; gap:.55rem; margin:0; padding:0; list-style:none; }.agent-card { border:1px solid var(--border); border-left:3px solid var(--blue); border-radius:.65rem; padding:.6rem .7rem; background:#1e1e2ecc; }.agent-card b { font-size:.68rem; letter-spacing:.08em; color:var(--muted); }.agent-card p { margin:.3rem 0 0; line-height:1.4; }.agent-card.plan { border-left-color:var(--accent); }.agent-card.hypothesis { border-left-color:var(--yellow); }.agent-card.authorization { border-left-color:#cba6f7; }.agent-card.result { border-left-color:var(--green); }.agent-prompt { display:grid; gap:.4rem; margin-top:.8rem; }.agent-prompt textarea { min-height:5.5rem; resize:vertical; }.pane-toggle { padding:.28rem .48rem; font-size:.78rem; }
+.activity-stream { display:grid; gap:.35rem; margin-bottom:.75rem; padding-bottom:.75rem; border-bottom:1px solid var(--border); }.activity-entry { display:grid; grid-template-columns:4.4rem 4.2rem minmax(0,1fr); gap:.3rem; padding:.42rem; border-radius:.42rem; background:#11111b; font-size:.78rem; }.activity-entry time { color:var(--muted); }.activity-entry b { color:var(--blue); font-size:.7rem; }.activity-entry.policy b { color:var(--yellow); }.activity-entry.result b { color:var(--green); }.activity-entry code { color:var(--muted); overflow-wrap:anywhere; }.system-card { margin-bottom:.75rem; padding:.55rem; border:1px solid var(--border); border-radius:.55rem; background:#11111b; }.system-card summary { color:var(--accent); cursor:pointer; }.system-card dl { display:grid; grid-template-columns:1fr auto; gap:.3rem .6rem; margin:.7rem 0; font-size:.8rem; }.system-card dd { margin:0; color:var(--muted); text-align:right; }.future-slots { margin:0; color:var(--muted); font-size:.75rem; line-height:1.35; }
+.agent-panel.pane-collapsed { grid-template-rows: auto; }.agent-panel.pane-collapsed .agent-scroll { display:none; }.agent-panel.pane-collapsed { min-width: 5.5rem; }.agent-panel.pane-collapsed h2 { display:none; }#inspector.pane-collapsed > :not(.panel-heading) { display:none; }#inspector.pane-collapsed { min-width:5.5rem; }#inspector.pane-collapsed h2 { display:none; }
 @media (max-width: 900px) {
+  .workbench { grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(18rem,1fr) auto var(--drawer); grid-template-areas:"agent" "graph" "inspector" "work"; }.agent-panel { max-height:19rem; border-right:0; border-bottom:1px solid var(--border); }
   .workbench.drawer-collapsed {
     grid-template-rows: minmax(18rem, 1fr) auto auto;
   }

@@ -239,7 +239,7 @@ async function testProjectionKeyboardAndResets(page) {
   await page.setViewport({ width: 700, height: 900 });
   const narrowLayout = await page.evaluate(() => ({
     columns: getComputedStyle(document.querySelector("main")).gridTemplateColumns,
-    asideBorderTop: getComputedStyle(document.querySelector("aside")).borderTopStyle,
+    asideBorderTop: getComputedStyle(document.querySelector("#inspector")).borderTopStyle,
   }));
   assert.equal(narrowLayout.columns.split(" ").length, 1);
   assert.equal(narrowLayout.asideBorderTop, "solid");

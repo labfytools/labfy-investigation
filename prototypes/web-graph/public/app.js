@@ -111,6 +111,7 @@ let navigationHistory = [];
 let collapsedGroups = new Set();
 let filters = {};
 let scale = 1;
+let graph_scale_initialized = false;
 let offset = { x: 0, y: 0 };
 let keyboardIndex = -1;
 let eventSource = null;
@@ -126,6 +127,7 @@ let correlationsRefreshing = false;
 let correlationRevision = null;
 let plannerRevision = null;
 let plannerValue = null;
+let researchValue = null;
 let specializedView = "graph";
 const pinnedPositions = new Map();
 const reportSelection = new Set();
@@ -156,6 +158,7 @@ function invalidateWorkspaceContext() {
   jobsRefreshing = false;
   graphRefreshing = false;
   correlationsRefreshing = false;
+  researchValue = null;
 }
 
 function beginWorkspaceContext(workspaceId, generation) {
@@ -734,6 +737,148 @@ async function refreshPlanner() {
   }
 }
 
+function researchDecision(actionId) {
+  return document.querySelector(
+    `input[name="research-${CSS.escape(actionId)}"]:checked`,
+  )?.value ?? "defer";
+}
+
+function renderResearch() {
+  // INVARIANT: toutes les cartes proviennent du snapshot C ; aucune action ou
+  // adresse de fournisseur n'est construite ni conservée comme vérité JS.
+  const panel = byId("research-plan");
+  panel.replaceChildren();
+  if (!researchValue || researchValue.state === "EMPTY") {
+    byId("research-launch").disabled = true;
+    byId("research-revoke").disabled = true;
+    return;
+  }
+  const heading = document.createElement("h4");
+  heading.textContent = `Question : ${researchValue.question}`;
+  panel.append(heading);
+  const waveOneDone = researchValue.actions.some(
+    (action) => action.wave === 1 && action.contacted,
+  );
+  for (const action of researchValue.actions) {
+    const card = document.createElement("article");
+    card.className = "research-card";
+    const title = document.createElement("h5");
+    title.textContent = `Vague ${action.wave} · ${action.capability_id}`;
+    const explanation = document.createElement("p");
+    explanation.textContent = action.wave === 1
+      ? "Gain attendu : obtenir un fait sourcé. Incertitude : le fournisseur peut ne rien connaître."
+      : action.wave === 2
+        ? "Nouvelle action non contactée : vérifier ou contredire le premier résultat."
+        : "Action optionnelle distincte ; aucun contact sans autorisation explicite.";
+    const provenance = document.createElement("p");
+    provenance.textContent = `Source/provenance : sélection du graphe · sujet exact : ${action.subject}`;
+    const disclosure = document.createElement("p");
+    disclosure.textContent = `Fournisseur : ${action.provider_id} · contact ${action.contact} · ${action.disclosure}`;
+    const budget = document.createElement("p");
+    budget.textContent = `Budget maximal : ${action.max_requests} requête · ${action.max_response_bytes} octets · ${action.max_active_ms} ms.`;
+    const status = document.createElement("p");
+    status.className = action.contacted ? "research-contacted" : "research-uncontacted";
+    status.textContent = action.contacted
+      ? `Résultat : ${action.result_status || "MISSING"}`
+      : "Non contactée — aucune donnée fournisseur reçue.";
+    const choices = document.createElement("fieldset");
+    choices.disabled = action.contacted || (action.wave === 2 && !waveOneDone);
+    const legend = document.createElement("legend");
+    legend.textContent = "Décision humaine";
+    choices.append(legend);
+    for (const [value, label] of [["authorize", "Autoriser"],
+      ["defer", "Différer"], ["refuse", "Refuser"]]) {
+      const choice = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = `research-${action.action_id}`;
+      input.value = value;
+      input.checked = value === (action.decision?.toLowerCase() ?? "defer");
+      input.addEventListener("change", () => {
+        byId("research-launch").disabled = !researchValue.actions.some(
+          (item) => !item.contacted && researchDecision(item.action_id) === "authorize",
+        );
+      });
+      choice.append(input, ` ${label}`);
+      choices.append(choice);
+    }
+    card.append(title, explanation, provenance, disclosure, budget, status, choices);
+    panel.append(card);
+  }
+  byId("research-launch").disabled = true;
+  byId("research-revoke").disabled = !researchValue.grants.some(
+    (grant) => !grant.revoked_at,
+  );
+}
+
+async function refreshResearch() {
+  if (!operationalMode) return;
+  const response = await workspaceFetch("/api/v1/research", { cache: "no-store" });
+  const value = await workspaceJson(response);
+  if (!response.ok || value.contract !== "labfy.research.snapshot.v1")
+    throw new Error(value.message ?? "Recherche indisponible");
+  researchValue = value;
+  renderResearch();
+}
+
+async function prepareResearch() {
+  const node = selectedNode();
+  if (!node) throw new Error("Sélectionnez d’abord une preuve ou une entité.");
+  const exclusions = byId("research-exclusions").value.split("\n")
+    .map((item) => item.trim()).filter(Boolean);
+  researchValue = await postCommand("/api/v1/research/prepare", {
+    selection_ids: [node.id],
+    question: byId("research-question").value.trim(),
+    exclusions,
+    idempotency_key: crypto.randomUUID(),
+  });
+  byId("research-note").textContent =
+    "Plan préparé par le cœur C. Choisissez chaque action avant le lancement final.";
+  renderResearch();
+}
+
+async function launchResearch() {
+  const actionIds = researchValue.actions.filter((action) =>
+    !action.contacted && researchDecision(action.action_id) === "authorize")
+    .map((action) => action.action_id);
+  if (!actionIds.length) return;
+  const exclusions = byId("research-exclusions").value.split("\n")
+    .map((item) => item.trim()).filter(Boolean);
+  const decisions = researchValue.actions.map((action) => ({
+    action_id: action.action_id,
+    decision: researchDecision(action.action_id).toUpperCase(),
+  }));
+  const grant = await postCommand("/api/v1/research/grants", {
+    plan_id: researchValue.plan_id,
+    input_revision: researchValue.input_revision,
+    selected_action_ids: actionIds,
+    decisions,
+    exclusions,
+    idempotency_key: crypto.randomUUID(),
+  });
+  const grantId = grant.grants[0]?.grant_id;
+  if (!grantId) throw new Error("Autorisation durable absente.");
+  researchValue = await postCommand("/api/v1/research/campaigns", {
+    grant_id: grantId,
+    input_revision: grant.input_revision,
+    action_ids: actionIds,
+    idempotency_key: crypto.randomUUID(),
+  });
+  byId("research-note").textContent =
+    "Campagne terminée ; résultats sourcés et actions non contactées affichés.";
+  renderResearch();
+}
+
+async function revokeResearch() {
+  const grant = [...researchValue.grants].reverse().find((item) => !item.revoked_at);
+  if (!grant) return;
+  researchValue = await postCommand("/api/v1/research/revoke", {
+    grant_id: grant.grant_id,
+  });
+  byId("research-note").textContent = "Autorisation révoquée durablement.";
+  renderResearch();
+}
+
 const renderer = new GraphRenderer({
   svg,
   viewport: byId("viewport"),
@@ -1233,7 +1378,9 @@ function resetGlobalView() {
   focusNodeId = null;
   filters = {};
   collapsedGroups.clear();
-  scale = 1;
+  // CONTRACT: « Réinitialiser » revient à la vue globale visible. Une échelle
+  // fixe à 1 ferait sortir le snapshot cœur sous les panneaux persistants.
+  scale = snapshot.nodes.length > 0 ? fitGraphScale() : 1;
   offset = { x: 0, y: 0 };
   keyboardIndex = -1;
   specializedView = "graph";
@@ -1338,6 +1485,24 @@ function updateProjectionControls() {
 }
 
 function configureControls() {
+  // CONTRACT: la disposition est une préférence locale par origine ; elle ne
+  // transporte ni l'enquête, ni un secret, ni un état métier vers le navigateur.
+  for (const button of document.querySelectorAll(".pane-toggle")) {
+    const pane = byId(button.dataset.pane);
+    const key = `labfy-pane:${button.dataset.pane}`;
+    const apply = (collapsed) => {
+      pane.classList.toggle("pane-collapsed", collapsed);
+      button.setAttribute("aria-expanded", String(!collapsed));
+      button.textContent = collapsed ? "Déployer" : "Réduire";
+      requestAnimationFrame(() => renderer.updateViewport(scale, offset));
+    };
+    apply(localStorage.getItem(key) === "collapsed");
+    button.addEventListener("click", () => {
+      const collapsed = !pane.classList.contains("pane-collapsed");
+      localStorage.setItem(key, collapsed ? "collapsed" : "expanded");
+      apply(collapsed);
+    });
+  }
   for (const tab of document.querySelectorAll("[data-panel]")) {
     tab.addEventListener("click", () =>
       activateInspectorPanel(tab.dataset.panel),
@@ -1359,6 +1524,7 @@ function configureControls() {
       .classList.toggle("drawer-collapsed", collapsed);
     event.currentTarget.setAttribute("aria-expanded", String(!collapsed));
     event.currentTarget.textContent = collapsed ? "Déployer" : "Réduire";
+    localStorage.setItem("labfy-pane:drawer", collapsed ? "collapsed" : "expanded");
     requestAnimationFrame(() => renderer.updateViewport(scale, offset));
   });
   byId("view-evidence").addEventListener("click", () => {
@@ -1458,6 +1624,23 @@ function openNodeContextMenu(nodeId, clientX, clientY) {
 }
 
 function configureGraphInteractions() {
+  // WHY: les panneaux persistants modifient réellement la largeur SVG. Le
+  // renderer doit recaler son viewport avant le prochain drag, sans muter les
+  // coordonnées épinglées qui restent un état de présentation local.
+  new ResizeObserver(() => requestAnimationFrame(() => {
+    const panel = byId("graph-panel");
+    if (!graph_scale_initialized && snapshot.nodes.length > 0 &&
+        panel.clientWidth > 100 && panel.clientHeight > 100) {
+      // WHY: le snapshot peut arriver pendant que la coque tri-panneaux passe
+      // de hidden à sa largeur finale. L'auto-fit unique évite que des nœuds
+      // SVG débordent sous Activité, tout en préservant ensuite zoom/pins.
+      scale = fitGraphScale();
+      graph_scale_initialized = true;
+      render();
+      return;
+    }
+    renderer.updateViewport(scale, offset);
+  })).observe(byId("graph-panel"));
   let pan = null;
   svg.addEventListener("pointerdown", (event) => {
     if (event.target !== svg && event.target.id !== "graph-background") return;
@@ -1624,6 +1807,7 @@ function resetWorkspacePresentation() {
   plannerValue = null;
   preparedUploads.clear();
   pinnedPositions.clear();
+  graph_scale_initialized = false;
   resetGlobalView();
 }
 
@@ -1646,6 +1830,9 @@ async function activateWorkspace(opened) {
     snapshot = prepareSnapshot(value);
     acceptedSnapshotFingerprint = snapshotFingerprint(value);
     coreMode = snapshot.origin === "core";
+    // CONTRACT: la mesure suit la publication de la coque visible ; elle ne
+    // repose pas sur la largeur héritée lorsque le shell était hidden.
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     scale = fitGraphScale();
     syncTypeFilterOptions();
     restoreReportDraft();
@@ -1653,7 +1840,8 @@ async function activateWorkspace(opened) {
     renderTimeline();
     renderReportSelection();
     byId("connection").textContent = `Ouverte · génération ${opened.generation}`;
-    await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner()]);
+    await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner(),
+      refreshResearch()]);
     for (const [callback, delay] of [[refreshJobs, 500],
       [refreshOperationalGraph, 700], [refreshCorrelations, 900], [refreshPlanner, 1100]])
       refreshTimers.add(setInterval(callback, delay));
@@ -1684,6 +1872,9 @@ async function activateLegacyWorkspace(session) {
     snapshot = prepareSnapshot(value);
     acceptedSnapshotFingerprint = snapshotFingerprint(value);
     coreMode = snapshot.origin === "core";
+    // CONTRACT: le snapshot cœur doit être ajusté après le layout Agent |
+    // Graphe | Activité, sinon ses coordonnées SVG débordent sous Activité.
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     byId("mode-badge").textContent = operationalMode
       ? "Poste local · contrôles locaux"
       : coreMode ? "Snapshot du cœur C · lecture seule" : "Démonstration locale · lecture seule";
@@ -1700,7 +1891,8 @@ async function activateLegacyWorkspace(session) {
       byId("graph-state").textContent = `Snapshot cœur indisponible : ${snapshot._loadError}`;
     if (!coreMode) connectEvents();
     if (operationalMode) {
-      await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner()]);
+      await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner(),
+        refreshResearch()]);
       for (const [callback, delay] of [[refreshJobs, 500],
         [refreshOperationalGraph, 700], [refreshCorrelations, 900], [refreshPlanner, 1100]])
         refreshTimers.add(setInterval(callback, delay));
@@ -1751,6 +1943,20 @@ function configureApplication() {
   configureControls();
   configureGraphInteractions();
   configureImport();
+  const drawerCollapsed = localStorage.getItem("labfy-pane:drawer") === "collapsed";
+  if (drawerCollapsed && !byId("work-panel").classList.contains("collapsed"))
+    byId("work-panel-toggle").click();
+  byId("agent-send").addEventListener("click", () => {
+    const prompt = byId("agent-prompt").value.trim();
+    if (!prompt) { byId("agent-prompt").focus(); return; }
+    const card = document.createElement("li");
+    card.className = "agent-card user";
+    const label = document.createElement("b"); label.textContent = "USER";
+    const text = document.createElement("p"); text.textContent = prompt;
+    card.append(label, text);
+    document.querySelector(".agent-conversation").append(card);
+    byId("agent-prompt").value = "";
+  });
   byId("home-button").addEventListener("click", () => void showLibrary({ focus: true }));
   byId("workspace-create-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1788,6 +1994,27 @@ function configureApplication() {
     } finally { button.disabled = false; }
   });
   byId("jobs-note").textContent = "Contrôle local authentifié.";
+  byId("research-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    byId("research-note").textContent = "Préparation…";
+    void prepareResearch().catch((error) => {
+      if (error.name !== "AbortError")
+        byId("research-note").textContent = error.message;
+    });
+  });
+  byId("research-launch").addEventListener("click", () => {
+    byId("research-note").textContent = "Admission et campagne…";
+    void launchResearch().catch((error) => {
+      if (error.name !== "AbortError")
+        byId("research-note").textContent = error.message;
+    });
+  });
+  byId("research-revoke").addEventListener("click", () =>
+    void revokeResearch().catch((error) => {
+      if (error.name !== "AbortError")
+        byId("research-note").textContent = error.message;
+    }),
+  );
   for (const [id, command] of [
       ["queue-pause", "pause"],
       ["queue-resume", "resume"],

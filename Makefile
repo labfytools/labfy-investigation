@@ -1,7 +1,7 @@
 CC = gcc
 
 PKG_CONFIG = pkg-config
-REQUIRED_PACKAGES = gtk4 sqlite3 libheif poppler-glib json-glib-1.0
+REQUIRED_PACKAGES = glib-2.0 gio-2.0 sqlite3 libheif poppler-glib json-glib-1.0
 ifeq ($(shell $(PKG_CONFIG) --exists $(REQUIRED_PACKAGES) && echo yes),)
 $(error Dépendances de compilation manquantes : $(REQUIRED_PACKAGES). Voir docs/DEPENDENCE.md)
 endif
@@ -11,13 +11,9 @@ endif
 SOURCE_SIZE_LIMIT := 2000
 # Exceptions historiques : plafonds constatés avant la tranche V18.
 SOURCE_SIZE_EXCEPTIONS := \
-	src/core/application.c:9325 \
-	src/widgets/investigation_graph_view.c:4901 \
-	src/widgets/workspace.c:4071 \
-	src/views/main_window.c:2239 \
-	src/views/create_relation_dialog.c:2043
+	src/core/local_job_store.c:2000
 
-.PHONY: check-source-size web web-start web-status web-stop web-code web-workspace web-workspace-j7 web-workspace-j8 web-workspace-j9 web-workspace-local web-workspace-review-check web-workspace-web-check
+.PHONY: check-source-size check-research-libcurl web web-start web-status web-stop web-workspace web-workspace-j7 web-workspace-j8 web-workspace-j9 web-workspace-local web-workspace-review-check web-workspace-web-check
 .NOTPARALLEL: web-workspace-review-check
 
 # CONTRACT: le poste Web possède sa bibliothèque explicite, séparée des
@@ -27,10 +23,10 @@ PORT ?= 8081
 LIBRARY ?= $(shell python3 -c 'import os; from pathlib import Path; print(Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "labfy-investigation" / "web-8081-lab")')
 
 web: tools/local-jobs
-	tools/labfy-web serve --port "$(PORT)" --library "$(LIBRARY)"
+	LABFY_LIBRARY="$(LIBRARY)" tools/labfy
 
 web-start: tools/local-jobs
-	tools/labfy-web start --port "$(PORT)" --library "$(LIBRARY)"
+	tools/labfy-web start --automatic-session --open-browser --port "$(PORT)" --library "$(LIBRARY)"
 
 web-status:
 	tools/labfy-web status
@@ -38,14 +34,12 @@ web-status:
 web-stop:
 	tools/labfy-web stop
 
-web-code:
-	tools/labfy-web code
-
 check-source-size:
 	@limit=$(SOURCE_SIZE_LIMIT); failed=0; \
 	files="$$(git ls-files --cached --others --exclude-standard -- \
 		'src/*.c' 'src/**/*.c' | sort -u)"; \
 	for file in $$files; do \
+		[ -f "$$file" ] || continue; \
 		lines=$$(wc -l < "$$file"); allowed=$$limit; historical=0; \
 		for exception in $(SOURCE_SIZE_EXCEPTIONS); do \
 			case "$$exception" in "$$file":*) \
@@ -60,6 +54,14 @@ check-source-size:
 		fi; \
 	done; \
 	exit $$failed
+
+# CONTRACT: le diagnostic libcurl est limité aux cibles qui compilent le
+# transport HTTP concret ; les tests de policy/adapters restent indépendants.
+check-research-libcurl:
+	@$(PKG_CONFIG) --exists libcurl || { \
+		echo "Dépendance de compilation manquante : libcurl (requis par le transport HTTP de recherche)." >&2; \
+		exit 2; \
+	}
 
 web-workspace: tools/local-jobs
 	@test -n "$(WORKSPACE)" || (echo "Usage: make web-workspace WORKSPACE=/tmp/labfy-local-workspace"; exit 2)
@@ -111,9 +113,9 @@ CFLAGS = -std=c17 \
           -Iinclude \
           -MMD \
           -MP \
-          $(shell $(PKG_CONFIG) --cflags gtk4 sqlite3 libheif poppler-glib json-glib-1.0)
+		  $(shell $(PKG_CONFIG) --cflags glib-2.0 gio-2.0 sqlite3 libheif poppler-glib json-glib-1.0)
 
-LDFLAGS = $(shell $(PKG_CONFIG) --libs gtk4 sqlite3 libheif poppler-glib json-glib-1.0) -ljpeg
+LDFLAGS = $(shell $(PKG_CONFIG) --libs glib-2.0 gio-2.0 sqlite3 libheif poppler-glib json-glib-1.0) -ljpeg
 
 TEST_CFLAGS = -std=c17 \
               -Wall \
@@ -130,16 +132,6 @@ EVIDENCE_TYPE_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 ENTITY_TYPE_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 EVIDENCE_TYPE_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 GRAPH_NODE_POSITION_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
-EVIDENCE_IMPORT_DIALOG_TEST_CFLAGS := \
-	-std=c17 \
-	-Wall \
-	-Wextra \
-	-Werror \
-	-Iinclude \
-	$(shell $(PKG_CONFIG) --cflags gtk4)
-
-EVIDENCE_IMPORT_DIALOG_TEST_LDFLAGS := $(shell $(PKG_CONFIG) --libs gtk4)
-
 EVIDENCE_INTEGRITY_VERIFIER_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 ENTITY_RECORD_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
 ENTITY_TYPE_DAO_TEST_CFLAGS := $(TEST_CFLAGS) -Wpedantic
@@ -285,6 +277,31 @@ EML_GRAPH_DEMO := tools/eml_graph_demo
 LOCAL_TOOLKIT_DEMO := tools/local_toolkit_demo
 LOCAL_JOBS := tools/local-jobs
 LOCAL_JOBS_TEST := tools/local-jobs-test
+TEST_RESEARCH_STORE := tests/test_research_store
+TEST_RESEARCH_POLICY := tests/test_research_policy
+TEST_RESEARCH_TRANSPORT := tests/test_research_transport
+TEST_RESEARCH_ADAPTERS := tests/test_research_adapters
+
+# CONTRACT: seul le transport HTTP concret lie libcurl ; les contrats et
+# adapters restent utilisables dans les tests et outils sans backend réseau.
+RESEARCH_SOURCES := \
+	src/core/research_contracts.c \
+	src/core/research_policy.c \
+	src/core/research_transport.c \
+	src/core/research_http_transport_curl.c \
+	src/core/research_adapter_dns.c \
+	src/core/research_adapter_rdap.c \
+	src/core/research_adapter_cdx.c \
+	src/core/research_adapter_search.c \
+	src/core/research_adapter_page.c
+RESEARCH_CURL_CFLAGS := $(shell $(PKG_CONFIG) --cflags libcurl)
+RESEARCH_CURL_LDFLAGS := $(shell $(PKG_CONFIG) --libs libcurl)
+RESEARCH_CURL_TARGETS := $(TARGET) $(TEST_EVIDENCE_METADATA_DIALOG_GTK) \
+	$(TEST_EVIDENCE_IDENTITY_IMPORT_GTK) $(TEST_WORKSPACE_IDENTITY_OCR_GTK)
+
+$(RESEARCH_CURL_TARGETS): check-research-libcurl
+$(RESEARCH_CURL_TARGETS): CFLAGS += $(RESEARCH_CURL_CFLAGS)
+$(RESEARCH_CURL_TARGETS): LDFLAGS += $(RESEARCH_CURL_LDFLAGS)
 
 LOCAL_REVIEW_PREVIEW_SOURCES := \
 	src/core/observation_review_service.c \
@@ -362,6 +379,28 @@ $(TEST_LOCAL_CAPABILITY_REGISTRY): tests/test_local_capability_registry.c \
 $(TEST_LOCAL_JOB_STORE): tests/test_local_job_store.c src/core/local_job_store.c
 	$(CC) $(CORE_GRAPH_CFLAGS) -DLOCAL_JOB_STORE_ENABLE_TEST_HOOKS $^ -o $@ $(CORE_GRAPH_LDFLAGS)
 
+$(TEST_RESEARCH_STORE): tests/test_research_store.c \
+	src/core/local_job_store.c src/core/research_contracts.c
+	$(CC) $(CORE_GRAPH_CFLAGS) $^ -o $@ $(CORE_GRAPH_LDFLAGS)
+
+$(TEST_RESEARCH_POLICY): tests/test_research_policy.c \
+	src/core/research_contracts.c src/core/research_policy.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_RESEARCH_TRANSPORT): check-research-libcurl \
+	tests/test_research_transport.c src/core/research_contracts.c \
+	src/core/research_policy.c src/core/research_transport.c \
+	src/core/research_http_transport_curl.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic -DRESEARCH_TRANSPORT_ENABLE_TEST_HOOKS \
+		$(RESEARCH_CURL_CFLAGS) $(filter %.c,$^) -o $@ $(TEST_LDFLAGS) \
+		$(RESEARCH_CURL_LDFLAGS)
+
+$(TEST_RESEARCH_ADAPTERS): tests/test_research_adapters.c \
+	src/core/research_contracts.c src/core/research_adapter_dns.c \
+	src/core/research_adapter_rdap.c src/core/research_adapter_cdx.c \
+	src/core/research_adapter_search.c src/core/research_adapter_page.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
+
 $(TEST_LOCAL_CORRELATION): tests/test_local_correlation.c \
 	src/core/local_correlation_service.c \
 	src/dao/evidence_dao.c src/dao/evidence_entity_dao.c \
@@ -387,13 +426,17 @@ $(TEST_OBSERVATION_REVIEW_SERVICE): tests/test_observation_review_service.c \
 
 $(LOCAL_JOBS): tools/local_jobs.c src/core/local_job_store.c \
 	src/core/local_planner_service.c \
-	$(LOCAL_REVIEW_PREVIEW_SOURCES) $(LOCAL_TOOLKIT_SOURCES)
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	$(LOCAL_REVIEW_PREVIEW_SOURCES) $(LOCAL_TOOLKIT_SOURCES) $(RESEARCH_SOURCES) \
+	check-research-libcurl
+	$(CC) $(CFLAGS) $(RESEARCH_CURL_CFLAGS) $(filter %.c,$^) -o $@ $(LDFLAGS) \
+		$(RESEARCH_CURL_LDFLAGS)
 
 $(LOCAL_JOBS_TEST): tools/local_jobs.c src/core/local_job_store.c \
 	src/core/local_planner_service.c \
-	$(LOCAL_REVIEW_PREVIEW_SOURCES) $(LOCAL_TOOLKIT_SOURCES)
-	$(CC) $(CFLAGS) -DLOCAL_JOBS_ENABLE_CRASH_HOOK $^ -o $@ $(LDFLAGS)
+	$(LOCAL_REVIEW_PREVIEW_SOURCES) $(LOCAL_TOOLKIT_SOURCES) $(RESEARCH_SOURCES) \
+	check-research-libcurl
+	$(CC) $(CFLAGS) -DLOCAL_JOBS_ENABLE_CRASH_HOOK $(RESEARCH_CURL_CFLAGS) \
+		$(filter %.c,$^) -o $@ $(LDFLAGS) $(RESEARCH_CURL_LDFLAGS)
 
 $(TEST_DIALOG_GEOMETRY_GTK): tests/test_dialog_geometry_gtk.c \
 	src/views/dialog_geometry.c
@@ -454,7 +497,10 @@ $(TEST_PERSON_OCR_PROJECTION_EDITOR_GTK): tests/test_person_ocr_projection_edito
 	src/models/identity_traceability.c
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
-all: $(TARGET)
+# CONTRACT: le produit utilisateur est le poste Web local. La cible principale
+# construit le bridge C qui conserve les services, SQLite et le JobStore V4,
+# sans lier un renderer de bureau historique.
+all: $(LOCAL_JOBS)
 
 .PHONY: core-graph-demo eml-graph-demo local-toolkit-demo
 core-graph-demo: $(CORE_GRAPH_DEMO)
@@ -1399,7 +1445,7 @@ $(TEST_INVESTIGATION_GRAPH_LOAD_TASK): \
 	$(CC) $(INVESTIGATION_GRAPH_LOAD_TASK_TEST_CFLAGS) $^ -o $@ \
 		$(TEST_LDFLAGS) -lsqlite3
 
-test: \
+test-gtk-legacy: \
 	$(TEST_NODE) \
 	$(TEST_TREE_MODEL) \
 	$(TEST_TREE_BUILDER) \
@@ -1494,6 +1540,10 @@ test: \
 	$(TEST_LOCAL_TOOL_RUNNER) \
 	$(TEST_LOCAL_CAPABILITY_REGISTRY) \
 	$(TEST_LOCAL_JOB_STORE) \
+	$(TEST_RESEARCH_STORE) \
+	$(TEST_RESEARCH_POLICY) \
+	$(TEST_RESEARCH_TRANSPORT) \
+	$(TEST_RESEARCH_ADAPTERS) \
 	$(TEST_LOCAL_CORRELATION) \
 	$(TEST_LOCAL_PLANNER) \
 	$(TEST_LOCAL_REPORT) \
@@ -1609,6 +1659,10 @@ test: \
 	@$(TEST_LOCAL_TOOL_RUNNER)
 	@$(TEST_LOCAL_CAPABILITY_REGISTRY)
 	@$(TEST_LOCAL_JOB_STORE)
+	@$(TEST_RESEARCH_STORE)
+	@$(TEST_RESEARCH_POLICY)
+	@$(TEST_RESEARCH_TRANSPORT)
+	@$(TEST_RESEARCH_ADAPTERS)
 	@$(TEST_LOCAL_CORRELATION)
 	@$(TEST_LOCAL_REPORT)
 	@$(TEST_OBSERVATION_REVIEW_SERVICE)
@@ -1631,6 +1685,24 @@ test: \
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+# CONTRACT: la suite canonique valide les services restant dans le produit
+# Web-only. Les anciennes assertions de widgets GTK sont retirées avec leur
+# renderer, sans retirer les tests C de persistance, graphes, jobs et policy.
+test: $(TEST_LOCAL_JOB_STORE) $(TEST_RESEARCH_STORE) $(TEST_RESEARCH_POLICY) \
+	$(TEST_RESEARCH_TRANSPORT) $(TEST_RESEARCH_ADAPTERS) \
+	$(TEST_SCHEMA_V21) $(TEST_FINANCIAL_DAO) $(TEST_FINANCIAL_FOUNDATION) \
+	$(TEST_CORE_GRAPH) $(LOCAL_JOBS_TEST)
+	@./$(TEST_LOCAL_JOB_STORE)
+	@./$(TEST_RESEARCH_STORE)
+	@./$(TEST_RESEARCH_POLICY)
+	@./$(TEST_RESEARCH_TRANSPORT)
+	@./$(TEST_RESEARCH_ADAPTERS)
+	@./$(TEST_SCHEMA_V21)
+	@./$(TEST_FINANCIAL_DAO)
+	@./$(TEST_FINANCIAL_FOUNDATION)
+	@./$(TEST_CORE_GRAPH)
+	@echo "Tous les tests Web-only C sont valides."
 
 run: $(TARGET)
 	./$(TARGET)

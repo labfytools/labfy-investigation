@@ -12,6 +12,7 @@
 #include "core/local_report_service.h"
 #include "core/local_tool_runner.h"
 #include "core/observation_review_service.h"
+#include "core/research_store.h"
 #include "dao/evidence_entity_dao.h"
 #include "dao/evidence_dao.h"
 #include "dao/extraction_dao.h"
@@ -32,6 +33,8 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include <sqlite3.h>
 
 #define EML_JOB "82000000-0000-4000-8000-000000000011"
 #define EML_REQUEST "82000000-0000-4000-8000-000000000012"
@@ -84,6 +87,21 @@ static LocalJobStore *open_store(const char *root, Manifest *manifest,
                                  GError **error);
 static gboolean write_private_atomic(const char *path, const char *contents,
                                      GError **error);
+
+/* CONTRACT: research commands accept identifiers and revisions only.  The
+ * laboratory provider authority is process configuration, never UI input. */
+static gboolean research_prepare_json(const char *root, const char *selection,
+    const char *question, const char *exclusions, const char *revision,
+    const char *key, GError **error);
+static gboolean research_grant_json(const char *root, const char *plan_id,
+    const char *revision, const char *actions, const char *decisions,
+    const char *exclusions,
+    const char *key, GError **error);
+static gboolean research_campaign_json(const char *root, const char *grant_id,
+    const char *revision, const char *actions, const char *key, GError **error);
+static gboolean research_snapshot_json(const char *root, GError **error);
+static gboolean research_revoke_json(const char *root, const char *grant_id,
+    GError **error);
 
 static void json_add_nullable(JsonBuilder *builder, const char *name,
                               const char *value) {
@@ -1675,6 +1693,448 @@ static gboolean review_observation(const char *root, const char *evidence_id,
   manifest_clear(&manifest); return ok;
 }
 
+static char *research_hash(const char *value) {
+  return g_compute_checksum_for_string(G_CHECKSUM_SHA256, value, -1);
+}
+
+static gboolean research_open_db(const char *root, sqlite3 **out,
+                                 GError **error) {
+  char *path = workspace_path(root, ".labfy/runtime/jobs.sqlite");
+  int result = sqlite3_open_v2(path, out, SQLITE_OPEN_READONLY, NULL);
+  g_free(path);
+  if (result == SQLITE_OK) return TRUE;
+  g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                      "Snapshot de recherche indisponible.");
+  if (*out != NULL) sqlite3_close(*out);
+  *out = NULL; return FALSE;
+}
+
+static gboolean research_provider(char **out, GError **error) {
+  const char *authority = g_getenv("LABFY_RESEARCH_FIXTURE_AUTHORITY");
+  if (authority == NULL || !g_regex_match_simple(
+      "^127\\.0\\.0\\.1:([1-9][0-9]{0,4})$", authority, 0, 0)) {
+    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+        "Fournisseur de laboratoire local non configuré."); return FALSE;
+  }
+  const char *separator = strrchr(authority, ':');
+  guint64 port = g_ascii_strtoull(separator + 1, NULL, 10);
+  if (port > 65535U || port == 8080U || port == 8081U) {
+    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+                        "Port fournisseur de laboratoire interdit."); return FALSE;
+  }
+  *out = g_strdup(authority); return TRUE;
+}
+
+static gboolean research_load_selection(const char *root, gchar **ids,
+    GPtrArray *subjects, guint64 *snapshot_revision, GError **error) {
+  char *path = workspace_path(root, "core-snapshot.json");
+  JsonParser *parser = json_parser_new();
+  gboolean ok = json_parser_load_from_file(parser, path, error); g_free(path);
+  JsonObject *root_object = ok ? json_node_get_object(
+      json_parser_get_root(parser)) : NULL;
+  JsonArray *nodes = root_object != NULL ? json_object_get_array_member(
+      root_object, "nodes") : NULL;
+  if (nodes == NULL) ok = FALSE;
+  if (ok) *snapshot_revision = (guint64)json_object_get_int_member(
+      root_object, "revision");
+  for (gsize i = 0; ok && ids[i] != NULL; i++) {
+    const char *label = NULL;
+    for (guint j = 0; j < json_array_get_length(nodes); j++) {
+      JsonObject *node = json_array_get_object_element(nodes, j);
+      if (g_strcmp0(json_object_get_string_member(node, "id"), ids[i]) == 0)
+        label = json_object_get_string_member(node, "label");
+    }
+    if (label == NULL || !g_utf8_validate(label, -1, NULL)) ok = FALSE;
+    else g_ptr_array_add(subjects, g_strdup(label));
+  }
+  g_object_unref(parser);
+  if (!ok && error != NULL && *error == NULL)
+    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                        "Sélection absente du snapshot cœur.");
+  return ok;
+}
+
+static gboolean research_prepare_json(const char *root, const char *selection,
+    const char *question, const char *exclusions, const char *revision,
+    const char *key, GError **error) {
+  if (selection == NULL || question == NULL || revision == NULL || key == NULL ||
+      !g_uuid_string_is_valid(key) || strlen(question) > 512U) {
+    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                        "Intention de recherche invalide."); return FALSE;
+  }
+  gchar **ids = g_strsplit(selection, ",", 9);
+  gsize count = g_strv_length(ids); char *end = NULL;
+  guint64 requested_revision = g_ascii_strtoull(revision, &end, 10);
+  GPtrArray *subjects = g_ptr_array_new_with_free_func(g_free);
+  guint64 current_revision = 0U; char *authority = NULL;
+  gboolean ok = count > 0U && count <= 8U && end != revision && *end == '\0' &&
+      research_load_selection(root, ids, subjects, &current_revision, error) &&
+      current_revision == requested_revision && research_provider(&authority, error);
+  if (!ok && error != NULL && *error == NULL)
+    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                        "Révision de sélection périmée.");
+  Manifest manifest = {0}; LocalJobStore *store = ok ? open_store(
+      root, &manifest, error) : NULL;
+  char *plan_id = derived_uuid(key, "research-plan");
+  char *action_ids[3] = {derived_uuid(key, "wave-1"),
+      derived_uuid(key, "wave-2"), derived_uuid(key, "refused")};
+  char *endpoints[3] = {NULL, NULL, NULL};
+  for (guint i = 0; authority != NULL && i < 3U; i++)
+    endpoints[i] = g_strdup_printf("http://%s/specimen/%s", authority,
+                                    i == 0 ? "wave-1" : i == 1 ? "wave-2" : "refused");
+  const char *subject = subjects->len > 0 ? g_ptr_array_index(subjects, 0) : NULL;
+  ResearchSeed *seeds = g_new0(ResearchSeed, count + 1U);
+  for (gsize i = 0; i < count; i++) seeds[i] = (ResearchSeed){
+      RESEARCH_SEED_SEARCH_TERM, g_ptr_array_index(subjects, i)};
+  seeds[count] = (ResearchSeed){RESEARCH_SEED_SEARCH_TERM, question};
+  ResearchAction actions[3] = {
+    {action_ids[0],"labfy.research.fixture.lookup.v1","fixture-provider",
+     endpoints[0],subject,RESEARCH_CONTACT_THIRD_PARTY,
+     "Le sujet exact est communiqué au fournisseur local SPECIMEN.",1U,4096U,2000U},
+    {action_ids[1],"labfy.research.fixture.followup.v1","fixture-provider",
+     endpoints[1],subject,RESEARCH_CONTACT_THIRD_PARTY,
+     "Le sujet exact est communiqué au second contact local SPECIMEN.",1U,4096U,2000U},
+    {action_ids[2],"labfy.research.fixture.optional.v1","fixture-provider",
+     endpoints[2],subject,RESEARCH_CONTACT_THIRD_PARTY,
+     "Action optionnelle : le sujet exact serait communiqué.",1U,4096U,2000U}};
+  char *material = g_strdup_printf("%s|%s|%s|%s|%s", manifest.investigation_id,
+      selection, question, exclusions != NULL ? exclusions : "",
+      authority != NULL ? authority : "");
+  char *fingerprint = research_hash(material); char *created = now_iso();
+  ResearchPlan plan = {RESEARCH_PLAN_CONTRACT,plan_id,key,fingerprint,fingerprint,
+      requested_revision,created,seeds,count+1U,actions,3U}; gboolean reused=FALSE;
+  ok = store != NULL && research_store_admit_plan(store,&plan,&reused,error);
+  if (ok) ok = research_snapshot_json(root,error);
+  g_free(created);g_free(fingerprint);g_free(material);g_free(seeds);
+  for(guint i=0;i<3U;i++){g_free(action_ids[i]);g_free(endpoints[i]);}
+  g_free(plan_id);g_free(authority);local_job_store_close(store);
+  manifest_clear(&manifest);g_ptr_array_unref(subjects);g_strfreev(ids);return ok;
+}
+
+static gboolean research_query_plan(sqlite3 *db, const char *plan_id,
+    char **fingerprint, guint64 *revision, GError **error) {
+  sqlite3_stmt *s=NULL; gboolean ok=sqlite3_prepare_v2(db,
+      "SELECT content_fingerprint,input_revision FROM research_plans WHERE plan_id=?1;",
+      -1,&s,NULL)==SQLITE_OK&&sqlite3_bind_text(s,1,plan_id,-1,SQLITE_TRANSIENT)==SQLITE_OK&&
+      sqlite3_step(s)==SQLITE_ROW;
+  if(ok){*fingerprint=g_strdup((const char*)sqlite3_column_text(s,0));
+    *revision=(guint64)sqlite3_column_int64(s,1);} sqlite3_finalize(s);
+  if(!ok)g_set_error_literal(error,G_IO_ERROR,G_IO_ERROR_NOT_FOUND,"Plan de recherche introuvable.");
+  return ok;
+}
+
+static gboolean research_grant_json(const char *root, const char *plan_id,
+    const char *revision, const char *actions_csv, const char *decisions_csv,
+    const char *exclusions_csv, const char *key, GError **error) {
+  if(plan_id==NULL||revision==NULL||actions_csv==NULL||decisions_csv==NULL||key==NULL||
+      !g_uuid_string_is_valid(plan_id)||!g_uuid_string_is_valid(key))return FALSE;
+  sqlite3 *db=NULL;char *plan_fp=NULL;guint64 stored_revision=0U;char *end=NULL;
+  guint64 expected=g_ascii_strtoull(revision,&end,10);
+  gboolean ok=end!=revision&&*end=='\0'&&research_open_db(root,&db,error)&&
+      research_query_plan(db,plan_id,&plan_fp,&stored_revision,error)&&expected==stored_revision;
+  sqlite3_close(db);gchar **actions=g_strsplit(actions_csv,",",9);
+  gchar **decision_items=g_strsplit(decisions_csv,",",9);
+  gchar **excluded=g_strsplit(exclusions_csv!=NULL?exclusions_csv:"",",",9);
+  gsize action_count=g_strv_length(actions),excluded_count=
+      exclusions_csv!=NULL&&*exclusions_csv!='\0'?g_strv_length(excluded):0U;
+  gsize decision_count=g_strv_length(decision_items);
+  ResearchActionDecision *decisions=g_new0(ResearchActionDecision,decision_count);
+  for(gsize i=0;ok&&i<decision_count;i++){
+    char *separator=strchr(decision_items[i],'=');
+    ok=separator!=NULL&&separator!=decision_items[i]&&separator[1]!='\0';
+    if(ok){*separator='\0';decisions[i].action_id=decision_items[i];
+      if(g_strcmp0(separator+1,"AUTHORIZE")==0)decisions[i].code=RESEARCH_ACTION_AUTHORIZE;
+      else if(g_strcmp0(separator+1,"DEFER")==0)decisions[i].code=RESEARCH_ACTION_DEFER;
+      else if(g_strcmp0(separator+1,"REFUSE")==0)decisions[i].code=RESEARCH_ACTION_REFUSE;
+      else ok=FALSE;}
+  }
+  Manifest manifest={0};LocalJobStore *store=ok?open_store(root,&manifest,error):NULL;
+  char *grant_id=derived_uuid(key,"research-grant");char *created=now_iso();
+  GDateTime *date=g_date_time_new_now_utc();GDateTime *future=g_date_time_add_hours(date,1);
+  char *expires=g_date_time_format(future,"%Y-%m-%dT%H:%M:%SZ");
+  char *material=g_strdup_printf("%s|%s|%s|%s",plan_fp!=NULL?plan_fp:"",actions_csv,
+      decisions_csv,exclusions_csv!=NULL?exclusions_csv:"");
+  char *fingerprint=research_hash(material);ScopeGrant grant={RESEARCH_GRANT_CONTRACT,
+      grant_id,manifest.investigation_id,key,fingerprint,plan_fp,created,expires,
+      (const char*const*)actions,action_count,(const char*const*)excluded,excluded_count,
+      (guint)action_count,4096U*action_count,2000U*action_count};gboolean reused=FALSE;
+  ok=ok&&store!=NULL&&action_count>0U&&action_count<=8U&&decision_count>0U&&
+      decision_count<=8U&&
+      research_store_admit_grant(store,&grant,decisions,decision_count,created,
+                                 &reused,error);
+  if(ok)ok=research_snapshot_json(root,error);
+  g_date_time_unref(future);g_date_time_unref(date);g_free(fingerprint);g_free(material);
+  g_free(expires);g_free(created);g_free(grant_id);g_free(plan_fp);g_strfreev(actions);
+  g_free(decisions);g_strfreev(decision_items);
+  g_strfreev(excluded);local_job_store_close(store);manifest_clear(&manifest);return ok;
+}
+
+static gboolean research_http_fixture(const char *endpoint, const char *action_id,
+    guint64 max_response_bytes, char **body, GError **error) {
+  GUri *uri=g_uri_parse(endpoint,G_URI_FLAGS_NONE,error);if(uri==NULL)return FALSE;
+  const char *host=g_uri_get_host(uri);gint port=g_uri_get_port(uri);
+  if(g_strcmp0(host,"127.0.0.1")!=0||port<=0||port==8080||port==8081){
+    g_uri_unref(uri);g_set_error_literal(error,G_IO_ERROR,G_IO_ERROR_PERMISSION_DENIED,
+      "Seul le fournisseur loopback SPECIMEN est autorisé.");return FALSE;}
+  GSocketClient *client=g_socket_client_new();g_socket_client_set_timeout(client,2U);
+  /* INVARIANT fixture: le proxy de l'hôte ne peut jamais détourner ce
+   * transport synthétique hors de l'autorité 127.0.0.1 validée ci-dessus. */
+  g_socket_client_set_enable_proxy(client,FALSE);
+  GSocketConnection *connection=g_socket_client_connect_to_host(client,host,(guint16)port,NULL,error);
+  gboolean ok=connection!=NULL;GString *request=g_string_new(NULL);
+  g_string_printf(request,"GET %s HTTP/1.1\r\nHost: %s:%d\r\nX-Labfy-Action: %s\r\nConnection: close\r\n\r\n",
+      g_uri_get_path(uri),host,port,action_id);
+  GOutputStream *out=ok?g_io_stream_get_output_stream(G_IO_STREAM(connection)):NULL;
+  ok=ok&&g_output_stream_write_all(out,request->str,request->len,NULL,NULL,error);
+  GInputStream *in=ok?g_io_stream_get_input_stream(G_IO_STREAM(connection)):NULL;
+  const guint64 max_header_bytes=4096U;
+  GByteArray *bytes=g_byte_array_new();guint8 buffer[1024];gssize got=0;
+  while(ok&&(got=g_input_stream_read(in,buffer,sizeof(buffer),NULL,error))>0){
+    g_byte_array_append(bytes,buffer,(guint)got);
+    g_byte_array_append(bytes,(const guint8 *)"",1U);
+    char *separator=strstr((char*)bytes->data,"\r\n\r\n");
+    g_byte_array_set_size(bytes,bytes->len-1U);
+    guint64 header_size=separator!=NULL?(guint64)(separator-(char*)bytes->data)+4U:
+      (guint64)bytes->len;
+    guint64 body_size=separator!=NULL?(guint64)bytes->len-header_size:0U;
+    if(header_size>max_header_bytes||body_size>max_response_bytes){ok=FALSE;
+      g_set_error_literal(error,G_IO_ERROR,G_IO_ERROR_NO_SPACE,
+        "Réponse SPECIMEN trop volumineuse.");break;}}
+  if (got < 0)
+    ok = FALSE;
+  g_byte_array_append(bytes, (const guint8 *)"", 1U);
+  char *separator=ok?strstr((char*)bytes->data,"\r\n\r\n"):NULL;
+  ok=ok&&g_str_has_prefix((char*)bytes->data,"HTTP/1.1 200")&&separator!=NULL;
+  if(ok)*body=g_strdup(separator+4);else if(error!=NULL&&*error==NULL)
+    g_set_error_literal(error,G_IO_ERROR,G_IO_ERROR_FAILED,"Réponse fournisseur SPECIMEN invalide.");
+  g_byte_array_unref(bytes);g_string_free(request,TRUE);g_clear_object(&connection);
+  g_object_unref(client);g_uri_unref(uri);return ok;
+}
+
+static gboolean research_result_exists(sqlite3 *db, const char *result_id,
+    gboolean *out_exists, GError **error) {
+  sqlite3_stmt *query=NULL;gboolean ok=sqlite3_prepare_v2(db,
+      "SELECT 1 FROM research_results WHERE result_id=?1;",-1,&query,NULL)==
+      SQLITE_OK&&sqlite3_bind_text(query,1,result_id,-1,SQLITE_TRANSIENT)==
+      SQLITE_OK;int step=ok?sqlite3_step(query):SQLITE_ERROR;
+  if(ok&&step!=SQLITE_ROW&&step!=SQLITE_DONE)ok=FALSE;
+  if(ok)
+    *out_exists=step==SQLITE_ROW;
+  sqlite3_finalize(query);
+  if(!ok)g_set_error_literal(error,G_IO_ERROR,G_IO_ERROR_FAILED,
+      "Lecture de l'état du résultat de recherche impossible.");
+  return ok;
+}
+
+static gboolean research_private_regular(const char *path, guint64 max_size,
+    guint64 *out_size) {
+  GFile *file=g_file_new_for_path(path);
+  GFileInfo *info=g_file_query_info(file,
+      G_FILE_ATTRIBUTE_STANDARD_TYPE "," G_FILE_ATTRIBUTE_STANDARD_SIZE,
+      G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,NULL,NULL);
+  gboolean valid=info!=NULL&&g_file_info_get_file_type(info)==
+      G_FILE_TYPE_REGULAR&&g_file_info_get_size(info)>=0&&
+      (guint64)g_file_info_get_size(info)<=max_size;
+  if(valid&&out_size!=NULL)
+    *out_size=(guint64)g_file_info_get_size(info);
+  g_clear_object(&info);g_object_unref(file);return valid;
+}
+
+static gboolean research_marker_write(const char *path, const char *result_id,
+    const char *sha, GError **error) {
+  char *data=g_strdup_printf("labfy.research_publish.v1\n%s\n%s\n",result_id,sha);
+  gboolean ok=write_private_atomic(path,data,error);g_free(data);return ok;
+}
+
+static gboolean research_marker_matches(const char *path,
+    const char *result_id, const char *sha) {
+  if(!research_private_regular(path,256U,NULL))return FALSE;
+  char *data=NULL;gsize length=0U;
+  if(!g_file_get_contents(path,&data,&length,NULL))return FALSE;
+  char *expected=g_strdup_printf("labfy.research_publish.v1\n%s\n%s\n",
+      result_id,sha);gboolean matches=length==strlen(expected)&&
+      memcmp(data,expected,length)==0;g_free(expected);g_free(data);
+  return matches;
+}
+
+static gboolean research_reconcile_publication(sqlite3 *db,
+    LocalJobStore *store, gboolean reused, const ResearchAction *action,
+    const char *campaign_id, const char *grant_id, const char *created,
+    const char *result_id, const char *receipt_id, const char *relative,
+    const char *absolute, const char *staging, const char *marker,
+    const char *status, gboolean *out_handled, GError **error) {
+  gboolean exists=FALSE;*out_handled=FALSE;
+  if(!research_result_exists(db,result_id,&exists,error))return FALSE;
+  if(exists){*out_handled=TRUE;(void)g_remove(marker);(void)g_remove(staging);
+    return TRUE;}
+  if(!reused)return TRUE;
+  *out_handled=TRUE;
+  if(!g_file_test(marker,G_FILE_TEST_EXISTS)){
+    if(g_file_test(absolute,G_FILE_TEST_EXISTS)){
+      g_set_error_literal(error,G_IO_ERROR,G_IO_ERROR_INVALID_DATA,
+          "Artefact final sans journal de publication possédé.");return FALSE;}
+    return TRUE;
+  }
+  guint64 body_size=0U;char *body=NULL;gsize loaded=0U;
+  gboolean valid=research_private_regular(absolute,action->max_response_bytes,
+      &body_size)&&g_file_get_contents(absolute,&body,&loaded,NULL)&&
+      loaded==body_size;char *sha=valid?g_compute_checksum_for_data(
+      G_CHECKSUM_SHA256,(const guchar*)body,loaded):NULL;
+  valid=valid&&research_marker_matches(marker,result_id,sha);
+  if(valid){ResearchResult result={RESEARCH_RESULT_CONTRACT,result_id,
+      campaign_id,action->action_id,relative,sha,status};ResearchReceipt receipt={
+      RESEARCH_RECEIPT_CONTRACT,receipt_id,result_id,campaign_id,grant_id,
+      action->action_id,created,"ALLOW"};
+    valid=research_store_record_result(store,&result,&receipt,error);}
+  if(!valid){(void)g_remove(absolute);(void)g_remove(staging);(void)g_remove(marker);
+    if(error!=NULL&&*error==NULL)g_set_error_literal(error,G_IO_ERROR,
+      G_IO_ERROR_INVALID_DATA,"Publication de recherche interrompue incohérente.");}
+  else (void)g_remove(marker);
+  g_free(sha);g_free(body);return valid;
+}
+
+static gboolean research_campaign_json(const char *root, const char *grant_id,
+    const char *revision, const char *actions_csv, const char *key,
+    GError **error) {
+  if(grant_id==NULL||revision==NULL||actions_csv==NULL||key==NULL||
+      !g_uuid_string_is_valid(grant_id)||!g_uuid_string_is_valid(key))return FALSE;
+  gchar **requested=g_strsplit(actions_csv,",",9);gsize count=g_strv_length(requested);
+  char *end=NULL;guint64 expected=g_ascii_strtoull(revision,&end,10);
+  sqlite3 *db=NULL;sqlite3_stmt *meta=NULL;char *plan_fp=NULL;guint64 stored=0U;
+  gboolean ok=count>0U&&count<=8U&&end!=revision&&*end=='\0'&&
+      research_open_db(root,&db,error)&&sqlite3_prepare_v2(db,
+      "SELECT g.plan_fingerprint,p.input_revision FROM scope_grants g JOIN research_plans p ON p.content_fingerprint=g.plan_fingerprint WHERE g.grant_id=?1;",
+      -1,&meta,NULL)==SQLITE_OK&&sqlite3_bind_text(meta,1,grant_id,-1,SQLITE_TRANSIENT)==SQLITE_OK&&sqlite3_step(meta)==SQLITE_ROW;
+  if(ok){plan_fp=g_strdup((const char*)sqlite3_column_text(meta,0));stored=(guint64)sqlite3_column_int64(meta,1);ok=stored==expected;}
+  sqlite3_finalize(meta);if(!ok&&error!=NULL&&*error==NULL)g_set_error_literal(error,
+      G_IO_ERROR,G_IO_ERROR_FAILED,"Grant absent ou révision périmée.");
+  Manifest manifest={0};LocalJobStore *store=ok?open_store(root,&manifest,error):NULL;
+  char *campaign_id=derived_uuid(key,"research-campaign");char *created=now_iso();
+  char *material=g_strdup_printf("%s|%s|%s",grant_id,revision,actions_csv);
+  char *fingerprint=research_hash(material);ResearchCampaign campaign={
+      RESEARCH_CAMPAIGN_CONTRACT,campaign_id,manifest.investigation_id,grant_id,key,
+      fingerprint,created};gboolean reused=FALSE;
+  ok=store!=NULL&&research_store_admit_campaign(store,&campaign,&reused,error);
+  /* INVARIANT: un rejeu idempotent réconcilie une publication interrompue
+   * avant toute possibilité de reproduire le contact fournisseur. */
+  for(gsize i=0;ok&&i<count;i++){
+    sqlite3_stmt *a=NULL;ResearchAction action={0};
+    ok=sqlite3_prepare_v2(db,"SELECT a.capability_id,a.provider_id,a.endpoint,a.subject,a.contact_class,a.disclosure,a.max_requests,a.max_response_bytes,a.max_active_ms FROM research_actions a JOIN scope_grant_actions ga ON ga.action_id=a.action_id WHERE ga.grant_id=?1 AND a.action_id=?2;",-1,&a,NULL)==SQLITE_OK&&
+       sqlite3_bind_text(a,1,grant_id,-1,SQLITE_TRANSIENT)==SQLITE_OK&&
+       sqlite3_bind_text(a,2,requested[i],-1,SQLITE_TRANSIENT)==SQLITE_OK&&sqlite3_step(a)==SQLITE_ROW;
+    if(!ok){sqlite3_finalize(a);g_set_error_literal(error,G_IO_ERROR,G_IO_ERROR_PERMISSION_DENIED,"Action non autorisée par le grant.");break;}
+    action=(ResearchAction){requested[i],(const char*)sqlite3_column_text(a,0),
+      (const char*)sqlite3_column_text(a,1),(const char*)sqlite3_column_text(a,2),
+      (const char*)sqlite3_column_text(a,3),
+      g_strcmp0((const char*)sqlite3_column_text(a,4),"THIRD_PARTY")==0?
+        RESEARCH_CONTACT_THIRD_PARTY:RESEARCH_CONTACT_NONE,
+      (const char*)sqlite3_column_text(a,5),(guint)sqlite3_column_int64(a,6),
+      (guint64)sqlite3_column_int64(a,7),(guint)sqlite3_column_int64(a,8)};
+    ResearchPolicyRequest policy={manifest.investigation_id,plan_fp,&action,created,
+      action.max_requests,action.max_response_bytes,action.max_active_ms};
+    ResearchPolicyDecision decision=RESEARCH_POLICY_DENY_ACTION;
+    if(!reused)ok=research_store_policy_decide(store,grant_id,&policy,
+      &decision,error)&&decision==RESEARCH_POLICY_ALLOW;
+    char *endpoint=g_strdup(action.endpoint);sqlite3_finalize(a);
+    char *result_id=derived_uuid(key,requested[i]);char *receipt_id=
+      derived_uuid(result_id,"receipt");char *relative=g_strdup_printf(
+      ".labfy/research/%s.txt",result_id);char *directory=workspace_path(root,
+      ".labfy/research");char *absolute=workspace_path(root,relative);
+    char *staging_name=g_strdup_printf(".staging-%s-%s",result_id,key);
+    char *staging=g_build_filename(directory,staging_name,NULL);
+    char *marker_name=g_strdup_printf(".publishing-%s",result_id);
+    char *marker=g_build_filename(directory,marker_name,NULL);
+    const char *status=strstr(endpoint,"wave-1")?"NEW":
+      strstr(endpoint,"wave-2")?"CONTRADICTION":"MISSING";
+    gboolean handled=FALSE;
+    if(ok)ok=research_reconcile_publication(db,store,reused,&action,campaign_id,
+      grant_id,created,result_id,receipt_id,relative,absolute,staging,marker,
+      status,&handled,error);
+    char *body=NULL;
+    if(ok&&!handled)ok=research_http_fixture(endpoint,requested[i],
+      action.max_response_bytes,&body,error);
+    if(ok&&!handled){
+      gboolean staging_owned=FALSE,final_owned=FALSE;
+      if(g_mkdir_with_parents(directory,0700)!=0){ok=FALSE;g_set_error(error,
+        G_IO_ERROR,g_io_error_from_errno(errno),
+        "Création du staging de recherche impossible.");}
+      if(ok&&g_file_test(absolute,G_FILE_TEST_EXISTS)){ok=FALSE;
+        g_set_error_literal(error,G_IO_ERROR,G_IO_ERROR_EXISTS,
+          "L'artefact final de recherche existe déjà.");}
+      if(ok){ok=write_private_atomic(staging,body,error);
+        staging_owned=g_file_test(staging,G_FILE_TEST_IS_REGULAR);}
+      char *sha=research_hash(body);
+      if(ok)ok=research_marker_write(marker,result_id,sha,error);
+      /* CONTRACT: le journal privé précède le renommage. Après un crash, il
+       * prouve la propriété et l'empreinte nécessaires à une réconciliation
+       * sans nouveau contact; il est retiré après le résultat/reçu atomique. */
+      if(ok&&g_rename(staging,absolute)!=0){ok=FALSE;g_set_error(error,G_IO_ERROR,
+        g_io_error_from_errno(errno),"Publication de l'artefact impossible.");}
+      else if(ok){staging_owned=FALSE;final_owned=TRUE;}
+      if(ok&&g_strcmp0(g_getenv("LABFY_TEST_RESEARCH_CRASH_AFTER_RENAME"),"1")==0)
+        _exit(86);
+      ResearchResult result={RESEARCH_RESULT_CONTRACT,result_id,campaign_id,
+        requested[i],relative,sha,status};ResearchReceipt receipt={
+        RESEARCH_RECEIPT_CONTRACT,receipt_id,result_id,campaign_id,grant_id,
+        requested[i],created,"ALLOW"};
+      if(ok)ok=research_store_record_result(store,&result,&receipt,error);
+      if(!ok&&final_owned)(void)g_remove(absolute);
+      if(staging_owned)(void)g_remove(staging);
+      (void)g_remove(marker);g_free(sha);}
+    g_free(body);g_free(marker);g_free(marker_name);g_free(staging);
+    g_free(staging_name);g_free(absolute);g_free(directory);g_free(relative);
+    g_free(receipt_id);g_free(result_id);g_free(endpoint);
+  }
+  sqlite3_close(db);if(ok)ok=research_snapshot_json(root,error);
+  g_free(fingerprint);g_free(material);g_free(created);g_free(campaign_id);
+  g_free(plan_fp);g_strfreev(requested);local_job_store_close(store);
+  manifest_clear(&manifest);return ok;
+}
+
+static gboolean research_snapshot_json(const char *root, GError **error) {
+  sqlite3 *db=NULL;if(!research_open_db(root,&db,error))return FALSE;
+  sqlite3_stmt *plan=NULL;gboolean has=sqlite3_prepare_v2(db,
+      "SELECT plan_id,content_fingerprint,input_revision,created_at,(SELECT subject FROM research_seeds s WHERE s.plan_id=p.plan_id ORDER BY rank DESC LIMIT 1) FROM research_plans p ORDER BY rowid DESC LIMIT 1;",
+      -1,&plan,NULL)==SQLITE_OK&&sqlite3_step(plan)==SQLITE_ROW;
+  JsonBuilder *b=json_builder_new();json_builder_begin_object(b);
+  json_builder_set_member_name(b,"contract");json_builder_add_string_value(b,"labfy.research.snapshot.v1");
+  json_builder_set_member_name(b,"state");json_builder_add_string_value(b,has?"PREPARED":"EMPTY");
+  if(has){const char *plan_id=(const char*)sqlite3_column_text(plan,0);
+    json_add_nullable(b,"plan_id",plan_id);json_add_nullable(b,"plan_fingerprint",(const char*)sqlite3_column_text(plan,1));
+    json_builder_set_member_name(b,"input_revision");json_builder_add_int_value(b,sqlite3_column_int64(plan,2));
+    json_add_nullable(b,"created_at",(const char*)sqlite3_column_text(plan,3));
+    json_add_nullable(b,"question",(const char*)sqlite3_column_text(plan,4));
+    sqlite3_stmt *a=NULL;sqlite3_prepare_v2(db,
+      "SELECT a.action_id,a.capability_id,a.provider_id,a.subject,a.contact_class,a.disclosure,a.max_requests,a.max_response_bytes,a.max_active_ms,EXISTS(SELECT 1 FROM research_receipts r WHERE r.action_id=a.action_id),COALESCE((SELECT rr.status FROM research_results rr WHERE rr.action_id=a.action_id ORDER BY rowid DESC LIMIT 1),''),COALESCE((SELECT d.decision_code FROM research_action_decisions d WHERE d.action_id=a.action_id),'DEFER'),a.rank FROM research_actions a WHERE a.plan_id=?1 ORDER BY a.rank;",-1,&a,NULL);
+    sqlite3_bind_text(a,1,plan_id,-1,SQLITE_TRANSIENT);json_builder_set_member_name(b,"actions");json_builder_begin_array(b);
+    while(sqlite3_step(a)==SQLITE_ROW){json_builder_begin_object(b);
+      const char *names[]={"action_id","capability_id","provider_id","subject","contact","disclosure"};
+      for(guint i=0;i<6U;i++)json_add_nullable(b,names[i],(const char*)sqlite3_column_text(a,(int)i));
+      json_builder_set_member_name(b,"max_requests");json_builder_add_int_value(b,sqlite3_column_int64(a,6));
+      json_builder_set_member_name(b,"max_response_bytes");json_builder_add_int_value(b,sqlite3_column_int64(a,7));
+      json_builder_set_member_name(b,"max_active_ms");json_builder_add_int_value(b,sqlite3_column_int64(a,8));
+      json_builder_set_member_name(b,"contacted");json_builder_add_boolean_value(b,sqlite3_column_int(a,9)!=0);
+      json_add_nullable(b,"result_status",(const char*)sqlite3_column_text(a,10));
+      json_add_nullable(b,"decision",(const char*)sqlite3_column_text(a,11));
+      json_builder_set_member_name(b,"wave");json_builder_add_int_value(b,sqlite3_column_int64(a,12)+1);
+      json_builder_end_object(b);}sqlite3_finalize(a);json_builder_end_array(b);
+    sqlite3_stmt *g=NULL;sqlite3_prepare_v2(db,"SELECT grant_id,created_at,expires_at,revoked_at FROM scope_grants WHERE plan_fingerprint=?1 ORDER BY rowid DESC;",-1,&g,NULL);
+    sqlite3_bind_text(g,1,(const char*)sqlite3_column_text(plan,1),-1,SQLITE_TRANSIENT);
+    json_builder_set_member_name(b,"grants");json_builder_begin_array(b);while(sqlite3_step(g)==SQLITE_ROW){json_builder_begin_object(b);json_add_nullable(b,"grant_id",(const char*)sqlite3_column_text(g,0));json_add_nullable(b,"created_at",(const char*)sqlite3_column_text(g,1));json_add_nullable(b,"expires_at",(const char*)sqlite3_column_text(g,2));json_add_nullable(b,"revoked_at",(const char*)sqlite3_column_text(g,3));json_builder_end_object(b);}sqlite3_finalize(g);json_builder_end_array(b);
+  } else {json_builder_set_member_name(b,"actions");json_builder_begin_array(b);json_builder_end_array(b);json_builder_set_member_name(b,"grants");json_builder_begin_array(b);json_builder_end_array(b);}
+  sqlite3_finalize(plan);json_builder_end_object(b);gboolean ok=print_json_builder(b,error);
+  g_object_unref(b);sqlite3_close(db);return ok;
+}
+
+static gboolean research_revoke_json(const char *root, const char *grant_id,
+    GError **error){Manifest manifest={0};LocalJobStore *store=open_store(root,&manifest,error);
+  char *now=now_iso();gboolean ok=store!=NULL&&research_store_revoke_grant(store,grant_id,now,error);
+  if (ok)
+    ok = research_snapshot_json(root, error);
+  g_free(now);
+  local_job_store_close(store);
+  manifest_clear(&manifest);return ok;}
+
 static gboolean control(const char *root, const char *command,
                         const char *job_id, GError **error) {
   Manifest manifest = {0};
@@ -1837,6 +2297,23 @@ int main(int argc, char **argv) {
     const char *objects=NULL,*title=NULL,*comment=NULL,*generated=NULL,*sections=NULL;
     for(int i=4;i+1<argc;i+=2){if(strcmp(argv[i],"--objects")==0)objects=argv[i+1];else if(strcmp(argv[i],"--title")==0)title=argv[i+1];else if(strcmp(argv[i],"--comment")==0)comment=argv[i+1];else if(strcmp(argv[i],"--generated-at")==0)generated=argv[i+1];else if(strcmp(argv[i],"--sections")==0)sections=argv[i+1];}
     ok=prepare_report(workspace,objects,title,comment,generated,sections,&error);
+  } else if (strcmp(argv[1], "research-prepare-json") == 0) {
+    const char *selection=NULL,*question=NULL,*exclusions=NULL,*revision=NULL,*key=NULL;
+    for(int i=4;i+1<argc;i+=2){if(strcmp(argv[i],"--selection")==0)selection=argv[i+1];else if(strcmp(argv[i],"--question")==0)question=argv[i+1];else if(strcmp(argv[i],"--exclusions")==0)exclusions=argv[i+1];else if(strcmp(argv[i],"--revision")==0)revision=argv[i+1];else if(strcmp(argv[i],"--key")==0)key=argv[i+1];}
+    ok=research_prepare_json(workspace,selection,question,exclusions,revision,key,&error);
+  } else if (strcmp(argv[1], "research-grant-json") == 0) {
+    const char *plan=NULL,*revision=NULL,*actions=NULL,*decisions=NULL,*exclusions=NULL,*key=NULL;
+    for(int i=4;i+1<argc;i+=2){if(strcmp(argv[i],"--plan")==0)plan=argv[i+1];else if(strcmp(argv[i],"--revision")==0)revision=argv[i+1];else if(strcmp(argv[i],"--actions")==0)actions=argv[i+1];else if(strcmp(argv[i],"--decisions")==0)decisions=argv[i+1];else if(strcmp(argv[i],"--exclusions")==0)exclusions=argv[i+1];else if(strcmp(argv[i],"--key")==0)key=argv[i+1];}
+    ok=research_grant_json(workspace,plan,revision,actions,decisions,exclusions,key,&error);
+  } else if (strcmp(argv[1], "research-campaign-json") == 0) {
+    const char *grant=NULL,*revision=NULL,*actions=NULL,*key=NULL;
+    for(int i=4;i+1<argc;i+=2){if(strcmp(argv[i],"--grant")==0)grant=argv[i+1];else if(strcmp(argv[i],"--revision")==0)revision=argv[i+1];else if(strcmp(argv[i],"--actions")==0)actions=argv[i+1];else if(strcmp(argv[i],"--key")==0)key=argv[i+1];}
+    ok=research_campaign_json(workspace,grant,revision,actions,key,&error);
+  } else if (strcmp(argv[1], "research-snapshot-json") == 0)
+    ok=research_snapshot_json(workspace,&error);
+  else if (strcmp(argv[1], "research-revoke-json") == 0) {
+    const char *grant=NULL;for(int i=4;i+1<argc;i+=2)if(strcmp(argv[i],"--grant")==0)grant=argv[i+1];
+    ok=research_revoke_json(workspace,grant,&error);
   } else if (strcmp(argv[1], "run") == 0)
     ok = run_worker(workspace, 0U, &error);
   else if (strcmp(argv[1], "__test-crash-after-claim") == 0)

@@ -39,6 +39,18 @@ async function clickNode(page, id) {
   });
 }
 
+async function dragNode(page, id, deltaX, deltaY) {
+  const node = await page.$(`[data-id="${id}"]`);
+  const box = await node.boundingBox();
+  assert.ok(box, `boîte du nœud ${id}`);
+  const x = box.x + box.width / 2, y = box.y + box.height / 2;
+  await page.mouse.move(x, y); await page.mouse.down();
+  // Firefox livre les PointerEvents intermédiaires de manière fiable ; un seul
+  // saut ne prouve pas le contrat de position épinglée du renderer SVG.
+  await page.mouse.move(x + deltaX / 2, y + deltaY / 2, { steps: 3 });
+  await page.mouse.move(x + deltaX, y + deltaY, { steps: 3 }); await page.mouse.up();
+}
+
 async function inspectCoreMode(page) {
   await page.waitForSelector(`[data-id="${PERSON}"]`);
   const initial = await page.evaluate(() => window.__LABFY_TEST__.getState());
@@ -91,13 +103,7 @@ async function inspectCoreMode(page) {
   });
   assert.equal((await page.evaluate(() => window.__LABFY_TEST__.getState())).visibleNodeIds.length, 0);
   await page.$eval("#reset", (item) => item.click());
-
-  const person = await page.$(`[data-id="${PERSON}"]`);
-  const box = await person.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 + 70, box.y + box.height / 2 + 45, { steps: 4 });
-  await page.mouse.up();
+  await dragNode(page, PERSON, 70, 45);
   assert.ok((await page.evaluate(() => window.__LABFY_TEST__.getState())).pinned[PERSON]);
 
   await page.setViewport({ width: 700, height: 900 });

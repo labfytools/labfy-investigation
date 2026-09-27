@@ -8,9 +8,18 @@ Le contrôle navigateur local sur espace exclusivement synthétique est décrit
 dans [WEB_WORKSPACE_CONTROL.md](architecture/WEB_WORKSPACE_CONTROL.md). Cette
 surface mutationnelle J6 est distincte des démonstrations read-only J2–J5.
 
+La [recherche OSINT assistée V1](architecture/OSINT_ASSISTED_RESEARCH.md) est
+`CURRENT` dans le worktree uniquement pour son parcours de laboratoire : le
+JobStore V4 est additif à V3, les grants sont explicites et aucun fournisseur
+public n'est configuré ou qualifié. Elle ne modifie ni V20 ni V21.
+
 > **Statut :** direction canonique v0.1.0
-> **Dernière mise à jour :** 2026-09-25
+> **Dernière mise à jour :** 2026-09-27
 > **Portée :** architecture actuelle et cible Labfy V2
+
+> **Interface CURRENT :** le Web local est l'unique interface utilisateur ;
+> GTK et ses tests/widgets de renderer sont retirés. Le cœur C17, SQLite, les
+> services, capabilities et JobStore V4 n'en dépendent pas.
 
 ## 1. Objet et niveaux de maturité
 
@@ -123,11 +132,11 @@ une hypothèse. Il ne devient pas silencieusement une identité confirmée.
 
 ## 3. Architecture actuelle — CURRENT
 
-L'application existante est principalement écrite en C17 avec GTK4, GLib/GIO
+Le produit actuel est principalement écrit en C17 avec GLib/GIO
 et SQLite.
 
 ```text
-GTK views/widgets
+Web frontend local
        │ intentions et affichage
 Application / services / tasks
        │ orchestration
@@ -154,7 +163,7 @@ Le socle comprend déjà :
 
 - enquêtes autonomes et base versionnée ;
 - preuves, extractions, entités et relations ;
-- graphe interactif GTK et positions persistantes ;
+- graphe Web interactif et positions persistantes ;
 - tâches asynchrones en mémoire ;
 - registre initial d'outils ;
 - premiers parcours DNS et documentaires ;
@@ -208,7 +217,7 @@ pas une réécriture générale du cœur fonctionnel.
                      SQLite
 ```
 
-La future interface principale est Web. GTK reste l'interface fonctionnelle
+L'interface principale actuelle est Web. GTK est supprimé ;
 temporaire et ne sera pas supprimé avant qu'un remplacement validé couvre les
 parcours nécessaires.
 
@@ -599,7 +608,7 @@ Le parcours local est limité à une instance loopback et à des validations sur
 fixtures `SPECIMEN`. Son lanceur peut ouvrir une bibliothèque locale
 explicitement choisie, en créer les enquêtes par le bridge C et n'en active
 qu'une seule dans une instance. Il ne rouvre pas implicitement l'enquête d'une
-session précédente. Cette surface ne change pas son statut : GTK reste le
+session précédente. Cette surface ne change pas son statut : le Web reste le
 parcours fonctionnel actuel et le serveur, son packaging ainsi que le choix du
 renderer de production restent `UNDECIDED`.
 
@@ -647,3 +656,25 @@ signaux exploratoires ; ils ne prouvent ni identité ni relation métier.
 Le durcissement P01–P06 couvre le cycle de vie des imports, les réservations,
 le rejeu, les états terminaux et le framing HTTP du corps. Il ne transforme pas
 le protocole local en service distant ni en garantie de production.
+
+## 18. Recherche OSINT assistée V1 — CURRENT de laboratoire
+
+Le JobStore V4 conserve le worker mono-propriétaire et ajoute des objets
+distincts de `local_plan.v1` et de session : plan de recherche, action,
+`ScopeGrant`, campagne, résultat et reçu de policy. Les admissions sont
+idempotentes et atomiques ; la policy expose les refus d'exclusion, révocation,
+expiration, identité d'enquête/plan/action ou budget. Une seed dérivée, une
+redirection, un CNAME ou une URL nouvelle ne propage jamais le scope.
+
+Le transport commun demeure indisponible sans backend lié. La variante libcurl
+est validée seulement contre le fournisseur loopback `SPECIMEN` du harness et
+rejette les adresses non publiques ; elle ne qualifie aucun fournisseur public
+ni configuration de production. Les adapters DNS, RDAP, CDX, Brave, SearXNG et
+page normalisent des fixtures bornées ; une `next_piste` demande toujours une
+nouvelle préparation et décision humaine.
+
+Le panneau Web local prépare un plan, permet l'approbation ou le refus explicite
+des actions, puis admet une campagne en deux vagues séparées. Les sessions et
+CSRF Web restent hors des contrats durables ; les tests synthétiques vérifient
+l'isolation des espaces A/B. Le détail canonique, les procédures de harness et
+les limites sont dans [OSINT_ASSISTED_RESEARCH.md](architecture/OSINT_ASSISTED_RESEARCH.md).

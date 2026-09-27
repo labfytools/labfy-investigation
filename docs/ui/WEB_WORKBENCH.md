@@ -1,20 +1,23 @@
 # Poste Web local — guide d’utilisation
 
-> **Statut CURRENT local :** poste utilisable au-dessus des services C et du
-> JobStore V3 existants, depuis une bibliothèque d'enquêtes explicitement
+> **Statut CURRENT local :** interface utilisateur Web unique, utilisable au-dessus des services C et du
+> JobStore V4 existants, depuis une bibliothèque d'enquêtes explicitement
 > choisie. Les validations emploient des fixtures `SPECIMEN`. Il ne constitue
 > ni une autorisation d’ouvrir une enquête réelle, ni un service distant.
 
 ## Organisation
 
-À l'ouverture, la bibliothèque affiche les enquêtes locales enregistrées et
+À l'ouverture, le lanceur `tools/labfy` démarre ou rejoint l’instance loopback
+possédée, ouvre le navigateur et établit une session HttpOnly locale sans code
+manuel. La bibliothèque affiche les enquêtes locales enregistrées et
 permet d'en créer une avec un titre explicite. Une enquête ouverte reste la
 seule enquête active de cette instance ; le poste n'en restaure pas une autre
 automatiquement. Le titre et la génération de la bibliothèque identifient le
 contexte affiché, afin qu'une réponse tardive d'une enquête précédente ne le
 repeuple pas.
 
-Le graphe reste la surface principale. La barre haute porte l’identité de
+Le graphe reste la surface principale. La coque est **Agent | Graphe |
+Activité**, plus un tiroir transversal. La barre haute porte l’identité de
 l’enquête, le statut local et la recherche. La rangée suivante change de
 projection (`Réseau`, `Preuves`, `Chronologie`, `Infrastructure locale`) sans
 créer une seconde vérité métier.
@@ -93,10 +96,10 @@ Une date sans fuseau ou invalide reste non positionnable.
 Lancer le poste local sur une bibliothèque explicitement choisie :
 
 ```bash
-make web PORT=8081 LIBRARY=/chemin/vers/la-bibliotheque-locale
+LABFY_LIBRARY=/chemin/vers/la-bibliotheque-locale tools/labfy
 ```
 
-L’écoute reste loopback, la session est authentifiée et les mutations exigent
+L’écoute reste loopback, la session est HttpOnly/SameSite et les mutations exigent
 le jeton CSRF. Le poste n’expose pas le répertoire des preuves et n’installe
 aucun outil. Les projections vides, erreurs, annulations et limites sont des
 états explicites ; elles ne prouvent jamais une absence d’information.

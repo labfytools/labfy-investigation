@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+import webbrowser
 from pathlib import Path
 
 from web_library import WebLibrary
@@ -188,7 +189,8 @@ def serve(args):
     try:
         server = WorkspaceServer(("127.0.0.1", args.port), Handler,
             workspace=workspace, bridge=args.bridge, bootstrap=bootstrap,
-            library=library, instance_id=instance_id, config_id=config_id)
+            library=library, instance_id=instance_id, config_id=config_id,
+            automatic_session=args.automatic_session)
     except OSError as error:
         _handshake(args.handshake_fd, {"ok": False,
                                       "error": f"Port indisponible : {error}"})
@@ -209,12 +211,13 @@ def serve(args):
             os.write(descriptor, (bootstrap + "\n").encode())
         finally:
             os.close(descriptor)
-        answer = {"ok": True, "origin": server.origin, "bootstrap_code": bootstrap,
+        answer = {"ok": True, "origin": server.origin,
                   "instance_id": instance_id}
         _handshake(args.handshake_fd, answer)
         if args.handshake_fd is None:
             print(f"Labfy Web : {server.origin}/", flush=True)
-            print(f"Code de session éphémère : {bootstrap}", flush=True)
+            if not args.automatic_session:
+                print(f"Code de session éphémère : {bootstrap}", flush=True)
         # INVARIANT: SIGTERM n'arrête que cette instance déjà authentifiée
         # par le lanceur ; shutdown s'exécute hors du gestionnaire de signal.
         def request_shutdown(_signum, _frame):
@@ -243,14 +246,18 @@ def start(args):
         except (OSError, RuntimeError, json.JSONDecodeError):
             current = None
         if current is not None and _identity_valid(current):
-            print(f"Instance déjà active sur http://127.0.0.1:{current['port']}/",
-                  file=sys.stderr)
-            return 1
+            origin = f"http://127.0.0.1:{current['port']}/"
+            if args.open_browser:
+                webbrowser.open(origin)
+            print(f"Instance déjà active sur {origin}", file=sys.stderr)
+            return 0
         files.clear_stale()
         read_fd, write_fd = os.pipe()
         command = [sys.executable, str(Path(__file__).resolve()), "serve",
                    "--port", str(args.port), "--bridge", str(args.bridge),
                    "--handshake-fd", str(write_fd)]
+        if args.automatic_session:
+            command.append("--automatic-session")
         mode, path = _selection(args)
         command.extend((f"--{mode}", str(path)))
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
@@ -274,7 +281,8 @@ def start(args):
             print(response.get("error", "Démarrage refusé"), file=sys.stderr)
             return 1
         print(f"Labfy Web : {response['origin']}/")
-        print(f"Code de session éphémère : {response['bootstrap_code']}")
+        if args.open_browser:
+            webbrowser.open(f"{response['origin']}/")
         return 0
     finally:
         os.close(lifecycle)
@@ -347,6 +355,11 @@ def build_parser():
         targets.add_argument("--workspace", type=Path)
         command.add_argument("--port", type=valid_port, default=DEFAULT_PORT)
         command.add_argument("--bridge", type=Path, default=repository / "tools/local-jobs")
+        command.add_argument("--automatic-session", action="store_true",
+                             help="établit une session locale sans code visible")
+        if name == "start":
+            command.add_argument("--open-browser", action="store_true",
+                                 help="ouvre l'interface locale après vérification")
         if name == "serve":
             command.add_argument("--handshake-fd", type=int, help=argparse.SUPPRESS)
         command.set_defaults(function=function)

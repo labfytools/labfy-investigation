@@ -3,6 +3,11 @@
 Le parcours `CURRENT` de jobs locaux persistants et de reprise J5 est documenté
 dans [docs/architecture/LOCAL_JOBS_RECOVERY.md](docs/architecture/LOCAL_JOBS_RECOVERY.md).
 
+La [recherche OSINT assistée V1](docs/architecture/OSINT_ASSISTED_RESEARCH.md)
+ajoute au JobStore V4 des plans, grants et reçus de policy distincts, validés
+uniquement avec des fixtures et un fournisseur loopback `SPECIMEN`. Aucun
+fournisseur public n'est configuré ou qualifié ; V20 et V21 ne sont pas modifiés.
+
 Le premier poste Web local pilotable J6 est documenté dans
 [docs/architecture/WEB_WORKSPACE_CONTROL.md](docs/architecture/WEB_WORKSPACE_CONTROL.md).
 
@@ -67,14 +72,14 @@ données. Labfy vise à relier leurs résultats dans une enquête cohérente :
 La cible de développement est **v0.1.0**. Le projet reste en développement actif
 et n'est pas prêt pour un usage opérationnel en production.
 
-**Interface GTK conservée ; poste Web local contrôlé disponible.** La fondation
-v0.1.0 reste en développement : le poste Web réutilise le moteur de jobs
-persistant existant et une bibliothèque locale explicitement choisie, sans
-constituer une interface de production ni une autonomie générale.
+**Web est l’interface utilisateur CURRENT ; GTK est supprimé.** La fondation
+v0.1.0 reste en développement : le poste local réutilise le moteur de jobs
+persistant, la bibliothèque explicitement choisie et les capabilities C, sans
+constituer une autonomie générale ni un service distant.
 
 ### Disponible aujourd'hui
 
-L'application actuelle est une application de bureau GTK4 en C17. Elle fournit
+Le produit actuel est un poste Web local-first devant le cœur C17. Il fournit
 notamment :
 
 - création et ouverture d'enquêtes autonomes avec SQLite versionné ;
@@ -207,10 +212,11 @@ effectuées par des adapters, sous contrôle des politiques applicables.
 
 ## Interface et expérience cible
 
-GTK demeure temporairement l'interface fonctionnelle existante. La future
-interface principale sera Web, avec le graphe comme espace de travail central.
-Le protocole local, le mécanisme d'événements et le framework frontend ne sont
-pas encore sélectionnés.
+Le Web est l’interface fonctionnelle unique, avec le graphe comme espace de
+travail central. Sa coque organise **Agent | Graphe | Activité**, complétée par
+un drawer transversal de détails, provenance, timeline, recherches,
+observations, finance, rapports et tâches. Qwen local, tool calling et le
+governor AMD/RAM/swap restent `TARGET`.
 
 La cible comprend :
 
@@ -278,7 +284,7 @@ Les dépendances et procédures Arch Linux et Ubuntu sont décrites dans
 ```bash
 make -j8
 make test
-make run
+tools/labfy
 ```
 
 La démonstration cœur/Web synthétique se lance séparément :
@@ -293,21 +299,23 @@ python3 run_core_demo.py --port 8765
 # ou : python3 run_local_toolkit_demo.py --port 8765
 ```
 
-Le projet exige C17, GTK4, GLib/GIO, SQLite, libheif et Poppler GLib. Plusieurs
+outils d'analyse sont optionnels et ne sont jamais installés automatiquement.
+Le projet exige C17, GLib/GIO, SQLite, libheif et Poppler GLib. GTK4 n’est plus
+une dépendance de compilation. Plusieurs outils d'analyse sont optionnels et
+ne sont jamais installés automatiquement.
 outils d'analyse sont optionnels et ne sont jamais installés automatiquement.
 
 Le poste Web local se lance depuis une bibliothèque explicitement désignée ;
 il écoute par défaut sur `127.0.0.1:8081` :
 
 ```bash
-make web PORT=8081 LIBRARY=/chemin/vers/la-bibliotheque-locale
+LABFY_LIBRARY=/chemin/vers/la-bibliotheque-locale tools/labfy
 ```
 
-Les commandes `start`, `status`, `stop` et `code` de ce lanceur, ainsi que les
-contrats de stockage local et de session, sont décrits dans
-[le contrôle du poste Web](docs/architecture/WEB_WORKSPACE_CONTROL.md). Le
-code éphémère affiché au démarrage reste privé : il ne doit ni être ajouté à une
-commande, ni enregistré dans la documentation.
+Le lanceur rejoint ou démarre une instance locale possédée, ouvre le navigateur
+et établit une session HttpOnly sans code manuel ni jeton dans l’URL. Les
+contrats de stockage local et de session sont décrits dans
+[le contrôle du poste Web](docs/architecture/WEB_WORKSPACE_CONTROL.md).
 
 ## Documentation
 
@@ -318,7 +326,9 @@ commande, ni enregistré dans la documentation.
 - [Décisions architecturales](docs/architecture/decisions/0001-web-local-first.md)
 - [Toolkit et statuts d'intégration](docs/osint/TOOLKIT.md)
 - [Toolkit local et runner borné J4](docs/architecture/LOCAL_TOOLKIT_RUNNER.md)
+- [Recherche OSINT assistée V1 en laboratoire](docs/architecture/OSINT_ASSISTED_RESEARCH.md)
 - [Design system cible](docs/ui/DESIGN_SYSTEM.md)
+- [Matrice de parité Web / GTK](docs/ui/WEB_GTK_PARITY.md)
 - [Sécurité, scope et secrets](docs/security/SECURITY_MODEL.md)
 - [Roadmap canonique](docs/ROADMAP.md)
 - [Backlog préparé](docs/BACKLOG.md)

@@ -1,8 +1,9 @@
 /******************************************************************************
  * @file local_job_store.c
- * @brief JobStore SQLite V3, distinct de la base métier V20.
+ * @brief JobStore SQLite V4, distinct de la base métier V20.
  ******************************************************************************/
 #include "core/local_job_store.h"
+#include "core/research_store.h"
 
 #include <errno.h>
 #include <glib/gstdio.h>
@@ -78,6 +79,263 @@ static const char *v2_to_v3_sql =
     "ALTER TABLE attempts ADD COLUMN budget_finalized INTEGER NOT NULL DEFAULT 0 CHECK(budget_finalized IN(0,1));"
     "CREATE UNIQUE INDEX idx_jobs_active_analysis ON jobs(source_evidence_id,capability_id) "
     "WHERE state IN('QUEUED','RUNNING','RETRY_WAIT');";
+
+static const char *research_schema_sql =
+    "CREATE TABLE research_plans("
+    "plan_id TEXT PRIMARY KEY,investigation_id TEXT NOT NULL,"
+    "idempotency_key TEXT NOT NULL,content_fingerprint TEXT NOT NULL,"
+    "input_fingerprint TEXT NOT NULL,input_revision INTEGER NOT NULL CHECK(input_revision>0),"
+    "created_at TEXT NOT NULL,UNIQUE(investigation_id,idempotency_key));"
+    "CREATE TABLE research_seeds("
+    "plan_id TEXT NOT NULL REFERENCES research_plans(plan_id) ON DELETE RESTRICT,"
+    "rank INTEGER NOT NULL,kind TEXT NOT NULL,subject TEXT NOT NULL,PRIMARY KEY(plan_id,rank));"
+    "CREATE TABLE research_actions("
+    "action_id TEXT PRIMARY KEY,plan_id TEXT NOT NULL REFERENCES research_plans(plan_id) ON DELETE RESTRICT,"
+    "rank INTEGER NOT NULL,capability_id TEXT NOT NULL,provider_id TEXT NOT NULL,"
+    "endpoint TEXT NOT NULL,subject TEXT NOT NULL,contact_class TEXT NOT NULL,"
+    "disclosure TEXT NOT NULL,max_requests INTEGER NOT NULL CHECK(max_requests>0),"
+    "max_response_bytes INTEGER NOT NULL CHECK(max_response_bytes>0),"
+    "max_active_ms INTEGER NOT NULL CHECK(max_active_ms>0),UNIQUE(plan_id,rank));"
+    "CREATE TABLE scope_grants("
+    "grant_id TEXT PRIMARY KEY,investigation_id TEXT NOT NULL,idempotency_key TEXT NOT NULL,"
+    "content_fingerprint TEXT NOT NULL,plan_fingerprint TEXT NOT NULL,created_at TEXT NOT NULL,"
+    "expires_at TEXT NOT NULL,revoked_at TEXT,max_requests INTEGER NOT NULL CHECK(max_requests>0),"
+    "max_response_bytes INTEGER NOT NULL CHECK(max_response_bytes>0),"
+    "max_active_ms INTEGER NOT NULL CHECK(max_active_ms>0),"
+    "UNIQUE(investigation_id,idempotency_key),"
+    "FOREIGN KEY(investigation_id,plan_fingerprint) REFERENCES research_plans(investigation_id,content_fingerprint));"
+    "CREATE TABLE scope_grant_actions("
+    "grant_id TEXT NOT NULL REFERENCES scope_grants(grant_id) ON DELETE RESTRICT,"
+    "action_id TEXT NOT NULL REFERENCES research_actions(action_id) ON DELETE RESTRICT,"
+    "subject TEXT NOT NULL,provider_id TEXT NOT NULL,endpoint TEXT NOT NULL,"
+    "PRIMARY KEY(grant_id,action_id));"
+    "CREATE TABLE scope_grant_exclusions("
+    "grant_id TEXT NOT NULL REFERENCES scope_grants(grant_id) ON DELETE RESTRICT,"
+    "subject TEXT NOT NULL,PRIMARY KEY(grant_id,subject));"
+    "CREATE TABLE research_action_decisions("
+    "action_id TEXT PRIMARY KEY REFERENCES research_actions(action_id) ON DELETE RESTRICT,"
+    "plan_id TEXT NOT NULL REFERENCES research_plans(plan_id) ON DELETE RESTRICT,"
+    "decision_code TEXT NOT NULL CHECK(decision_code IN('AUTHORIZE','DEFER','REFUSE')),"
+    "decided_at TEXT NOT NULL);"
+    "CREATE TABLE research_campaigns("
+    "campaign_id TEXT PRIMARY KEY,investigation_id TEXT NOT NULL,"
+    "grant_id TEXT NOT NULL REFERENCES scope_grants(grant_id) ON DELETE RESTRICT,"
+    "idempotency_key TEXT NOT NULL,content_fingerprint TEXT NOT NULL,"
+    "created_at TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'ADMITTED',"
+    "UNIQUE(investigation_id,idempotency_key));"
+    "CREATE TABLE research_results("
+    "result_id TEXT PRIMARY KEY,campaign_id TEXT NOT NULL REFERENCES research_campaigns(campaign_id) ON DELETE RESTRICT,"
+    "action_id TEXT NOT NULL REFERENCES research_actions(action_id) ON DELETE RESTRICT,"
+    "raw_artifact_relative_path TEXT NOT NULL,content_sha256 TEXT NOT NULL,status TEXT NOT NULL);"
+    "CREATE TABLE research_receipts("
+    "receipt_id TEXT PRIMARY KEY,result_id TEXT NOT NULL UNIQUE REFERENCES research_results(result_id) ON DELETE RESTRICT,"
+    "campaign_id TEXT NOT NULL REFERENCES research_campaigns(campaign_id) ON DELETE RESTRICT,"
+    "grant_id TEXT NOT NULL,action_id TEXT NOT NULL,decided_at TEXT NOT NULL,decision_code TEXT NOT NULL,"
+    "FOREIGN KEY(grant_id,action_id) REFERENCES scope_grant_actions(grant_id,action_id));"
+    "CREATE UNIQUE INDEX idx_research_plan_owner_fingerprint "
+    "ON research_plans(investigation_id,content_fingerprint);";
+
+/* V4 n'est pas publiée : cette extension additive permet aussi d'ouvrir une
+ * base V4 créée par une build intermédiaire de la tranche OSINT. */
+static const char *research_decision_extension_sql =
+    "CREATE TABLE IF NOT EXISTS research_action_decisions("
+    "action_id TEXT PRIMARY KEY REFERENCES research_actions(action_id) ON DELETE RESTRICT,"
+    "plan_id TEXT NOT NULL REFERENCES research_plans(plan_id) ON DELETE RESTRICT,"
+    "decision_code TEXT NOT NULL CHECK(decision_code IN('AUTHORIZE','DEFER','REFUSE')),"
+    "decided_at TEXT NOT NULL);";
+
+/* Le Makefile historique lie ce fichier seul dans plusieurs outils. Ces
+ * gardes internes maintiennent cette compatibilité sans rendre le JobStore
+ * dépendant d'un nouveau module à l'édition de liens. */
+static gboolean research_text(const char *value) {
+  return value != NULL && value[0] != '\0';
+}
+
+static gboolean research_hash(const char *value) {
+  if (value == NULL || strlen(value) != 64)
+    return FALSE;
+  for (gsize i = 0; i < 64; i++)
+    if (!g_ascii_isxdigit(value[i]))
+      return FALSE;
+  return TRUE;
+}
+
+static gboolean research_timestamp(const char *value) {
+  GDateTime *parsed = value != NULL
+                          ? g_date_time_new_from_iso8601(value, NULL)
+                          : NULL;
+  if (parsed == NULL)
+    return FALSE;
+  g_date_time_unref(parsed);
+  return TRUE;
+}
+
+static gboolean research_relative_artifact(const char *value) {
+  if (!research_text(value) || g_path_is_absolute(value) || strchr(value, '\\'))
+    return FALSE;
+  char **parts = g_strsplit(value, "/", -1);
+  gboolean valid = TRUE;
+  for (gsize i = 0; valid && parts[i] != NULL; i++)
+    valid = parts[i][0] != '\0' && g_strcmp0(parts[i], ".") != 0 &&
+            g_strcmp0(parts[i], "..") != 0;
+  g_strfreev(parts);
+  return valid;
+}
+
+static const char *research_seed_code(ResearchSeedKind kind) {
+  static const char *const codes[] = {"DOMAIN", "IP", "HTTP_URL", "EMAIL",
+                                      "SEARCH_TERM"};
+  return kind <= RESEARCH_SEED_SEARCH_TERM ? codes[kind] : NULL;
+}
+
+static const char *research_contact_code(ResearchContactClass contact) {
+  static const char *const codes[] = {"NONE", "THIRD_PARTY", "TARGET"};
+  return contact <= RESEARCH_CONTACT_TARGET ? codes[contact] : NULL;
+}
+
+static const char *research_decision_code(ResearchActionDecisionCode decision) {
+  static const char *const codes[] = {"AUTHORIZE", "DEFER", "REFUSE"};
+  return decision <= RESEARCH_ACTION_REFUSE ? codes[decision] : NULL;
+}
+
+static gboolean bind_text(sqlite3_stmt *statement, int index,
+                          const char *value);
+
+static gboolean research_action_guard(const ResearchAction *action) {
+  return action != NULL && g_uuid_string_is_valid(action->action_id) &&
+      research_text(action->capability_id) && research_text(action->provider_id) &&
+      research_text(action->endpoint) && research_text(action->subject) &&
+      research_contact_code(action->contact) != NULL &&
+      research_text(action->disclosure) && action->max_requests > 0 &&
+      action->max_response_bytes > 0 &&
+      action->max_response_bytes <= G_MAXINT64 && action->max_active_ms > 0;
+}
+
+static gboolean research_plan_guard(const ResearchPlan *plan) {
+  if (plan == NULL || g_strcmp0(plan->contract, RESEARCH_PLAN_CONTRACT) != 0 ||
+      !g_uuid_string_is_valid(plan->plan_id) ||
+      !research_text(plan->idempotency_key) ||
+      !research_hash(plan->content_fingerprint) ||
+      !research_hash(plan->input_fingerprint) || plan->input_revision == 0 ||
+      !research_timestamp(plan->created_at) || plan->seeds == NULL ||
+      plan->seed_count == 0 || plan->actions == NULL || plan->action_count == 0)
+    return FALSE;
+  GHashTable *ids = g_hash_table_new(g_str_hash, g_str_equal);
+  gboolean valid = TRUE;
+  for (gsize i = 0; valid && i < plan->seed_count; i++)
+    valid = research_seed_code(plan->seeds[i].kind) != NULL &&
+            research_text(plan->seeds[i].subject);
+  for (gsize i = 0; valid && i < plan->action_count; i++)
+    valid = research_action_guard(&plan->actions[i]) &&
+            g_hash_table_add(ids, (gpointer)plan->actions[i].action_id);
+  g_hash_table_unref(ids);
+  return valid;
+}
+
+static gboolean research_grant_guard(const ScopeGrant *grant,
+    const ResearchActionDecision *decisions, gsize decision_count,
+    const char *decided_at) {
+  if (grant == NULL || g_strcmp0(grant->contract, RESEARCH_GRANT_CONTRACT) != 0 ||
+      !g_uuid_string_is_valid(grant->grant_id) ||
+      !g_uuid_string_is_valid(grant->investigation_id) ||
+      !research_text(grant->idempotency_key) ||
+      !research_hash(grant->content_fingerprint) ||
+      !research_hash(grant->plan_fingerprint) ||
+      !research_timestamp(grant->created_at) ||
+      !research_timestamp(grant->expires_at) ||
+      grant->selected_action_ids == NULL || grant->selected_action_count == 0 ||
+      decisions == NULL || decision_count == 0 ||
+      !research_timestamp(decided_at) ||
+      grant->max_requests == 0 || grant->max_response_bytes == 0 ||
+      grant->max_response_bytes > G_MAXINT64 ||
+      grant->max_active_ms == 0)
+    return FALSE;
+  GHashTable *ids = g_hash_table_new(g_str_hash, g_str_equal);
+  for (gsize i = 0; i < grant->selected_action_count; i++)
+    if (!g_uuid_string_is_valid(grant->selected_action_ids[i]))
+      goto invalid;
+  for (gsize i = 0; i < decision_count; i++)
+    if (!g_uuid_string_is_valid(decisions[i].action_id) ||
+        research_decision_code(decisions[i].code) == NULL ||
+        !g_hash_table_add(ids, (gpointer)decisions[i].action_id))
+      goto invalid;
+  for (gsize i = 0; i < grant->excluded_subject_count; i++)
+    if (!research_text(grant->excluded_subjects[i]))
+      goto invalid;
+  g_hash_table_unref(ids);
+  return TRUE;
+invalid:
+  g_hash_table_unref(ids);
+  return FALSE;
+}
+
+/* CONTRACT: chaque admission conserve une décision humaine pour exactement
+ * chaque action du ResearchPlan référencé. WHY: une projection partielle ne
+ * permettrait pas d'auditer les actions DEFER ou REFUSE. */
+static gboolean research_grant_decisions_cover_plan(sqlite3 *db,
+    const ScopeGrant *grant, const ResearchActionDecision *decisions,
+    gsize decision_count) {
+  sqlite3_stmt *count = NULL;
+  gboolean ok = sqlite3_prepare_v2(db,
+      "SELECT count(*) FROM research_actions a JOIN research_plans p "
+      "ON p.plan_id=a.plan_id WHERE p.investigation_id=?1 "
+      "AND p.content_fingerprint=?2;", -1, &count, NULL) == SQLITE_OK &&
+      bind_text(count, 1, grant->investigation_id) &&
+      bind_text(count, 2, grant->plan_fingerprint) &&
+      sqlite3_step(count) == SQLITE_ROW &&
+      sqlite3_column_int64(count, 0) == (sqlite3_int64)decision_count;
+  sqlite3_finalize(count);
+  /* INVARIANT: les UUID sont déjà uniques via research_grant_guard(); avec
+   * la même cardinalité, leur appartenance au plan rend la couverture
+   * bijective, sans migration du schéma V4. */
+  for (gsize i = 0; ok && i < decision_count; i++) {
+    sqlite3_stmt *member = NULL;
+    ok = sqlite3_prepare_v2(db,
+        "SELECT EXISTS(SELECT 1 FROM research_actions a "
+        "JOIN research_plans p ON p.plan_id=a.plan_id "
+        "WHERE a.action_id=?1 AND p.investigation_id=?2 "
+        "AND p.content_fingerprint=?3);", -1, &member, NULL) == SQLITE_OK &&
+        bind_text(member, 1, decisions[i].action_id) &&
+        bind_text(member, 2, grant->investigation_id) &&
+        bind_text(member, 3, grant->plan_fingerprint) &&
+        sqlite3_step(member) == SQLITE_ROW && sqlite3_column_int(member, 0) == 1;
+    sqlite3_finalize(member);
+  }
+  return ok;
+}
+
+static gboolean research_campaign_guard(const ResearchCampaign *campaign) {
+  return campaign != NULL &&
+      g_strcmp0(campaign->contract, RESEARCH_CAMPAIGN_CONTRACT) == 0 &&
+      g_uuid_string_is_valid(campaign->campaign_id) &&
+      g_uuid_string_is_valid(campaign->investigation_id) &&
+      g_uuid_string_is_valid(campaign->grant_id) &&
+      research_text(campaign->idempotency_key) &&
+      research_hash(campaign->content_fingerprint) &&
+      research_timestamp(campaign->created_at);
+}
+
+static gboolean research_result_guard(const ResearchResult *result) {
+  return result != NULL &&
+      g_strcmp0(result->contract, RESEARCH_RESULT_CONTRACT) == 0 &&
+      g_uuid_string_is_valid(result->result_id) &&
+      g_uuid_string_is_valid(result->campaign_id) &&
+      g_uuid_string_is_valid(result->action_id) &&
+      research_relative_artifact(result->raw_artifact_relative_path) &&
+      research_hash(result->content_sha256) && research_text(result->status);
+}
+
+static gboolean research_receipt_guard(const ResearchReceipt *receipt) {
+  return receipt != NULL &&
+      g_strcmp0(receipt->contract, RESEARCH_RECEIPT_CONTRACT) == 0 &&
+      g_uuid_string_is_valid(receipt->receipt_id) &&
+      g_uuid_string_is_valid(receipt->result_id) &&
+      g_uuid_string_is_valid(receipt->campaign_id) &&
+      g_uuid_string_is_valid(receipt->grant_id) &&
+      g_uuid_string_is_valid(receipt->action_id) &&
+      research_timestamp(receipt->decided_at) &&
+      research_text(receipt->decision_code);
+}
 
 #ifdef LOCAL_JOB_STORE_ENABLE_TEST_HOOKS
 static gboolean fail_migration_after_schema = FALSE;
@@ -173,11 +431,11 @@ LocalJobStore *local_job_store_create(const char *path,
     return NULL;
   char *sql = g_strdup_printf(
       "BEGIN IMMEDIATE;%s"
-      "%sINSERT INTO metadata VALUES('schema_version','3');"
+      "%s%sINSERT INTO metadata VALUES('schema_version','4');"
       "INSERT INTO metadata VALUES('investigation_id','%s');"
       "INSERT INTO metadata VALUES('revision','0');"
       "INSERT INTO controls VALUES(1,0,0,'1970-01-01T00:00:00Z');COMMIT;",
-      schema_sql, plan_schema_sql, investigation_id);
+      schema_sql, plan_schema_sql, research_schema_sql, investigation_id);
   gboolean success =
       exec_sql(store->db, sql, error) && g_chmod(path, 0600) == 0;
   g_free(sql);
@@ -216,26 +474,28 @@ LocalJobStore *local_job_store_open(const char *path,
       owner = g_strcmp0(value, investigation_id) == 0;
   }
   sqlite3_finalize(statement);
-  if ((schema_version < 1 || schema_version > 3) || !owner) {
+  if ((schema_version < 1 || schema_version > 4) || !owner) {
     job_error(error, G_IO_ERROR_INVALID_DATA,
-              schema_version < 1 || schema_version > 3
+              schema_version < 1 || schema_version > 4
                   ? "Version JobStore inconnue ; aucune recréation automatique."
                   : "Le JobStore appartient à une autre enquête.");
     local_job_store_close(store);
     return NULL;
   }
-  /* WHY: V2 ne touche que l'ordonnanceur local. Le lecteur read-only conserve
-   * la compatibilité V1 et ne migre jamais; seul un ouvreur exclusif en écriture
-   * applique atomiquement l'ajout non destructif des plans et budgets. */
-  if (schema_version < 3 && !read_only) {
+  /* WHY: V4 reste une base opérationnelle distincte de V20/V21. Le lecteur
+   * read-only conserve les versions historiques sans les migrer; seul un
+   * ouvreur en écriture applique les ajouts dans une transaction unique. */
+  if (schema_version < 4 && !read_only) {
     /* CONTRACT: schéma, données et version sont une seule transaction. La
      * séparation des appels rend testable un crash logique après mutation,
      * sans affaiblir l'atomicité SQLite. */
     gboolean migrated = exec_sql(store->db, "BEGIN IMMEDIATE;", error);
     if (migrated && schema_version == 1)
       migrated = exec_sql(store->db, plan_schema_sql, error);
-    if (migrated)
+    if (migrated && schema_version < 3)
       migrated = exec_sql(store->db, v2_to_v3_sql, error);
+    if (migrated)
+      migrated = exec_sql(store->db, research_schema_sql, error);
 #ifdef LOCAL_JOB_STORE_ENABLE_TEST_HOOKS
     if (migrated && fail_migration_after_schema) {
       job_error(error, G_IO_ERROR_FAILED,
@@ -245,10 +505,20 @@ LocalJobStore *local_job_store_open(const char *path,
 #endif
     if (migrated)
       migrated = exec_sql(store->db,
-          "UPDATE metadata SET value='3' WHERE key='schema_version';", error);
+          "UPDATE metadata SET value='4' WHERE key='schema_version';", error);
     if (migrated)
       migrated = exec_sql(store->db, "COMMIT;", error);
     if (!migrated) {
+      exec_sql(store->db, "ROLLBACK;", NULL);
+      local_job_store_close(store);
+      return NULL;
+    }
+  }
+  if (schema_version == 4 && !read_only) {
+    gboolean extended = exec_sql(store->db, "BEGIN IMMEDIATE;", error) &&
+        exec_sql(store->db, research_decision_extension_sql, error) &&
+        exec_sql(store->db, "COMMIT;", error);
+    if (!extended) {
       exec_sql(store->db, "ROLLBACK;", NULL);
       local_job_store_close(store);
       return NULL;
@@ -1002,6 +1272,494 @@ gboolean local_job_store_integrity(LocalJobStore *s, GError **error) {
   if (!ok)
     job_error(error, G_IO_ERROR_INVALID_DATA, "Intégrité JobStore invalide.");
   return ok;
+}
+
+static gboolean research_begin(LocalJobStore *store, GError **error) {
+  if (store == NULL) {
+    job_error(error, G_IO_ERROR_INVALID_ARGUMENT, "ResearchStore absent.");
+    return FALSE;
+  }
+  return exec_sql(store->db, "BEGIN IMMEDIATE;", error);
+}
+
+static gboolean research_existing(sqlite3 *db, const char *table,
+                                  const char *investigation_id,
+                                  const char *idempotency_key,
+                                  const char *content_fingerprint,
+                                  gboolean *out_found, gboolean *out_same) {
+  char *sql = g_strdup_printf(
+      "SELECT content_fingerprint FROM %s WHERE investigation_id=?1 AND "
+      "idempotency_key=?2;", table);
+  sqlite3_stmt *statement = NULL;
+  gboolean ok = sqlite3_prepare_v2(db, sql, -1, &statement, NULL) == SQLITE_OK &&
+                bind_text(statement, 1, investigation_id) &&
+                bind_text(statement, 2, idempotency_key);
+  g_free(sql);
+  if (!ok) {
+    sqlite3_finalize(statement);
+    return FALSE;
+  }
+  int step = sqlite3_step(statement);
+  *out_found = step == SQLITE_ROW;
+  *out_same = *out_found &&
+      g_strcmp0((const char *)sqlite3_column_text(statement, 0),
+                content_fingerprint) == 0;
+  ok = step == SQLITE_ROW || step == SQLITE_DONE;
+  sqlite3_finalize(statement);
+  return ok;
+}
+
+gboolean research_store_admit_plan(LocalJobStore *store,
+                                   const ResearchPlan *plan,
+                                   gboolean *out_reused, GError **error) {
+  if (out_reused != NULL)
+    *out_reused = FALSE;
+  if (store == NULL || !research_plan_guard(plan)) {
+    job_error(error, G_IO_ERROR_INVALID_ARGUMENT,
+              "Contrat ResearchPlan V1 invalide.");
+    return FALSE;
+  }
+  if (!research_begin(store, error))
+    return FALSE;
+  gboolean found = FALSE, same = FALSE;
+  gboolean ok = research_existing(store->db, "research_plans",
+      store->investigation_id, plan->idempotency_key,
+      plan->content_fingerprint, &found, &same);
+  if (ok && found) {
+    if (!same) {
+      job_error(error, G_IO_ERROR_EXISTS,
+                "Clé ResearchPlan réutilisée avec un contenu différent.");
+      exec_sql(store->db, "ROLLBACK;", NULL);
+      return FALSE;
+    }
+    if (out_reused != NULL)
+      *out_reused = TRUE;
+    return exec_sql(store->db, "COMMIT;", error);
+  }
+  sqlite3_stmt *insert = NULL;
+  ok = ok && sqlite3_prepare_v2(store->db,
+      "INSERT INTO research_plans VALUES(?1,?2,?3,?4,?5,?6,?7);",
+      -1, &insert, NULL) == SQLITE_OK &&
+      bind_text(insert, 1, plan->plan_id) &&
+      bind_text(insert, 2, store->investigation_id) &&
+      bind_text(insert, 3, plan->idempotency_key) &&
+      bind_text(insert, 4, plan->content_fingerprint) &&
+      bind_text(insert, 5, plan->input_fingerprint) &&
+      sqlite3_bind_int64(insert, 6, (sqlite3_int64)plan->input_revision) ==
+          SQLITE_OK &&
+      bind_text(insert, 7, plan->created_at) &&
+      sqlite3_step(insert) == SQLITE_DONE;
+  sqlite3_finalize(insert);
+  for (gsize i = 0; ok && i < plan->seed_count; i++) {
+    sqlite3_stmt *seed = NULL;
+    ok = sqlite3_prepare_v2(store->db,
+        "INSERT INTO research_seeds VALUES(?1,?2,?3,?4);", -1, &seed,
+        NULL) == SQLITE_OK && bind_text(seed, 1, plan->plan_id) &&
+        sqlite3_bind_int64(seed, 2, (sqlite3_int64)i) == SQLITE_OK &&
+        bind_text(seed, 3, research_seed_code(plan->seeds[i].kind)) &&
+        bind_text(seed, 4, plan->seeds[i].subject) &&
+        sqlite3_step(seed) == SQLITE_DONE;
+    sqlite3_finalize(seed);
+  }
+  for (gsize i = 0; ok && i < plan->action_count; i++) {
+    const ResearchAction *action = &plan->actions[i];
+    sqlite3_stmt *item = NULL;
+    ok = sqlite3_prepare_v2(store->db,
+        "INSERT INTO research_actions VALUES("
+        "?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12);", -1, &item,
+        NULL) == SQLITE_OK && bind_text(item, 1, action->action_id) &&
+        bind_text(item, 2, plan->plan_id) &&
+        sqlite3_bind_int64(item, 3, (sqlite3_int64)i) == SQLITE_OK &&
+        bind_text(item, 4, action->capability_id) &&
+        bind_text(item, 5, action->provider_id) &&
+        bind_text(item, 6, action->endpoint) &&
+        bind_text(item, 7, action->subject) &&
+        bind_text(item, 8, research_contact_code(action->contact)) &&
+        bind_text(item, 9, action->disclosure) &&
+        sqlite3_bind_int64(item, 10, action->max_requests) == SQLITE_OK &&
+        sqlite3_bind_int64(item, 11,
+                           (sqlite3_int64)action->max_response_bytes) ==
+            SQLITE_OK &&
+        sqlite3_bind_int64(item, 12, action->max_active_ms) == SQLITE_OK &&
+        sqlite3_step(item) == SQLITE_DONE;
+    sqlite3_finalize(item);
+  }
+  if (ok)
+    ok = exec_sql(store->db, "COMMIT;", error);
+  if (!ok) {
+    exec_sql(store->db, "ROLLBACK;", NULL);
+    job_error(error, G_IO_ERROR_FAILED,
+              "Admission atomique du ResearchPlan impossible.");
+  }
+  return ok;
+}
+
+gboolean research_store_admit_grant(LocalJobStore *store,
+                                    const ScopeGrant *grant,
+                                    const ResearchActionDecision *decisions,
+                                    gsize decision_count,
+                                    const char *decided_at,
+                                    gboolean *out_reused, GError **error) {
+  if (out_reused != NULL)
+    *out_reused = FALSE;
+  if (store == NULL || !research_grant_guard(grant, decisions,
+                                              decision_count, decided_at)) {
+    job_error(error, G_IO_ERROR_INVALID_ARGUMENT,
+              "Contrat ScopeGrant V1 invalide.");
+    return FALSE;
+  }
+  if (g_strcmp0(store->investigation_id, grant->investigation_id) != 0) {
+    job_error(error, G_IO_ERROR_PERMISSION_DENIED,
+              "Grant refusé pour une autre enquête.");
+    return FALSE;
+  }
+  if (!research_begin(store, error))
+    return FALSE;
+  if (!research_grant_decisions_cover_plan(store->db, grant, decisions,
+                                           decision_count)) {
+    exec_sql(store->db, "ROLLBACK;", NULL);
+    job_error(error, G_IO_ERROR_INVALID_ARGUMENT,
+              "Les décisions ne couvrent pas bijectivement le ResearchPlan.");
+    return FALSE;
+  }
+  gboolean found = FALSE, same = FALSE;
+  gboolean ok = research_existing(store->db, "scope_grants",
+      grant->investigation_id, grant->idempotency_key,
+      grant->content_fingerprint, &found, &same);
+  if (ok && found) {
+    if (!same) {
+      job_error(error, G_IO_ERROR_EXISTS,
+                "Clé ScopeGrant réutilisée avec un contenu différent.");
+      exec_sql(store->db, "ROLLBACK;", NULL);
+      return FALSE;
+    }
+    if (out_reused != NULL)
+      *out_reused = TRUE;
+    return exec_sql(store->db, "COMMIT;", error);
+  }
+  sqlite3_stmt *insert = NULL;
+  ok = ok && sqlite3_prepare_v2(store->db,
+      "INSERT INTO scope_grants VALUES("
+      "?1,?2,?3,?4,?5,?6,?7,NULL,?8,?9,?10);", -1, &insert,
+      NULL) == SQLITE_OK && bind_text(insert, 1, grant->grant_id) &&
+      bind_text(insert, 2, grant->investigation_id) &&
+      bind_text(insert, 3, grant->idempotency_key) &&
+      bind_text(insert, 4, grant->content_fingerprint) &&
+      bind_text(insert, 5, grant->plan_fingerprint) &&
+      bind_text(insert, 6, grant->created_at) &&
+      bind_text(insert, 7, grant->expires_at) &&
+      sqlite3_bind_int64(insert, 8, grant->max_requests) == SQLITE_OK &&
+      sqlite3_bind_int64(insert, 9,
+                         (sqlite3_int64)grant->max_response_bytes) ==
+          SQLITE_OK &&
+      sqlite3_bind_int64(insert, 10, grant->max_active_ms) == SQLITE_OK &&
+      sqlite3_step(insert) == SQLITE_DONE;
+  sqlite3_finalize(insert);
+  /* CONTRACT: la décision humaine est persistée avant de matérialiser le
+   * grant. REFUSE est terminal : une requête ultérieure ne peut ni l'effacer
+   * ni réadmettre l'action sous une nouvelle clé de grant. */
+  for (gsize i = 0; ok && i < decision_count; i++) {
+    sqlite3_stmt *decision = NULL;
+    ok = sqlite3_prepare_v2(store->db,
+        "INSERT INTO research_action_decisions(action_id,plan_id,decision_code,decided_at) "
+        "SELECT ?1,p.plan_id,?2,?3 FROM research_actions a "
+        "JOIN research_plans p ON p.plan_id=a.plan_id "
+        "WHERE a.action_id=?1 AND p.investigation_id=?4 "
+        "AND p.content_fingerprint=?5 "
+        "ON CONFLICT(action_id) DO UPDATE SET decision_code=excluded.decision_code,"
+        "decided_at=excluded.decided_at WHERE "
+        "research_action_decisions.decision_code!='REFUSE' "
+        "OR excluded.decision_code='REFUSE';", -1, &decision, NULL) == SQLITE_OK &&
+        bind_text(decision, 1, decisions[i].action_id) &&
+        bind_text(decision, 2,
+                  research_decision_code(decisions[i].code)) &&
+        bind_text(decision, 3, decided_at) &&
+        bind_text(decision, 4, grant->investigation_id) &&
+        bind_text(decision, 5, grant->plan_fingerprint) &&
+        sqlite3_step(decision) == SQLITE_DONE &&
+        sqlite3_changes(store->db) == 1;
+    sqlite3_finalize(decision);
+  }
+  for (gsize i = 0; ok && i < grant->selected_action_count; i++) {
+    sqlite3_stmt *selected = NULL;
+    ok = sqlite3_prepare_v2(store->db,
+        "INSERT INTO scope_grant_actions(grant_id,action_id,subject,provider_id,endpoint) "
+        "SELECT ?1,a.action_id,a.subject,a.provider_id,a.endpoint FROM research_actions a "
+        "JOIN research_plans p ON p.plan_id=a.plan_id WHERE a.action_id=?2 "
+        "AND p.investigation_id=?3 AND p.content_fingerprint=?4 "
+        "AND EXISTS(SELECT 1 FROM research_action_decisions d "
+        "WHERE d.action_id=a.action_id AND d.decision_code='AUTHORIZE') "
+        "AND (a.rank!=1 OR EXISTS(SELECT 1 FROM research_actions first "
+        "JOIN research_action_decisions fd ON fd.action_id=first.action_id "
+        "JOIN research_results rr ON rr.action_id=first.action_id "
+        "JOIN research_receipts rc ON rc.result_id=rr.result_id "
+        "WHERE first.plan_id=a.plan_id AND first.rank=0 "
+        "AND fd.decision_code='AUTHORIZE'));", -1,
+        &selected, NULL) == SQLITE_OK &&
+        bind_text(selected, 1, grant->grant_id) &&
+        bind_text(selected, 2, grant->selected_action_ids[i]) &&
+        bind_text(selected, 3, grant->investigation_id) &&
+        bind_text(selected, 4, grant->plan_fingerprint) &&
+        sqlite3_step(selected) == SQLITE_DONE && sqlite3_changes(store->db) == 1;
+    sqlite3_finalize(selected);
+  }
+  for (gsize i = 0; ok && i < grant->excluded_subject_count; i++) {
+    sqlite3_stmt *excluded = NULL;
+    ok = sqlite3_prepare_v2(store->db,
+        "INSERT INTO scope_grant_exclusions VALUES(?1,?2);", -1, &excluded,
+        NULL) == SQLITE_OK && bind_text(excluded, 1, grant->grant_id) &&
+        bind_text(excluded, 2, grant->excluded_subjects[i]) &&
+        sqlite3_step(excluded) == SQLITE_DONE;
+    sqlite3_finalize(excluded);
+  }
+  if (ok)
+    ok = exec_sql(store->db, "COMMIT;", error);
+  if (!ok) {
+    exec_sql(store->db, "ROLLBACK;", NULL);
+    job_error(error, G_IO_ERROR_FAILED,
+              "Admission atomique du ScopeGrant impossible.");
+  }
+  return ok;
+}
+
+gboolean research_store_revoke_grant(LocalJobStore *store,
+                                     const char *grant_id,
+                                     const char *revoked_at,
+                                     GError **error) {
+  sqlite3_stmt *statement = NULL;
+  gboolean ok = store != NULL && g_uuid_string_is_valid(grant_id) &&
+      revoked_at != NULL && sqlite3_prepare_v2(store->db,
+      "UPDATE scope_grants SET revoked_at=COALESCE(revoked_at,?2) "
+      "WHERE grant_id=?1 AND investigation_id=?3;", -1, &statement,
+      NULL) == SQLITE_OK && bind_text(statement, 1, grant_id) &&
+      bind_text(statement, 2, revoked_at) &&
+      bind_text(statement, 3, store->investigation_id) &&
+      sqlite3_step(statement) == SQLITE_DONE && sqlite3_changes(store->db) == 1;
+  sqlite3_finalize(statement);
+  if (!ok)
+    job_error(error, G_IO_ERROR_NOT_FOUND, "ScopeGrant à révoquer introuvable.");
+  return ok;
+}
+
+gboolean research_store_admit_campaign(LocalJobStore *store,
+                                       const ResearchCampaign *campaign,
+                                       gboolean *out_reused, GError **error) {
+  if (out_reused != NULL)
+    *out_reused = FALSE;
+  if (store == NULL || !research_campaign_guard(campaign)) {
+    job_error(error, G_IO_ERROR_INVALID_ARGUMENT,
+              "Contrat ResearchCampaign V1 invalide.");
+    return FALSE;
+  }
+  if (g_strcmp0(store->investigation_id, campaign->investigation_id) != 0) {
+    job_error(error, G_IO_ERROR_PERMISSION_DENIED,
+              "Campagne refusée pour une autre enquête.");
+    return FALSE;
+  }
+  if (!research_begin(store, error))
+    return FALSE;
+  gboolean found = FALSE, same = FALSE;
+  gboolean ok = research_existing(store->db, "research_campaigns",
+      campaign->investigation_id, campaign->idempotency_key,
+      campaign->content_fingerprint, &found, &same);
+  if (ok && found) {
+    if (!same) {
+      job_error(error, G_IO_ERROR_EXISTS,
+                "Clé ResearchCampaign réutilisée avec un contenu différent.");
+      exec_sql(store->db, "ROLLBACK;", NULL);
+      return FALSE;
+    }
+    if (out_reused != NULL)
+      *out_reused = TRUE;
+    return exec_sql(store->db, "COMMIT;", error);
+  }
+  sqlite3_stmt *insert = NULL;
+  ok = ok && sqlite3_prepare_v2(store->db,
+      "INSERT INTO research_campaigns(campaign_id,investigation_id,grant_id,"
+      "idempotency_key,content_fingerprint,created_at) "
+      "SELECT ?1,?2,g.grant_id,?4,?5,?6 FROM scope_grants g "
+      "WHERE g.grant_id=?3 AND g.investigation_id=?2;", -1, &insert,
+      NULL) == SQLITE_OK && bind_text(insert, 1, campaign->campaign_id) &&
+      bind_text(insert, 2, campaign->investigation_id) &&
+      bind_text(insert, 3, campaign->grant_id) &&
+      bind_text(insert, 4, campaign->idempotency_key) &&
+      bind_text(insert, 5, campaign->content_fingerprint) &&
+      bind_text(insert, 6, campaign->created_at) &&
+      sqlite3_step(insert) == SQLITE_DONE && sqlite3_changes(store->db) == 1;
+  sqlite3_finalize(insert);
+  if (ok)
+    ok = exec_sql(store->db, "COMMIT;", error);
+  if (!ok) {
+    exec_sql(store->db, "ROLLBACK;", NULL);
+    job_error(error, G_IO_ERROR_FAILED,
+              "Admission atomique de la ResearchCampaign impossible.");
+  }
+  return ok;
+}
+
+gboolean research_store_record_result(LocalJobStore *store,
+                                      const ResearchResult *result,
+                                      const ResearchReceipt *receipt,
+                                      GError **error) {
+  if (store == NULL || !research_result_guard(result) ||
+      !research_receipt_guard(receipt)) {
+    job_error(error, G_IO_ERROR_INVALID_ARGUMENT,
+              "Contrat résultat ou reçu de recherche invalide.");
+    return FALSE;
+  }
+  if (g_strcmp0(result->result_id, receipt->result_id) != 0 ||
+      g_strcmp0(result->campaign_id, receipt->campaign_id) != 0 ||
+      g_strcmp0(result->action_id, receipt->action_id) != 0) {
+    job_error(error, G_IO_ERROR_INVALID_ARGUMENT,
+              "Résultat et reçu de recherche incohérents.");
+    return FALSE;
+  }
+  if (!research_begin(store, error))
+    return FALSE;
+  sqlite3_stmt *item = NULL;
+  gboolean ok = sqlite3_prepare_v2(store->db,
+      "INSERT INTO research_results VALUES(?1,?2,?3,?4,?5,?6);", -1,
+      &item, NULL) == SQLITE_OK && bind_text(item, 1, result->result_id) &&
+      bind_text(item, 2, result->campaign_id) &&
+      bind_text(item, 3, result->action_id) &&
+      bind_text(item, 4, result->raw_artifact_relative_path) &&
+      bind_text(item, 5, result->content_sha256) &&
+      bind_text(item, 6, result->status) && sqlite3_step(item) == SQLITE_DONE;
+  sqlite3_finalize(item);
+  sqlite3_stmt *proof = NULL;
+  ok = ok && sqlite3_prepare_v2(store->db,
+      "INSERT INTO research_receipts "
+      "SELECT ?1,?2,c.campaign_id,c.grant_id,?4,?5,?6 "
+      "FROM research_campaigns c JOIN scope_grant_actions ga "
+      "ON ga.grant_id=c.grant_id AND ga.action_id=?4 "
+      "WHERE c.campaign_id=?3 AND c.investigation_id=?7 AND c.grant_id=?8;",
+      -1, &proof, NULL) == SQLITE_OK &&
+      bind_text(proof, 1, receipt->receipt_id) &&
+      bind_text(proof, 2, receipt->result_id) &&
+      bind_text(proof, 3, receipt->campaign_id) &&
+      bind_text(proof, 4, receipt->action_id) &&
+      bind_text(proof, 5, receipt->decided_at) &&
+      bind_text(proof, 6, receipt->decision_code) &&
+      bind_text(proof, 7, store->investigation_id) &&
+      bind_text(proof, 8, receipt->grant_id) &&
+      sqlite3_step(proof) == SQLITE_DONE && sqlite3_changes(store->db) == 1;
+  sqlite3_finalize(proof);
+  if (ok)
+    ok = exec_sql(store->db, "COMMIT;", error);
+  if (!ok) {
+    exec_sql(store->db, "ROLLBACK;", NULL);
+    job_error(error, G_IO_ERROR_FAILED,
+              "Publication atomique du résultat et du reçu impossible.");
+  }
+  return ok;
+}
+
+gboolean research_store_policy_decide(LocalJobStore *store,
+                                      const char *grant_id,
+                                      const ResearchPolicyRequest *request,
+                                      ResearchPolicyDecision *out_decision,
+                                      GError **error) {
+  if (store == NULL || !g_uuid_string_is_valid(grant_id) || request == NULL ||
+      !research_action_guard(request->action) || out_decision == NULL ||
+      !research_timestamp(request->now)) {
+    job_error(error, G_IO_ERROR_INVALID_ARGUMENT,
+              "Requête de policy de recherche invalide.");
+    return FALSE;
+  }
+  sqlite3_stmt *query = NULL;
+  gboolean ok = sqlite3_prepare_v2(store->db,
+      "SELECT g.investigation_id,g.plan_fingerprint,g.expires_at,g.revoked_at,"
+      "g.max_requests,g.max_response_bytes,g.max_active_ms,"
+      "EXISTS(SELECT 1 FROM scope_grant_exclusions e WHERE e.grant_id=g.grant_id AND e.subject=?2) "
+      "FROM scope_grants g WHERE g.grant_id=?1;", -1, &query, NULL) ==
+      SQLITE_OK && bind_text(query, 1, grant_id) &&
+      bind_text(query, 2, request->action->subject) &&
+      sqlite3_step(query) == SQLITE_ROW;
+  if (!ok) {
+    sqlite3_finalize(query);
+    job_error(error, G_IO_ERROR_NOT_FOUND, "ScopeGrant de policy introuvable.");
+    return FALSE;
+  }
+  const char *owner = (const char *)sqlite3_column_text(query, 0);
+  const char *plan = (const char *)sqlite3_column_text(query, 1);
+  const char *expires = (const char *)sqlite3_column_text(query, 2);
+  GDateTime *now_value = g_date_time_new_from_iso8601(request->now, NULL);
+  GDateTime *expires_value = g_date_time_new_from_iso8601(expires, NULL);
+  if (now_value == NULL || expires_value == NULL) {
+    if (now_value != NULL)
+      g_date_time_unref(now_value);
+    if (expires_value != NULL)
+      g_date_time_unref(expires_value);
+    sqlite3_finalize(query);
+    job_error(error, G_IO_ERROR_INVALID_DATA,
+              "Horodatage persistant du ScopeGrant invalide.");
+    return FALSE;
+  }
+  gboolean expired = g_date_time_compare(now_value, expires_value) >= 0;
+  g_date_time_unref(now_value);
+  g_date_time_unref(expires_value);
+  gboolean revoked = sqlite3_column_type(query, 3) != SQLITE_NULL;
+  guint64 max_requests = (guint64)sqlite3_column_int64(query, 4);
+  guint64 max_bytes = (guint64)sqlite3_column_int64(query, 5);
+  guint64 max_ms = (guint64)sqlite3_column_int64(query, 6);
+  gboolean excluded = sqlite3_column_int(query, 7) != 0;
+  ResearchPolicyDecision decision = RESEARCH_POLICY_ALLOW;
+  if (excluded)
+    decision = RESEARCH_POLICY_DENY_EXCLUDED;
+  else if (revoked)
+    decision = RESEARCH_POLICY_DENY_REVOKED;
+  else if (expired)
+    decision = RESEARCH_POLICY_DENY_EXPIRED;
+  else if (g_strcmp0(owner, store->investigation_id) != 0 ||
+           g_strcmp0(owner, request->investigation_id) != 0)
+    decision = RESEARCH_POLICY_DENY_INVESTIGATION;
+  else if (g_strcmp0(plan, request->plan_fingerprint) != 0)
+    decision = RESEARCH_POLICY_DENY_PLAN;
+  else if (request->requested_requests > max_requests ||
+           request->requested_response_bytes > max_bytes ||
+           request->requested_active_ms > max_ms)
+    decision = RESEARCH_POLICY_DENY_BUDGET;
+  sqlite3_finalize(query);
+  if (decision == RESEARCH_POLICY_ALLOW) {
+    const ResearchAction *action = request->action;
+    sqlite3_stmt *selected = NULL;
+    ok = sqlite3_prepare_v2(store->db,
+        "SELECT a.capability_id,a.contact_class,a.disclosure FROM scope_grant_actions ga "
+        "JOIN research_actions a ON a.action_id=ga.action_id WHERE ga.grant_id=?1 "
+        "AND ga.action_id=?2 AND ga.subject=?3 AND ga.provider_id=?4 AND ga.endpoint=?5 "
+        "AND EXISTS(SELECT 1 FROM research_action_decisions d "
+        "WHERE d.action_id=a.action_id AND d.decision_code='AUTHORIZE') "
+        "AND (a.rank!=1 OR EXISTS(SELECT 1 FROM research_actions first "
+        "JOIN research_action_decisions fd ON fd.action_id=first.action_id "
+        "JOIN research_results rr ON rr.action_id=first.action_id "
+        "JOIN research_receipts rc ON rc.result_id=rr.result_id "
+        "WHERE first.plan_id=a.plan_id AND first.rank=0 "
+        "AND fd.decision_code='AUTHORIZE'));",
+        -1, &selected, NULL) == SQLITE_OK && bind_text(selected, 1, grant_id) &&
+        bind_text(selected, 2, action->action_id) &&
+        bind_text(selected, 3, action->subject) &&
+        bind_text(selected, 4, action->provider_id) &&
+        bind_text(selected, 5, action->endpoint);
+    int step = ok ? sqlite3_step(selected) : SQLITE_ERROR;
+    if (step == SQLITE_DONE)
+      decision = RESEARCH_POLICY_DENY_ACTION;
+    else if (step != SQLITE_ROW)
+      ok = FALSE;
+    else if (g_strcmp0((const char *)sqlite3_column_text(selected, 0),
+                       action->capability_id) != 0 ||
+             g_strcmp0((const char *)sqlite3_column_text(selected, 1),
+                       research_contact_code(action->contact)) != 0 ||
+             g_strcmp0((const char *)sqlite3_column_text(selected, 2),
+                       action->disclosure) != 0)
+      decision = RESEARCH_POLICY_DENY_ACTION_CONTENT;
+    sqlite3_finalize(selected);
+  }
+  if (!ok) {
+    job_error(error, G_IO_ERROR_FAILED, "Évaluation de policy impossible.");
+    return FALSE;
+  }
+  *out_decision = decision;
+  return TRUE;
 }
 
 gboolean local_job_store_export_atomic(LocalJobStore *s, const char *path,

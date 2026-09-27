@@ -45,12 +45,19 @@ static char *make_historical_fixture(guint version) {
       "INSERT INTO jobs VALUES('81000000-0000-4000-8000-000000000011','81000000-0000-4000-8000-000000000012','81000000-0000-4000-8000-000000000013','81000000-0000-4000-8000-000000000014','local.eml.headers','labfy.eml_analyzer','1','0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',42,'2026-09-25T00:00:00Z','{}','COMPLETED',0,3,1,NULL,NULL,'published','historical',NULL,4);"
       "INSERT INTO attempts VALUES('81000000-0000-4000-8000-000000000016','81000000-0000-4000-8000-000000000011',1,'81000000-0000-4000-8000-000000000015','2026-09-25T00:00:01Z','2026-09-25T00:00:01Z','2026-09-25T00:00:02Z','COMPLETED','historical','published');"
       "INSERT INTO transitions(job_id,from_state,to_state,reason,created_at) VALUES('81000000-0000-4000-8000-000000000011','RUNNING','COMPLETED','published','2026-09-25T00:00:02Z');");
-  if (version == 2) {
+  if (version >= 2) {
     sql_ok(db,
       "CREATE TABLE plans(plan_id TEXT PRIMARY KEY,idempotency_key TEXT NOT NULL UNIQUE,intent_hash TEXT NOT NULL,input_revision TEXT NOT NULL,profile_id TEXT NOT NULL,created_at TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'APPROVED',max_analyses INTEGER NOT NULL,max_attempts_total INTEGER NOT NULL,max_source_bytes INTEGER NOT NULL,max_active_ms INTEGER NOT NULL,reserved_analyses INTEGER NOT NULL,reserved_attempts INTEGER NOT NULL,reserved_source_bytes INTEGER NOT NULL,consumed_attempts INTEGER NOT NULL DEFAULT 0,consumed_active_ms INTEGER NOT NULL DEFAULT 0);"
       "CREATE TABLE plan_jobs(plan_id TEXT NOT NULL REFERENCES plans(plan_id),job_id TEXT NOT NULL UNIQUE REFERENCES jobs(job_id),rank INTEGER NOT NULL,PRIMARY KEY(plan_id,rank));"
       "INSERT INTO plans VALUES('81000000-0000-4000-8000-000000000021','historical-key','historical-intent','revision-7','LOCAL_PRUDENT','2026-09-25T00:00:00Z','APPROVED',1,3,42,90000,1,3,42,1,1200);"
       "INSERT INTO plan_jobs VALUES('81000000-0000-4000-8000-000000000021','81000000-0000-4000-8000-000000000011',0);");
+  }
+  if (version >= 3) {
+    sql_ok(db,
+      "ALTER TABLE attempts ADD COLUMN reserved_active_ms INTEGER NOT NULL DEFAULT 0 CHECK(reserved_active_ms>=0);"
+      "ALTER TABLE attempts ADD COLUMN elapsed_active_ms INTEGER CHECK(elapsed_active_ms IS NULL OR elapsed_active_ms>=0);"
+      "ALTER TABLE attempts ADD COLUMN budget_finalized INTEGER NOT NULL DEFAULT 0 CHECK(budget_finalized IN(0,1));"
+      "CREATE UNIQUE INDEX idx_jobs_active_analysis ON jobs(source_evidence_id,capability_id) WHERE state IN('QUEUED','RUNNING','RETRY_WAIT');");
   }
   sqlite3_close(db);
   g_free(directory);
@@ -75,7 +82,7 @@ static void assert_historical_rows(sqlite3 *db, guint version) {
   g_assert_cmpint(scalar(db, "SELECT count(*) FROM attempts WHERE reconciliation='published'"), ==, 1);
   g_assert_cmpint(scalar(db, "SELECT count(*) FROM transitions WHERE reason='published'"), ==, 1);
   g_assert_cmpint(scalar(db, "SELECT paused FROM controls"), ==, 1);
-  if (version == 2)
+  if (version >= 2)
     g_assert_cmpint(scalar(db, "SELECT count(*) FROM plans JOIN plan_jobs USING(plan_id)"), ==, 1);
 }
 
@@ -87,7 +94,7 @@ static void test_historical_migration(gconstpointer data) {
   g_assert_null(store); g_assert_error(error, G_IO_ERROR, G_IO_ERROR_FAILED); g_clear_error(&error);
   sqlite3 *db = NULL; g_assert_cmpint(sqlite3_open(path, &db), ==, SQLITE_OK);
   g_assert_cmpint(scalar(db, "SELECT CAST(value AS INTEGER) FROM metadata WHERE key='schema_version'"), ==, version);
-  g_assert_cmpint(scalar(db, "SELECT count(*) FROM pragma_table_info('attempts') WHERE name='reserved_active_ms'"), ==, 0);
+  g_assert_cmpint(scalar(db, "SELECT count(*) FROM sqlite_master WHERE name='research_plans'"), ==, 0);
   assert_historical_rows(db, version); sqlite3_close(db);
   local_job_store_test_fail_migration_after_schema(FALSE);
   store = local_job_store_open(path, INVESTIGATION_ID, FALSE, &error);
@@ -96,8 +103,9 @@ static void test_historical_migration(gconstpointer data) {
   store = local_job_store_open(path, INVESTIGATION_ID, FALSE, &error);
   g_assert_no_error(error); g_assert_nonnull(store); local_job_store_close(store);
   g_assert_cmpint(sqlite3_open(path, &db), ==, SQLITE_OK);
-  g_assert_cmpint(scalar(db, "SELECT CAST(value AS INTEGER) FROM metadata WHERE key='schema_version'"), ==, 3);
+  g_assert_cmpint(scalar(db, "SELECT CAST(value AS INTEGER) FROM metadata WHERE key='schema_version'"), ==, 4);
   g_assert_cmpint(scalar(db, "SELECT count(*) FROM pragma_table_info('attempts') WHERE name IN('reserved_active_ms','elapsed_active_ms','budget_finalized')"), ==, 3);
+  g_assert_cmpint(scalar(db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN('research_plans','research_seeds','research_actions','research_action_decisions','scope_grants','scope_grant_actions','scope_grant_exclusions','research_campaigns','research_results','research_receipts')"), ==, 10);
   assert_historical_rows(db, version);
   g_assert_cmpint(scalar(db, "PRAGMA integrity_check"), ==, 0); /* text coerces to zero */
   g_assert_cmpint(scalar(db, "SELECT count(*) FROM pragma_foreign_key_check"), ==, 0);
@@ -105,12 +113,12 @@ static void test_historical_migration(gconstpointer data) {
 }
 
 static void test_read_only_contract(void) {
-  char *path = make_historical_fixture(2); GError *error = NULL;
+  char *path = make_historical_fixture(3); GError *error = NULL;
   LocalJobStore *store = local_job_store_open(path, INVESTIGATION_ID, TRUE, &error);
   g_assert_no_error(error); g_assert_nonnull(store); local_job_store_close(store);
   sqlite3 *db = NULL; g_assert_cmpint(sqlite3_open(path, &db), ==, SQLITE_OK);
-  g_assert_cmpint(scalar(db, "SELECT CAST(value AS INTEGER) FROM metadata WHERE key='schema_version'"), ==, 2);
-  g_assert_cmpint(scalar(db, "SELECT count(*) FROM pragma_table_info('attempts') WHERE name='reserved_active_ms'"), ==, 0);
+  g_assert_cmpint(scalar(db, "SELECT CAST(value AS INTEGER) FROM metadata WHERE key='schema_version'"), ==, 3);
+  g_assert_cmpint(scalar(db, "SELECT count(*) FROM sqlite_master WHERE name='research_plans'"), ==, 0);
   sqlite3_close(db); remove_fixture(path);
   char *directory = g_dir_make_tmp("labfy-jobs-absent-XXXXXX", &error);
   char *absent = g_build_filename(directory, "absent.sqlite", NULL);
@@ -221,9 +229,36 @@ static void test_future_version_refused(Fixture *fixture,
                                         gconstpointer unused) {
   (void)unused;local_job_store_close(fixture->store);fixture->store=NULL;
   sqlite3 *db=NULL;g_assert_cmpint(sqlite3_open(fixture->path,&db),==,SQLITE_OK);
-  g_assert_cmpint(sqlite3_exec(db,"UPDATE metadata SET value='99' WHERE key='schema_version';",NULL,NULL,NULL),==,SQLITE_OK);sqlite3_close(db);
+  g_assert_cmpint(sqlite3_exec(db,"UPDATE metadata SET value='5' WHERE key='schema_version';",NULL,NULL,NULL),==,SQLITE_OK);sqlite3_close(db);
   GError *error=NULL;fixture->store=local_job_store_open(fixture->path,INVESTIGATION_ID,FALSE,&error);
   g_assert_null(fixture->store);g_assert_error(error,G_IO_ERROR,G_IO_ERROR_INVALID_DATA);g_clear_error(&error);
+}
+
+static void test_fresh_v4(Fixture *fixture, gconstpointer unused) {
+  (void)unused;
+  sqlite3 *db = NULL;
+  g_assert_cmpint(sqlite3_open(fixture->path, &db), ==, SQLITE_OK);
+  g_assert_cmpint(scalar(db, "SELECT CAST(value AS INTEGER) FROM metadata WHERE key='schema_version'"), ==, 4);
+  g_assert_cmpint(scalar(db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN('research_plans','research_seeds','research_actions','research_action_decisions','scope_grants','scope_grant_actions','scope_grant_exclusions','research_campaigns','research_results','research_receipts')"), ==, 10);
+  g_assert_cmpint(scalar(db, "SELECT count(*) FROM pragma_foreign_key_check"), ==, 0);
+  sqlite3_close(db);
+
+  /* Compatibilité avec une V4 intermédiaire antérieure à l'extension
+   * additive des décisions de recherche. */
+  local_job_store_close(fixture->store);
+  fixture->store = NULL;
+  g_assert_cmpint(sqlite3_open(fixture->path, &db), ==, SQLITE_OK);
+  g_assert_cmpint(sqlite3_exec(db, "DROP TABLE research_action_decisions;",
+                               NULL, NULL, NULL), ==, SQLITE_OK);
+  sqlite3_close(db);
+  GError *error = NULL;
+  fixture->store = local_job_store_open(fixture->path, INVESTIGATION_ID,
+                                         FALSE, &error);
+  g_assert_no_error(error);
+  g_assert_nonnull(fixture->store);
+  g_assert_cmpint(sqlite3_open(fixture->path, &db), ==, SQLITE_OK);
+  g_assert_cmpint(scalar(db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='research_action_decisions'"), ==, 1);
+  sqlite3_close(db);
 }
 
 static void test_lifecycle_and_stale_owner(Fixture *fixture,
@@ -327,8 +362,11 @@ int main(int argc, char **argv) {
              test_plan_crash_keeps_reservation, teardown);
   g_test_add("/local-jobs/future-version", Fixture, NULL, setup,
              test_future_version_refused, teardown);
-  g_test_add_data_func("/local-jobs/migration-v1-v3", GUINT_TO_POINTER(1), test_historical_migration);
-  g_test_add_data_func("/local-jobs/migration-v2-v3", GUINT_TO_POINTER(2), test_historical_migration);
+  g_test_add("/local-jobs/fresh-v4", Fixture, NULL, setup, test_fresh_v4,
+             teardown);
+  g_test_add_data_func("/local-jobs/migration-v1-v4", GUINT_TO_POINTER(1), test_historical_migration);
+  g_test_add_data_func("/local-jobs/migration-v2-v4", GUINT_TO_POINTER(2), test_historical_migration);
+  g_test_add_data_func("/local-jobs/migration-v3-v4", GUINT_TO_POINTER(3), test_historical_migration);
   g_test_add_func("/local-jobs/read-only-contract", test_read_only_contract);
   return g_test_run();
 }

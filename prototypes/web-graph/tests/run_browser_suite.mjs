@@ -27,6 +27,9 @@ export const scenarios = Object.freeze([
   // de harness isolée ; il démontre l'arrêt du polling et la reconnexion sans
   // rejouer une mutation dont l'admission n'est pas connue.
   "test_session_lifetime_browser.mjs",
+  // CONTRACT: deux vagues de recherche SPECIMEN approuvées sont visibles ; une
+  // branche refusée demeure hors transport et ne peut donc produire de résultat.
+  "test_research_browser.mjs",
 ]);
 
 const tests_directory = fileURLToPath(new URL(".", import.meta.url));

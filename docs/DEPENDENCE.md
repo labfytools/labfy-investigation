@@ -13,7 +13,7 @@ n’est persisté.
 | Vidéo GTK | `gst-plugins-base`, `gst-plugins-good` | `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good` |
 
 Les codecs vidéo supplémentaires restent optionnels.
-Le Makefile vérifie explicitement GTK4, SQLite, libheif, Poppler GLib et
+Le Makefile vérifie explicitement GLib/GIO, SQLite, libheif, Poppler GLib et
 JSON-GLib avant
 compilation et renvoie vers ce document si une dépendance manque.
 
@@ -54,6 +54,7 @@ export PATH="$HOME/.local/share/labfy-osint/bin:$PATH"
 | Résolution réseau | `host` | `sudo pacman -S bind` | `sudo apt install bind9-host` |
 | WHOIS | `whois` | `sudo pacman -S whois` | `sudo apt install whois` |
 | Requêtes HTTPS | `curl` | `sudo pacman -S curl` | `sudo apt install curl` |
+| Transport HTTP C de recherche (harness V1) | `libcurl` | `sudo pacman -S curl` | `sudo apt install libcurl4-openssl-dev` |
 | Certificats/TLS | `openssl` | `sudo pacman -S openssl` | `sudo apt install openssl` |
 | Récupération PDF | `qpdf` | `sudo pacman -S qpdf` | `sudo apt install qpdf` |
 | Audit de mot de passe PDF | `john`, `pdf2john` | `sudo pacman -S john` | `sudo apt install john` |
@@ -138,3 +139,14 @@ données distincte, ni installation automatique. Ses fichiers d'instance et de
 configuration suivent XDG (`XDG_RUNTIME_DIR`, `XDG_STATE_HOME`) ; la
 bibliothèque d'enquêtes est une destination locale explicitement fournie par
 `LIBRARY`, et non une dépendance à installer.
+
+Le harness de recherche OSINT assistée V1 utilise libcurl pour ses tests de
+transport avec un fournisseur loopback `SPECIMEN`. Cette dépendance ne
+configure, ne qualifie et ne contacte aucun fournisseur public ; les
+fournisseurs externes restent indisponibles tant que leur configuration et
+leur autorisation ne sont pas établies par une tranche dédiée.
+
+GTK4 n’est plus une dépendance de Labfy : le build Web-only exige GLib/GIO,
+SQLite, libheif, Poppler GLib, JSON-GLib, Python 3 et Firefox/`puppeteer-core`
+pour les validations visuelles. Aucun environnement Wayland, GSK_RENDERER ou
+display GTK n’est requis par la suite canonique.
