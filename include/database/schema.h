@@ -102,6 +102,10 @@ bool schema_install_v18(Database *database);
 bool schema_install_v19(Database *database);
 bool schema_install_v20(Database *database);
 
+/** Installe directement le schéma autonome V21 dans une base strictement vide.
+ * Réservé aux bases neuves et aux tests ; ne migre jamais une base V20. */
+bool schema_install_v21_direct(Database *database);
+
 /**
  * @brief Garantit la présence des extensions du schéma courant V2.
  *

@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="480"
+     viewBox="0 0 1600 480" role="img"
+     aria-labelledby="title description">
+  <title id="title">Labfy Investigation</title>
+  <desc id="description">Réseau d'investigation local reliant preuves,
+  personnes, infrastructure et chronologie.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#11111b"/>
+      <stop offset="0.52" stop-color="#1e1e2e"/>
+      <stop offset="1" stop-color="#181825"/>
+    </linearGradient>
+    <linearGradient id="trace" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#89b4fa"/>
+      <stop offset="0.5" stop-color="#b4befe"/>
+      <stop offset="1" stop-color="#cba6f7"/>
+    </linearGradient>
+    <radialGradient id="focus">
+      <stop offset="0" stop-color="#b4befe" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#b4befe" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#45475a"
+            stroke-opacity="0.14" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1600" height="480" rx="28" fill="url(#background)"/>
+  <rect width="1600" height="480" rx="28" fill="url(#grid)"/>
+
+  <g opacity="0.62" fill="none" stroke-linecap="round">
+    <path d="M870 245L1018 116L1185 172L1360 92" stroke="#89b4fa" stroke-width="3"/>
+    <path d="M870 245L1055 326L1250 273L1436 352" stroke="#94e2d5" stroke-width="3"/>
+    <path d="M1018 116L1055 326M1185 172L1250 273M1360 92L1436 352"
+          stroke="#b4befe" stroke-width="2" stroke-dasharray="8 12"/>
+    <path d="M1185 172L1436 352M870 245L1250 273" stroke="#cba6f7"
+          stroke-width="2" stroke-opacity="0.65"/>
+  </g>
+
+  <circle cx="870" cy="245" r="126" fill="url(#focus)"/>
+  <g filter="url(#glow)">
+    <circle cx="870" cy="245" r="44" fill="#313244" stroke="#b4befe" stroke-width="5"/>
+    <circle cx="870" cy="232" r="12" fill="#cdd6f4"/>
+    <path d="M848 270c2-17 12-25 22-25s20 8 22 25" fill="#cdd6f4"/>
+  </g>
+
+  <g stroke-width="4">
+    <g fill="#313244" stroke="#89b4fa">
+      <circle cx="1018" cy="116" r="27"/><circle cx="1185" cy="172" r="20"/>
+      <circle cx="1360" cy="92" r="24"/>
+    </g>
+    <g fill="#313244" stroke="#94e2d5">
+      <circle cx="1055" cy="326" r="30"/><circle cx="1250" cy="273" r="24"/>
+      <circle cx="1436" cy="352" r="28"/>
+    </g>
+  </g>
+
+  <g fill="#cdd6f4" font-family="system-ui, sans-serif" font-size="15"
+     font-weight="600" text-anchor="middle">
+    <text x="1018" y="121" font-size="11">SOURCE</text>
+    <text x="1185" y="177">OBS</text>
+    <text x="1360" y="97">CLAIM</text>
+    <text x="1055" y="331" font-size="11">EVIDENCE</text>
+    <text x="1250" y="278">EVENT</text>
+    <text x="1436" y="357">PIVOT</text>
+  </g>
+
+  <g font-family="system-ui, sans-serif">
+    <text x="92" y="183" fill="#b4befe" font-size="30" font-weight="650"
+          letter-spacing="8">LABFY</text>
+    <text x="88" y="253" fill="#f5e0dc" font-size="66" font-weight="760"
+          letter-spacing="1">INVESTIGATION</text>
+    <rect x="90" y="279" width="590" height="3" rx="2" fill="url(#trace)"/>
+    <text x="92" y="327" fill="#a6adc8" font-size="23" font-weight="450"
+          letter-spacing="1">THE GRAPH IS THE INVESTIGATION</text>
+    <text x="92" y="371" fill="#89b4fa" font-size="17">
+      LOCAL-FIRST · PROVENANCE · PIVOTS · EXPLICABILITÉ
+    </text>
+  </g>
+
+  <g transform="translate(1492 56)" fill="none" stroke="#b4befe" stroke-width="3">
+    <circle r="18"/><circle r="5" fill="#b4befe" stroke="none"/>
+    <path d="M18 0h25M-18 0h-25M0 18v25M0-18v-25" opacity="0.55"/>
+  </g>
+</svg>

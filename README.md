@@ -1,542 +1,382 @@
 # Labfy Investigation
 
-> [!IMPORTANT]
-> **Forgejo est le dépôt principal du projet.**
+Le parcours `CURRENT` de jobs locaux persistants et de reprise J5 est documenté
+dans [docs/architecture/LOCAL_JOBS_RECOVERY.md](docs/architecture/LOCAL_JOBS_RECOVERY.md).
+
+Le premier poste Web local pilotable J6 est documenté dans
+[docs/architecture/WEB_WORKSPACE_CONTROL.md](docs/architecture/WEB_WORKSPACE_CONTROL.md).
+
+Le premier lot J7 ajoute un index C recalculable et des rapprochements locaux
+explicables pour les e-mails, domaines et IP observés :
+[pivots locaux et corrélation](docs/architecture/LOCAL_PIVOTS_CORRELATION.md).
+
+Le [poste Web local](docs/ui/WEB_WORKBENCH.md) rassemble désormais le graphe,
+l’inspecteur contextuel, les tâches, le planner J8 et les rapports J9 dans une
+surface `SPECIMEN` responsive. Cette disponibilité locale ne change ni le
+statut de production, ni l’interdiction d’utiliser une enquête réelle.
+
+Le parcours local expérimental d’import et de revue est détaillé dans
+[le contrat d’espace local](docs/architecture/LOCAL_WORKSPACE_IMPORT.md) :
+l’aperçu EML/PNG/JPEG provient du cœur C après contrôle d’intégrité ; les
+originaux et leurs chemins ne sont jamais servis. Confirmer une observation est
+une revue, jamais une confirmation d’identité ; créer, rattacher ou retirer un
+indicateur reste une action explicite.
+
+![Bannière Labfy Investigation : réseau de preuves, observations et pivots](resources/images/labfy-investigation-banner.svg)
+
+[![Version cible](https://img.shields.io/badge/version-v0.1.0-b4befe?style=flat-square&labelColor=1e1e2e)](CHANGELOG.md)
+[![Langage principal](https://img.shields.io/badge/core-C17-89b4fa?style=flat-square&labelColor=1e1e2e)](docs/ARCHITECTURE.md)
+[![Données](https://img.shields.io/badge/data-local--first-94e2d5?style=flat-square&labelColor=1e1e2e)](docs/ARCHITECTURE.md#23-local-first)
+[![Licence](https://img.shields.io/badge/license-MIT-a6e3a1?style=flat-square&labelColor=1e1e2e)](LICENSE)
+[![Statut](https://img.shields.io/badge/status-foundation-f9e2af?style=flat-square&labelColor=1e1e2e)](#état-du-projet)
+
+> **Forgejo est le dépôt principal.** Le code peut être publié sur GitHub comme
+> miroir, mais les tickets, décisions et contributions sont suivis sur
+> [git.labfytools.com](https://git.labfytools.com/fy59/labfy-investigation).
+
+Labfy Investigation est un environnement **local-first** d'investigation
+numérique centré sur un graphe interactif, dans lequel chaque élément découvert
+peut devenir un pivot exploitable par un toolkit extensible.
+
+Il réunit progressivement un graphe d'investigation, un modèle exigeant de
+preuve et de provenance, des capacités OSINT contextuelles, un planner
+déterministe et une automatisation contrôlée. L'interface doit rester accessible
+à un enquêteur novice sans retirer à l'expert l'accès aux détails techniques.
+
+> **THE GRAPH IS THE INVESTIGATION**
 >
-> Le code peut également être publié sur GitHub comme miroir public, mais le suivi du développement, les tickets, les décisions techniques et la feuille de route se trouvent sur :
->
-> **https://git.labfytools.com/fy59/labfy-investigation**
->
-> Tickets :
->
-> **https://git.labfytools.com/fy59/labfy-investigation/issues**
->
-> Les tickets et pull requests ouverts uniquement sur GitHub risquent de ne pas être suivis.
+> Le graphe n'est pas une visualisation secondaire : il est la représentation
+> principale de l'enquête.
 
-Labfy Investigation est un poste de travail libre d’investigation numérique et d’OSINT, développé en **C17** avec **GTK4**.
+## Pourquoi Labfy ?
 
-Le projet vise à fournir un environnement local, modulaire et traçable pour organiser une enquête, préserver les preuves originales, analyser des données, corréler des entités et produire des rapports exploitables.
+Les outils spécialisés savent souvent collecter ou analyser une catégorie de
+données. Labfy vise à relier leurs résultats dans une enquête cohérente :
 
-La fiche d’une preuve permet aussi de consigner une appréciation humaine
-d’authenticité documentaire. Cet historique est immuable, justifié selon le
-statut choisi et ne peut jamais être produit automatiquement par l’OCR.
-Les seules valeurs OCR pouvant alimenter un profil de personne sont celles
-confirmées par un humain, sélectionnées sans choix par défaut puis validées
-avec une cible et une stratégie de conflit explicites.
-La fiche personne relit ensuite ces champs structurés depuis SQLite.
+- préserver les sources et les artefacts bruts ;
+- normaliser les résultats sans perdre leur origine ;
+- relier entités, observations, événements, preuves et hypothèses ;
+- proposer les pivots applicables au contexte sélectionné ;
+- expliquer chaque corrélation et chaque recommandation ;
+- limiter l'automatisation par le budget, le risque et le scope autorisé ;
+- produire des résultats vérifiables et exportables.
 
-> **État du projet : développement actif**
->
-> Le logiciel n’est pas encore prêt pour un usage opérationnel en production. Les formats internes, l’interface et les mécanismes d’intégration peuvent encore évoluer.
+## État du projet
 
----
+La cible de développement est **v0.1.0**. Le projet reste en développement actif
+et n'est pas prêt pour un usage opérationnel en production.
 
-## Objectifs
+**Interface GTK conservée ; poste Web local `SPECIMEN` disponible.** La
+fondation v0.1.0 reste en développement : le poste Web réutilise le moteur de
+jobs persistant existant, sans constituer une interface de production ni une
+autonomie générale.
 
-Labfy Investigation doit permettre de :
+### Disponible aujourd'hui
 
-- créer et ouvrir une enquête autonome ;
-- conserver les preuves originales sans les modifier ;
-- organiser les fichiers, entités, relations et événements ;
-- stocker les données structurées dans SQLite ;
-- afficher l’arborescence complète d’une enquête ;
-- exécuter des traitements longs en arrière-plan ;
-- intégrer progressivement des outils OSINT externes ;
-- conserver les sorties brutes, les versions et les paramètres d’exécution ;
-- analyser localement des messages EML et inventorier leurs pièces jointes
-  sans modifier la preuve originale ;
-- conserver les propositions IBAN/BIC avec leur provenance et leur statut de
-  vérification ;
-- distinguer les faits observés, les résultats d’outils, les corrélations et les hypothèses ;
-- produire des rapports compréhensibles et traçables.
+L'application actuelle est une application de bureau GTK4 en C17. Elle fournit
+notamment :
 
-Le logiciel est pensé pour des usages légaux par des particuliers, journalistes, analystes OSINT, experts judiciaires et forces de l’ordre.
+- création et ouverture d'enquêtes autonomes avec SQLite versionné ;
+- import contrôlé de preuves, copies locales et empreintes SHA-256 ;
+- entités, relations, rattachements aux preuves et graphe interactif ;
+- positions et viewport du graphe persistants ;
+- tâches asynchrones annulables et panneau d'activité ;
+- registre initial d'outils externes et exécution via `GSubprocess` sans shell ;
+- pivot DNS révisable avec provenance des exécutions ;
+- analyse locale EML, MIME, PDF, OCR et métadonnées ExifTool ;
+- observations persistantes, promotion explicite vers une entité et retrait
+  réversible ;
+- personnes, rôles contextuels, comptes sociaux et champs structurés ;
+- OCR d'identité contrôlé, historique multi-run et corrections humaines ;
+- appréciations humaines append-only, distinctes des résultats automatiques.
 
----
+Cette liste décrit l'existant ; elle ne promet ni stabilité d'API ni couverture
+fonctionnelle complète. Le code, les tests et les migrations restent la source
+de vérité technique.
 
-## Cadre légal et éthique
+### Planifié pour Labfy V2
 
-Labfy Investigation est conçu pour travailler avec :
+Les éléments suivants constituent l'architecture cible et **ne sont pas encore
+disponibles comme système intégré** :
 
-- des sources publiquement accessibles ;
-- des données fournies légalement par une victime ou un enquêteur ;
-- des API utilisées conformément à leurs autorisations ;
-- des recherches passives ou explicitement autorisées ;
-- des copies locales dont la provenance peut être documentée.
+- frontend Web local-first remplaçant progressivement GTK ;
+- projection unifiée du graphe pour Identity, Infrastructure, Finance,
+  Timeline, Geo et Evidence ;
+- compression sémantique, focus workspace et navigation de grands graphes ;
+- registre générique d'adapters et de capabilities ;
+- job engine persistant et récupérable après crash ;
+- moteur de pivots avec déduplication, cycles et budgets ;
+- corrélations déterministes, versionnées et explicables ;
+- planner d'investigation déterministe ;
+- politiques d'autonomie progressive et contrôle de scope ;
+- provenance navigable de bout en bout.
 
-Le projet n’a pas vocation à fournir ou automatiser :
+Voir la [roadmap canonique](docs/ROADMAP.md) pour l'ordre prévu.
 
-- l’intrusion dans un système ;
-- le contournement d’une authentification ;
-- l’exploitation de vulnérabilités ;
-- le brute force ou le credential stuffing ;
-- le phishing ou l’usurpation ;
-- l’utilisation de secrets découverts ;
-- l’accès à des données privées sans autorisation ;
-- la modification ou la suppression de données distantes.
-
-Un résultat produit par un outil OSINT constitue une **piste à vérifier**, pas une preuve d’identité à lui seul.
-
----
+Une [démonstration Web Graph J2](prototypes/web-graph/README.md), explicitement
+expérimentale, en lecture seule et alimentée uniquement par des fixtures
+synthétiques, permet désormais d'éprouver les contrats et interactions cibles.
+Un premier lot J3 ajoute un mode séparé où une fixture SQLite V20 est créée par
+les API C de production, relue par des services C effectivement read-only puis
+affichée via un [snapshot cœur documenté](docs/architecture/CORE_GRAPH_READONLY.md).
+Une extension J3 exécute aussi l'analyseur EML natif sur une preuve synthétique,
+publie dérivé, extraction et observations proposées en V20, puis les relit dans
+un [snapshot v3 affiché par le Web](docs/architecture/EML_ANALYSIS_TO_GRAPH.md).
+Cette connexion locale reste synthétique et ne constitue pas un backend Web de
+production ni une autorisation de charger une enquête réelle.
 
 ## Principes fondamentaux
 
-### Une enquête est autonome
+### The graph is the investigation
 
-Chaque enquête est stockée dans un dossier transportable :
+Personnes, organisations, identifiants, comptes, infrastructure, transactions,
+événements, preuves, sources, observations, claims et hypothèses doivent pouvoir
+être projetés dans le même réseau logique.
 
-```text
-MonEnquete/
-├── 00_BaseDeDonnees/
-│   └── Enquete.sqlite
-├── 01_Preuves_Originales/
-├── 02_Preuves_Traitees/
-├── 03_Chronologie/
-├── 04_Entites/
-└── 05_Rapports/
-```
-
-Une enquête peut être copiée, déplacée, sauvegardée, archivée ou transmise avec ses données.
-
-### Les preuves originales sont immuables
-
-Toute annotation, conversion, extraction ou analyse doit produire un nouveau fichier. Une preuve originale ne doit jamais être modifiée.
-
-### SQLite est la source de vérité
-
-Les tableaux, graphes, chronologies et résultats de recherche sont des vues différentes des mêmes données persistées.
-
-### Les résultats bruts et normalisés sont séparés
-
-Chaque traitement doit conserver :
-
-- l’outil utilisé ;
-- sa version ;
-- les arguments ;
-- la date et l’heure UTC ;
-- la source interrogée ;
-- la sortie brute ;
-- l’empreinte des fichiers produits ;
-- les données normalisées utilisées par l’application.
-
-### L’interface ne doit jamais être bloquée
-
-Les opérations longues doivent s’exécuter en arrière-plan et rester annulables.
-
-### Aucun shell construit dynamiquement
-
-Les outils externes sont lancés avec `GSubprocess` et des arguments séparés. Les commandes concaténées puis transmises à un shell sont interdites.
-
----
-
-## Fonctionnalités déjà présentes
-
-La création d’une personne et l’import normal d’une preuve proposent un OCR
-contrôlé des documents d’identité. Il ne démarre que sur action explicite,
-travaille sur une copie vérifiée PNG, JPEG, HEIC, HEIF ou sur une page PDF
-choisie, et conserve séparément le texte OCR brut immuable et une transcription
-corrigée rééditable et réinitialisable. Les propositions restent révisables :
-elles peuvent être acceptées, corrigées à nouveau, restaurées depuis leur
-valeur brute ou rejetées. Un champ visible mais omis par l’OCR peut être saisi
-avec l’origine `manual_entry` ; une correction d’une valeur extraite conserve
-l’origine `manual_override`. Des notes factuelles peuvent signaler un document
-tronqué, flou, masqué ou incomplet, sans reconstruire une zone absente.
-
-La fiche directe d’une preuve relit depuis SQLite le texte brut, la
-transcription corrigée, les exécutions `OcrRun`, observations, champs, notes,
-artefacts, empreintes SHA-256, personne liée et provenance graphique. Un run
-est sélectionné explicitement lorsqu’un historique en contient plusieurs.
-« Réviser l’analyse OCR » modifie uniquement ce run sans relancer Tesseract ;
-« Relancer une nouvelle analyse » crée un nouveau run sans écraser
-l’historique.
-
-L’import multiple sans OCR reste disponible. L’OCR groupé n’est pas pris en
-charge : les preuves importées ensemble sont ensuite analysées une par une
-depuis leur fiche, sur leur UUID définitif et sans doublon. Aucun de ces
-parcours ne produit de verdict d’authenticité, de reconnaissance faciale, de
-fusion de personne, d’identité certaine ou de rôle d’auteur automatique.
-
-Le socle actuel comprend notamment :
-
-- création et ouverture d’enquêtes ;
-- validation de l’arborescence ;
-- sessions d’enquête remplaçables proprement ;
-- base SQLite versionnée ;
-- transactions et remontée structurée des erreurs ;
-- DAO et modèles d’enquête ;
-- arborescence des fichiers ;
-- fenêtre principale GTK4 ;
-- barre latérale et espace de travail ;
-- navigation et recherche locale des entités dans la barre latérale ;
-- navigation et recherche locale des relations dans la barre latérale ;
-- affichage graphique des erreurs ;
-- tâches asynchrones annulables ;
-- gestionnaire de tâches ;
-- panneau d’activité GTK ;
-- import groupé de preuves avec confirmation globale, révision individuelle,
-  copie contrôlée, empreinte SHA-256 et bilan détaillé ;
-- correction du type, de la source et de la description d'une preuve avec
-  contrôle d'intégrité et déplacement cohérent de sa copie interne ;
-- registre d’outils externes ;
-- exécution sécurisée par `GSubprocess` ;
-- exécution d’outils en tâche de fond ;
-- catalogue initial d’outils ;
-- détection de présence et de version ;
-- menu OSINT contextuel préparé pour les entités et relations du graphe ;
-- contexte de sélection OSINT indépendant de GTK et validé par des tests ;
-- catalogue déterministe des actions compatibles avec la sélection OSINT ;
-- disponibilité des actions OSINT synchronisée avec le registre d’outils ;
-- résolution DNS asynchrone avec `dig` depuis une entité domaine ;
-- affichage sélectionnable des sorties standard et d’erreur, sans persistance ;
-- révision des réponses DNS sous forme de propositions avant intégration ;
-- sélection explicite et intégration transactionnelle des propositions DNS
-  compatibles, avec normalisation et détection des doublons ;
-- création transactionnelle des relations DNS `resolves_to`, `aliases_to` et
-  `uses_name_server` depuis l'entité interrogée ;
-- provenance OSINT SQLite V3 conservant les arguments, sorties brutes,
-  empreinte SHA-256 et liaisons vers les entités et relations intégrées ;
-- comptes sociaux structurés en SQLite V4 (TikTok, Instagram, Facebook, X,
-  Telegram ou autre), avec URL, pseudonyme, identifiant stable facultatif,
-  première observation, état, notes et rattachement à une preuve ;
-- pictogrammes vectoriels des plateformes sociales dans les nœuds du graphe,
-  conservant leur lisibilité pendant le zoom ;
-- création de personnes observées avec statut d'identification, confiance,
-  notes factuelles et rattachement facultatif à une preuve ;
-- catégories d'enquête des personnes en SQLite V5, modifiables depuis leur
-  fiche et représentées par une couleur et un libellé dans le graphe ;
-- relations représentées par des flèches directes à libellé cliquable, sans
-  ajouter de faux nœud visuel entre les entités ;
-- historique OSINT contextuel en lecture seule avec détail des exécutions,
-  sorties standard et d'erreur, et objets créés ou réutilisés ;
-- vérification manuelle de l'intégrité des sorties OSINT enregistrées, sans
-  réécriture de l'empreinte ou des données contrôlées.
-- glisser-déposer des extractions texte depuis l'arborescence vers le graphe,
-  avec confirmation explicite, création d'entité ou rattachement à une entité
-  existante, sans déplacement du fichier produit ;
-- pivot forensique EML : contrôle SHA-256 avant analyse, lecture des en-têtes,
-  extraction MIME récursive, inventaire des pièces jointes et analyse locale
-  facultative par PDF, OCR et ExifTool ;
-- propositions bancaires issues du texte ou de l'OCR, avec validation IBAN/BIC
-  avant toute conservation ;
-- observations EML persistantes dans la fiche de preuve, sans création
-  automatique d'un nœud ;
-- promotion facultative et explicite d'une observation vers une entité du
-  graphe, puis retrait réversible conservant l'observation.
-- propriété persistante V13 des rattachements preuve-entité : un retrait EML
-  ne supprime que la source de l'observation concernée.
-- assistant de création d’une personne avec sélection multiple de preuves
-  existantes et import multiple différé : les nouveaux fichiers sont copiés
-  dans un staging temporaire, qualifiés individuellement et ne deviennent
-  définitifs qu’après confirmation globale ;
-- rattachement transactionnel de toutes les preuves retenues, avec rollback
-  SQLite et suppression compensatoire des copies définitives en cas d’échec.
-- aperçu asynchrone contrôlé PNG/JPEG, HEIC/HEIF, MP4/MOV, texte, EML et PDF
-  multipage, avec zoom de 25 à 400 %, ajustement, défilements horizontal et
-  vertical, navigation et compteur de pages ; la provenance OCR reste alignée
-  avec la page, le zoom et le défilement ;
-
-Les dialogues métiers complexes suivent une politique GTK commune : parent
-réel via `transient_for`, modalité adaptée et présentation sans coordonnées
-absolues sous Wayland. Ils visent 1200 × 800, avec un minimum utile de
-800 × 600 lorsque la zone de travail le permet, un formulaire défilable à
-gauche sur environ deux tiers, un aperçu redimensionnable à droite et une
-barre d’actions fixe. Les alertes simples, popups `GtkDropDown` et sélecteurs
-de fichiers natifs ne sont pas concernés.
-
-### Pivot EML
-
-L'action « Analyser l'e-mail » vérifie d'abord que l'empreinte SHA-256 de la
-preuve correspond à celle enregistrée. Le pipeline lit ensuite les en-têtes,
-parcourt la structure MIME et présente les pièces jointes, textes PDF ou OCR,
-métadonnées ExifTool et propositions bancaires disponibles.
-
-Une proposition cochée avec « Conserver dans la fiche » devient une
-observation persistante liée à la preuve. Cette confirmation normale ne crée
-ni entité, ni nœud, ni rattachement `preuve_entites`. « Promouvoir en entité »
-est une décision séparée, facultative et désactivée par défaut. Une promotion
-peut ensuite être retirée du graphe sans supprimer l'observation ; une entité
-encore utilisée par une autre observation, une autre preuve ou une relation
-est conservée.
-
-Les outils documentaires sont optionnels : leur absence produit un résultat
-partiel sans empêcher la lecture des en-têtes ni l'extraction MIME. Les
-métadonnées sensibles, notamment GPS, sont signalées et ne sont jamais
-promues automatiquement.
-
-Les outils actuellement présents dans le catalogue initial sont :
+Cela ne signifie pas qu'ils deviennent tous des lignes de la table générique
+`entites`. Le modèle métier continue de distinguer :
 
 ```text
-dig
-host
-whois
-curl
-openssl
+entities      artifacts      evidence       observations
+events        transactions   claims         hypotheses
+sources       executions     transformations
 ```
 
-Ils restent optionnels : l’absence d’un outil ne doit pas empêcher Labfy Investigation de démarrer.
+Le graphe Web cible sera une projection de ces objets, pas une seconde base de
+données.
 
----
-
-## Architecture
-
-Le projet sépare strictement les responsabilités :
+### Une enquête, plusieurs projections
 
 ```text
-Interface GTK4
-      ↓
-Application
-      ↓
-Services métier
-      ↓
-Adaptateurs
-├── SQLite
-├── système de fichiers
-├── outils CLI
-└── futures API
+                    INVESTIGATION GRAPH
+                           │
+          ┌────────────────┼────────────────┐
+          │                │                │
+       Identity       Infrastructure      Finance
+          │                │                │
+       Timeline            Geo           Evidence
 ```
 
-Règles principales :
+Ces vues partagent les mêmes objets et la même provenance. Elles ne créent ni
+bases ni graphes indépendants.
 
-- le cœur métier ne dépend pas de GTK ;
-- les widgets ne manipulent ni SQLite ni les preuves ;
-- les modèles ne connaissent ni GTK ni SQLite ;
-- les erreurs remontent jusqu’à l’application ;
-- chaque allocation possède une responsabilité de libération claire ;
-- les tests du cœur ne doivent pas nécessiter le lancement de GTK.
+### Why do we know this?
 
-Organisation actuelle :
+Depuis une relation, une observation, un claim ou une hypothèse, l'utilisateur
+doit pouvoir remonter jusqu'à la source :
 
 ```text
-database/          Ressources et éléments liés à la base
-docs/              Architecture, conventions et feuille de route
-include/core/      Interfaces du cœur
-include/dao/       Interfaces d’accès aux données
-include/database/  Infrastructure SQLite
-include/models/    Modèles métier
-include/views/     Fenêtres GTK
-include/widgets/   Widgets réutilisables
-resources/         Ressources de l’application
-src/core/          Implémentation du cœur
-src/dao/           Accès aux données
-src/database/      Implémentation SQLite
-src/models/        Modèles métier
-src/views/         Vues GTK
-src/widgets/       Widgets GTK
-tests/             Tests unitaires
+ENTITY / CLAIM
+      ↑
+OBSERVATION
+      ↑
+TRANSFORMATION
+      ↑
+NORMALIZED RESULT
+      ↑
+EXECUTION
+      ↑
+RAW SOURCE
+      ↑
+TOOL / QUERY / PARAMETERS
 ```
 
-La documentation détaillée se trouve dans :
+### Une hypothèse n'est pas un fait
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md)
-- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)
-- [`docs/ROADMAP.md`](docs/ROADMAP.md)
-- [`docs/database/`](docs/database/)
+Un même username, avatar, téléphone, e-mail, domaine, certificat ou IP peut
+produire un signal. Il ne doit jamais devenir silencieusement une identité
+confirmée.
 
----
+La direction v0.1.0 distingue la nature de l'information — `OBSERVED`,
+`DECLARED`, `DERIVED`, `CORRELATED`, `INFERRED` — de sa revue humaine et de
+l'état d'une hypothèse.
 
-## Environnements ciblés
+La confiance cible est qualitative et justifiée : `UNKNOWN`, `LOW`,
+`MODERATE`, `HIGH`. Aucun score opaque ne remplace les raisons ni la décision
+humaine.
 
-### Ubuntu
+### Local-first
 
-Ubuntu est la cible principale de distribution, notamment pour un futur déploiement auprès des forces de l’ordre.
+Par défaut, SQLite, artefacts, preuves, graphe et moteur restent locaux. Les
+technologies Web désignent l'interface locale cible ; elles n'impliquent ni
+cloud Labfy ni transfert automatique des données d'enquête.
 
-Dépendances de compilation :
+Les accès réseau correspondent uniquement aux recherches explicitement
+effectuées par des adapters, sous contrôle des politiques applicables.
 
-```bash
-sudo apt update
-sudo apt install     build-essential     pkg-config     libgtk-4-dev     libglib2.0-dev     libsqlite3-dev
+## Interface et expérience cible
+
+GTK demeure temporairement l'interface fonctionnelle existante. La future
+interface principale sera Web, avec le graphe comme espace de travail central.
+Le protocole local, le mécanisme d'événements et le framework frontend ne sont
+pas encore sélectionnés.
+
+La cible comprend :
+
+- **semantic clustering**, collapse/expand et niveaux de détail ;
+- filtres temporels, relationnels et de confiance ;
+- isolation de chemins et mode focus ;
+- **Focus Workspace** regroupant voisinage, observations, preuves, timeline,
+  hypothèses, actions et pivots ;
+- actions métier lisibles pour le novice ;
+- drill-down complet vers outils, versions, paramètres, stdout, stderr,
+  artefacts bruts et transformations pour l'expert.
+
+L'identité visuelle cible repose sur **Catppuccin Mocha**, avec **Lavender**
+comme accent principal et un design system centralisé.
+
+## Toolkit contextuel
+
+Le frontend ne connaîtra pas une liste codée en dur de commandes. Il demandera
+au cœur : « Que puis-je faire avec cet objet ? » et consommera des
+`capabilities` publiées par le **Labfy Toolkit Registry**.
+
+Premiers candidats évalués pour la roadmap : ExifTool, Tesseract, qpdf, RDAP,
+Certificate Transparency, Wayback, Subfinder, theHarvester et Maigret.
+Sherlock, Amass, dnsx, httpx, Katana, SpiderFoot, Nominatim et GraphSense restent
+des candidats spécialisés ou optionnels.
+
+Ces noms ne signifient pas que les outils sont déjà intégrés. Chaque intégration
+exigera licence compatible, version qualifiée, exécution bornée, normalisation,
+provenance et tests synthétiques.
+
+## Architecture cible
+
+```text
+┌───────────────────────────────────────────────┐
+│                 WEB FRONTEND                  │
+│       INVESTIGATION GRAPH — MAIN UI           │
+│ Dashboard / Graph / Timeline / Evidence       │
+│ Finance / Infrastructure / Geo / Reports      │
+└──────────────────────┬────────────────────────┘
+                       │ HTTP API / EVENTS
+┌──────────────────────▼────────────────────────┐
+│                  LABFY CORE                   │
+│ Evidence / Provenance                         │
+│ Entity & Observation Model                    │
+│ Adapter Registry / Job Engine / Pivot Engine  │
+│ Correlation / Planner / Scope / Policy        │
+└──────────────────────┬────────────────────────┘
+                       │
+                     SQLite
 ```
 
-La disponibilité réelle des paquets devra être vérifiée sur les postes utilisant des dépôts institutionnels restreints.
+C17 reste le socle lorsqu'il sert l'intégrité, SQLite, la provenance,
+l'orchestration et les services principaux. L'architecture peut employer
+Python, JavaScript/TypeScript, SQL, shell strictement contrôlé, CLI externes et
+API HTTP lorsque le bénéfice est établi. Aucun framework Web n'est décidé dans
+cette tranche.
 
-### Arch Linux
+La conception détaillée se trouve dans [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-Arch Linux est l’environnement principal de développement et de validation.
+## Construire et tester
 
-```bash
-sudo pacman -S --needed     base-devel     pkgconf     gtk4     glib2     sqlite
-```
-
-Les paquets AUR ne devront jamais devenir une dépendance obligatoire du futur paquet Ubuntu.
-
----
-
-## Compilation
-
-Depuis la racine du dépôt :
+Les dépendances et procédures Arch Linux et Ubuntu sont décrites dans
+[docs/DEPENDENCE.md](docs/DEPENDENCE.md).
 
 ```bash
 make -j8
-```
-
-Le binaire produit est :
-
-```text
-./labfy-investigation
-```
-
-Lancer l’application :
-
-```bash
+make test
 make run
 ```
 
-Nettoyer les fichiers générés :
+La démonstration cœur/Web synthétique se lance séparément :
 
 ```bash
-make clean
+make -j8 core-graph-demo
+make -j8 eml-graph-demo
+make -j8 local-toolkit-demo
+cd prototypes/web-graph
+python3 run_core_demo.py --port 8765
+# ou : python3 run_eml_demo.py --port 8765
+# ou : python3 run_local_toolkit_demo.py --port 8765
 ```
 
-Le projet est compilé en C17 avec les avertissements traités comme des erreurs.
+Le projet exige C17, GTK4, GLib/GIO, SQLite, libheif et Poppler GLib. Plusieurs
+outils d'analyse sont optionnels et ne sont jamais installés automatiquement.
 
-L’assistant de création d’une personne suit sept étapes distinctes :
-`Personne`, `Rôles`, `Preuves`, `OCR identité`, `Projection OCR`,
-`Relations factuelles`, puis `Confirmation`. La révision OCR conserve les
-valeurs brute, normalisée, corrigée et confirmée avant toute projection. La
-projection et les relations sont facultatives, vides par défaut et résumées
-séparément avant l’unique écriture transactionnelle finale.
+## Documentation
 
-Le schéma SQLite courant est la V20. Une création neuve installe directement
-les extensions V19 et V20 ; une base V19 utilise `database/schema_v20.sql`.
-La fiche de preuve sépare l’authenticité de l’évaluation humaine de l’usage
-d’identité, dont l’historique est append-only et jamais produit par l’OCR.
+- [Index documentaire](docs/README.md)
+- [Architecture actuelle et cible](docs/ARCHITECTURE.md)
+- [Contrat du graphe](docs/architecture/INVESTIGATION_GRAPH.md)
+- [Projection cœur → Web en lecture seule](docs/architecture/CORE_GRAPH_READONLY.md)
+- [Décisions architecturales](docs/architecture/decisions/0001-web-local-first.md)
+- [Toolkit et statuts d'intégration](docs/osint/TOOLKIT.md)
+- [Toolkit local et runner borné J4](docs/architecture/LOCAL_TOOLKIT_RUNNER.md)
+- [Design system cible](docs/ui/DESIGN_SYSTEM.md)
+- [Sécurité, scope et secrets](docs/security/SECURITY_MODEL.md)
+- [Roadmap canonique](docs/ROADMAP.md)
+- [Backlog préparé](docs/BACKLOG.md)
+- [Architecture de la base](docs/database/DATABASE_ARCHITECTURE.md)
+- [Audit du schéma courant](docs/database/SCHEMA_AUDIT_CURRENT.md)
+- [Dépendances](docs/DEPENDENCE.md)
+- [Développement](docs/DEVELOPMENT.md)
+- [Conventions](docs/CONVENTIONS.md)
+- [Changelog](CHANGELOG.md)
+- [Source SVG éditable de la bannière](resources/images/labfy-investigation-banner.svg)
 
----
+## Sécurité et usage responsable
 
-## Tests
+Labfy est destiné aux sources légalement accessibles, aux données remises
+légalement et aux actions explicitement autorisées. Le projet n'automatise pas
+l'intrusion, le contournement d'authentification, l'exploitation de
+vulnérabilités, le phishing ou l'accès non autorisé à des données privées.
 
-Lancer tous les tests :
-
-```bash
-make -j8 test
-```
-
-Vérifications recommandées avant chaque commit :
-
-```bash
-make clean
-make -j8
-make check-source-size
-DISPLAY="$DISPLAY" WAYLAND_DISPLAY="$WAYLAND_DISPLAY" make -j8 test
-git diff --check
-```
-
-Les nouveaux modules doivent être accompagnés de tests couvrant :
-
-- les arguments invalides ;
-- le fonctionnement nominal ;
-- les erreurs ;
-- l’annulation lorsque nécessaire ;
-- les responsabilités mémoire ;
-- les régressions possibles.
-
-Les parcours GTK OCR et aperçu doivent aussi être exécutés séparément sur un
-poste avec affichage :
-
-```bash
-G_DEBUG=fatal-criticals timeout 30s ./tests/test_create_person_dialog_ocr_gtk
-G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_identity_import_gtk
-G_DEBUG=fatal-criticals timeout 30s ./tests/test_workspace_identity_ocr_gtk
-G_DEBUG=fatal-criticals timeout 30s ./tests/test_evidence_preview_widget_gtk
-G_DEBUG=fatal-criticals timeout 30s ./tests/test_dialog_geometry_gtk
-G_DEBUG=fatal-criticals timeout 30s ./tests/test_person_factual_relation_editor_gtk
-G_DEBUG=fatal-criticals timeout 30s ./tests/test_document_authenticity_editor_gtk
-G_DEBUG=fatal-criticals timeout 30s ./tests/test_person_ocr_projection_editor_gtk
-```
-
-Les tests emploient uniquement des documents `SPECIMEN`, des fichiers
-temporaires et des bases SQLite temporaires fermées puis rouvertes. Un `SKIP`
-lié à l’absence d’affichage ne remplace pas cette validation GTK réelle.
-
----
-
-## Développement
-
-Conventions essentielles :
-
-- C17 uniquement ;
-- fichiers et fonctions en `snake_case` ;
-- fonctions préfixées par leur module ;
-- noms de variables explicites ;
-- aucune logique métier dans les widgets ;
-- aucun commit tant que la fonctionnalité ne compile pas et ne fonctionne pas ;
-- compilation sans avertissement ;
-- tests valides avant intégration.
-
-Exemples de préfixes :
-
-```text
-database_*
-investigation_*
-task_manager_*
-tool_registry_*
-tool_process_*
-tool_catalog_*
-```
-
----
-
-## Outils OSINT externes
-
-Le ticket historique **#42** reste ouvert comme inventaire évolutif des outils OSINT potentiels.
-
-Les outils ne sont pas intégrés en masse. Lorsqu’un besoin concret apparaît :
-
-1. un ticket Forgejo dédié est créé ;
-2. l’outil est audité techniquement et juridiquement ;
-3. sa compatibilité Ubuntu et Arch est vérifiée ;
-4. son adaptateur est développé ;
-5. ses sorties brutes et normalisées sont testées ;
-6. son état est mis à jour dans l’inventaire.
-
-Aucun outil absent n’est installé automatiquement par l’application.
-
----
-
-## Suivi du projet
-
-Les tickets sont désormais suivis directement dans Forgejo :
-
-```text
-https://git.labfytools.com/fy59/labfy-investigation/issues
-```
-
-Les tickets historiques jusqu’au numéro 40 conservent leur numérotation. Les nouveaux tickets utilisent uniquement le numéro attribué automatiquement par Forgejo.
-
-Le prochain chantier porte sur l’initialisation asynchrone du registre et des versions d’outils au démarrage.
-
----
-
-## État du packaging
-
-Le packaging n’est pas encore finalisé.
-
-Les cibles prévues sont :
-
-- paquet `.deb` pour Ubuntu ;
-- dossier source accompagné d’un script de compilation ;
-- procédure de développement et de test pour Arch Linux.
-
-Le futur installateur Ubuntu devra fonctionner autant que possible sans dépendre de dépôts non standards.
-
----
+L'architecture cible distingue `PASSIVE`, `PUBLIC_ACTIVE`,
+`AUTHORIZED_INTRUSIVE` et `PROHIBITED`, ainsi que les effets `READ_ONLY`,
+`STATE_CHANGING`, `DESTRUCTIVE`, `PERSISTENCE`, `CREDENTIAL_ACCESS` et
+`DATA_EXTRACTION`. Les capacités intrusives ne font pas partie de v0.1.0 et
+nécessiteraient un scope et une autorisation explicites.
 
 ## Contribution
 
-Avant toute modification :
+Avant une contribution :
 
-1. consulter les tickets ouverts ;
-2. lire l’architecture et les conventions ;
-3. limiter chaque changement à un objectif cohérent ;
+1. consulter les tickets Forgejo ;
+2. lire [AGENTS.md](AGENTS.md), l'architecture et les conventions ;
+3. limiter la modification à un objectif cohérent ;
 4. ajouter ou adapter les tests ;
-5. vérifier la compilation complète ;
+5. exécuter la validation complète ;
 6. documenter toute dérogation architecturale.
-
----
 
 ## Licence
 
-Labfy Investigation est distribué sous licence MIT.
+Labfy Investigation est distribué sous licence MIT. Voir [LICENSE](LICENSE).
+# J8 local : planner assisté
 
-Voir le fichier `LICENSE` pour les conditions complètes.
+Le parcours synthétique de recommandations, plans persistants et budgets se
+lance avec `make web-workspace-j8 WORKSPACE=/tmp/labfy-j8-specimen`. Voir
+[`docs/architecture/LOCAL_PLANNER_ASSISTED.md`](docs/architecture/LOCAL_PLANNER_ASSISTED.md).
+
+# J9 local : preuves, chronologie et rapport
+
+Le poste Web propose désormais les projections Preuves, Chronologie et
+Infrastructure locale, une sélection minimisée et un dossier HTML/JSON/PDF
+vérifiable hors ligne. Le parcours synthétique se lance avec
+`make web-workspace-j9 WORKSPACE=/tmp/labfy-j9-specimen`. Voir
+[`docs/architecture/EVIDENCE_TIMELINE_REPORT.md`](docs/architecture/EVIDENCE_TIMELINE_REPORT.md).
+Le PDF Unicode, la minimisation par section, le vérificateur hostile et la
+reprise d’intention sont couverts par la matrice d’intégrité J9 locale.
+
+# Espace local vide et import navigateur
+
+Le parcours `CURRENT` sans corpus préinséré se lance sur une destination
+explicitement autorisée :
+
+```sh
+make web-workspace-local WORKSPACE=/tmp/labfy-local-workspace
+```
+
+Après saisie du code éphémère, créer l’enquête puis utiliser **Ajouter des
+preuves** pour sélectionner des EML, PNG ou JPEG (4 Mio par fichier). La
+réception, la confirmation, le planner, les analyses, le graphe et les rapports
+restent séparés. La réouverture reprend le même UUID sans exemple ni duplication.
+Les plafonds de sélection, staging et concurrence sont réservés côté serveur ;
+un rejeu ne réussit qu’après revalidation du record et de l’original publié.
+Voir [le contrat d’import local](docs/architecture/LOCAL_WORKSPACE_IMPORT.md).
+
+Pour le contrôle ciblé de cette tranche, utiliser uniquement un workspace
+temporaire `SPECIMEN` et la cible `make web-workspace-review-check`. Cette
+cible ne constitue ni une certification de sécurité ou de production, ni une
+validation de sanitizers ou un résultat canonique pour un navigateur donné.

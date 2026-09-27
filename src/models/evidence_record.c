@@ -300,129 +300,39 @@ static void evidence_record_sha256_to_lowercase(
 }
 
 /**
- * @brief Lit un nombre décimal à une position déterminée.
- */
-static gboolean evidence_record_parse_decimal(
-    const char *text,
-    gsize offset,
-    gsize length,
-    gint *out_value
-)
-{
-    gsize character_index = 0;
-    gint value = 0;
-
-    if (text == NULL ||
-        out_value == NULL ||
-        length == 0)
-    {
-        return FALSE;
-    }
-
-    for (character_index = 0;
-         character_index < length;
-         character_index++)
-    {
-        char character =
-            text[offset + character_index];
-
-        if (!g_ascii_isdigit(
-                character
-            ))
-        {
-            return FALSE;
-        }
-
-        value =
-            (value * 10) +
-            (character - '0');
-    }
-
-    *out_value = value;
-
-    return TRUE;
-}
-
-/**
- * @brief Vérifie une date UTC au format YYYY-MM-DDTHH:MM:SSZ.
+ * @brief Vérifie une date ISO 8601 à la minute ou à la seconde avec fuseau.
  */
 static gboolean evidence_record_utc_date_is_valid(
     const char *date_text
 )
 {
     GDateTime *date_time = NULL;
+    char *normalized = NULL;
+    gsize length = date_text != NULL ? strlen(date_text) : 0U;
+    gboolean utc = length > 0U && date_text[length - 1U] == 'Z';
+    gboolean offset = length >= 6U &&
+        (date_text[length - 6U] == '+' || date_text[length - 6U] == '-') &&
+        date_text[length - 3U] == ':';
+    const char *zone = utc ? date_text + length - 1U :
+        (offset ? date_text + length - 6U : NULL);
 
-    gint year = 0;
-    gint month = 0;
-    gint day = 0;
-    gint hour = 0;
-    gint minute = 0;
-    gint second = 0;
+    if (zone == NULL || length < 17U || date_text[4] != '-' ||
+        date_text[7] != '-' || date_text[10] != 'T' ||
+        date_text[13] != ':') return FALSE;
 
-    if (date_text == NULL ||
-        strlen(date_text) != 20)
-    {
+    gsize clock_length = (gsize)(zone - date_text - 11);
+    if (clock_length == 5U) {
+        /* INVARIANT: normaliser pour GLib ne modifie pas la précision
+         * persistée ; la chaîne d'origine reste conservée byte pour byte. */
+        normalized = g_strdup_printf("%.*s:00%s", (int)(zone - date_text),
+                                     date_text, zone);
+    } else if (clock_length == 8U && date_text[16] == ':') {
+        normalized = g_strdup(date_text);
+    } else {
         return FALSE;
     }
-
-    if (date_text[4] != '-' ||
-        date_text[7] != '-' ||
-        date_text[10] != 'T' ||
-        date_text[13] != ':' ||
-        date_text[16] != ':' ||
-        date_text[19] != 'Z')
-    {
-        return FALSE;
-    }
-
-    if (!evidence_record_parse_decimal(
-            date_text,
-            0,
-            4,
-            &year
-        ) ||
-        !evidence_record_parse_decimal(
-            date_text,
-            5,
-            2,
-            &month
-        ) ||
-        !evidence_record_parse_decimal(
-            date_text,
-            8,
-            2,
-            &day
-        ) ||
-        !evidence_record_parse_decimal(
-            date_text,
-            11,
-            2,
-            &hour
-        ) ||
-        !evidence_record_parse_decimal(
-            date_text,
-            14,
-            2,
-            &minute
-        ) ||
-        !evidence_record_parse_decimal(
-            date_text,
-            17,
-            2,
-            &second
-        ))
-    {
-        return FALSE;
-    }
-
-    date_time = g_date_time_new_utc(
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second
-    );
+    date_time = g_date_time_new_from_iso8601(normalized, NULL);
+    g_free(normalized);
 
     if (date_time == NULL)
     {

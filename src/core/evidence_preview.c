@@ -16,6 +16,10 @@ typedef enum {
 } PreviewFormat;
 typedef struct { struct jpeg_error_mgr base; jmp_buf jump; } PreviewJpegError;
 
+/* CONTRACT: PDF rendering is bounded independently from image decoding. This
+ * prevents Poppler from opening a large imported document for a UI preview. */
+#define EVIDENCE_PREVIEW_MAX_PDF_BYTES (8U * 1024U * 1024U)
+
 static GQuark preview_error(void)
 { return g_quark_from_static_string("evidence-preview-error"); }
 static void jpeg_failed(j_common_ptr info)
@@ -26,6 +30,22 @@ static cairo_status_t write_png(void *closure, const unsigned char *data,
 static gboolean cancelled(GCancellable *cancellable, GError **error)
 { return cancellable != NULL &&
     g_cancellable_set_error_if_cancelled(cancellable, error); }
+static gboolean relative_path_is_controlled(const char *path)
+{
+    if (path == NULL || *path == '\0' || g_path_is_absolute(path))
+        return FALSE;
+    char **parts = g_strsplit(path, G_DIR_SEPARATOR_S, -1);
+    gboolean controlled = TRUE;
+    for (guint i = 0; parts[i] != NULL; i++) {
+        if (*parts[i] == '\0' || g_str_equal(parts[i], ".") ||
+            g_str_equal(parts[i], "..")) {
+            controlled = FALSE;
+            break;
+        }
+    }
+    g_strfreev(parts);
+    return controlled;
+}
 static gboolean brand_is(const guint8 *data, gsize size, const char *brand)
 {
     if (size < 12 || memcmp(data + 4, "ftyp", 4) != 0) return FALSE;
@@ -164,7 +184,7 @@ static gint jpeg_exif_orientation(const char*path)
       const guint8*entry=t+offset+2+i*12;
       if(read_u16(entry,little)==0x0112){
        guint16 value=read_u16(entry+8,little);
-       if(value==1||value==3||value==6||value==8)orientation=value;
+       if(value>=1&&value<=8)orientation=value;
       }}}
    }break;
   }p+=2+length;
@@ -174,13 +194,23 @@ static cairo_surface_t *orient_surface(cairo_surface_t*source,gint orientation,
  gint width,gint height,gint*out_width,gint*out_height)
 {
  if(orientation==1){*out_width=width;*out_height=height;return source;}
- gboolean quarter=orientation==6||orientation==8;
+ gboolean quarter=orientation>=5&&orientation<=8;
  *out_width=quarter?height:width;*out_height=quarter?width:height;
  cairo_surface_t*out=cairo_image_surface_create(CAIRO_FORMAT_RGB24,
   *out_width,*out_height);cairo_t*cr=cairo_create(out);
- if(orientation==3){cairo_translate(cr,width,height);cairo_rotate(cr,G_PI);}
- else if(orientation==6){cairo_translate(cr,height,0);cairo_rotate(cr,G_PI_2);}
- else if(orientation==8){cairo_translate(cr,0,width);cairo_rotate(cr,-G_PI_2);}
+ cairo_matrix_t transform;
+ /* CONTRACT: the preview applies every TIFF/EXIF orientation, including the
+  * mirrored variants; callers always receive display-oriented dimensions. */
+ switch(orientation){
+ case 2:cairo_matrix_init(&transform,-1,0,0,1,width,0);break;
+ case 3:cairo_matrix_init(&transform,-1,0,0,-1,width,height);break;
+ case 4:cairo_matrix_init(&transform,1,0,0,-1,0,height);break;
+ case 5:cairo_matrix_init(&transform,0,1,1,0,0,0);break;
+ case 6:cairo_matrix_init(&transform,0,1,-1,0,height,0);break;
+ case 7:cairo_matrix_init(&transform,0,-1,-1,0,height,width);break;
+ default:cairo_matrix_init(&transform,0,-1,1,0,0,width);break;
+ }
+ cairo_transform(cr,&transform);
  cairo_set_source_surface(cr,source,0,0);cairo_paint(cr);cairo_destroy(cr);
  cairo_surface_destroy(source);return out;
 }
@@ -191,9 +221,25 @@ gboolean evidence_preview_dimensions_are_safe(gint width, gint height)
         height <= EVIDENCE_PREVIEW_MAX_DIMENSION &&
         (guint64) width * (guint64) height <= EVIDENCE_PREVIEW_MAX_PIXELS;
 }
-static gboolean load_png(const char *path, EvidencePreviewResult *result,
-    GError **error)
+static gboolean load_png(const char *path, const guint8 *header,
+    gsize header_size, EvidencePreviewResult *result, GError **error)
 {
+    /* WHY: Cairo allocates the decoded surface before dimensions can be read.
+     * Validate IHDR first so hostile dimensions cannot trigger that allocation. */
+    if (header_size < 24 || memcmp(header + 12, "IHDR", 4) != 0) {
+        g_set_error_literal(error, preview_error(), 4,
+            "Le fichier PNG est tronqué ou corrompu.");
+        return FALSE;
+    }
+    guint32 header_width = ((guint32) header[16] << 24) |
+        ((guint32) header[17] << 16) | ((guint32) header[18] << 8) |
+        header[19];
+    guint32 header_height = ((guint32) header[20] << 24) |
+        ((guint32) header[21] << 16) | ((guint32) header[22] << 8) |
+        header[23];
+    if (header_width > G_MAXINT || header_height > G_MAXINT ||
+        !valid_dimensions((gint) header_width, (gint) header_height, error))
+        return FALSE;
     cairo_surface_t *surface = cairo_image_surface_create_from_png(path);
     gint width = cairo_image_surface_get_width(surface);
     gint height = cairo_image_surface_get_height(surface);
@@ -300,12 +346,15 @@ failed:
     heif_context_free(context); return FALSE;
 }
 static gboolean load_pdf(const char *path, guint requested_page,
-    EvidencePreviewResult *result, GError **error)
+    EvidencePreviewResult *result, GCancellable *cancellable, GError **error)
 {
+    if (cancelled(cancellable, error)) return FALSE;
     char *uri = g_filename_to_uri(path, NULL, error);
     if (uri == NULL) return FALSE;
+    if (cancelled(cancellable, error)) { g_free(uri); return FALSE; }
     PopplerDocument *document = poppler_document_new_from_file(uri, NULL, error);
     g_free(uri); if (document == NULL) return FALSE;
+    if (cancelled(cancellable, error)) { g_object_unref(document); return FALSE; }
     gint pages = poppler_document_get_n_pages(document);
     if (pages < 1) { g_object_unref(document); g_set_error_literal(error,
         preview_error(), 7, "Le PDF ne contient aucune page."); return FALSE; }
@@ -316,6 +365,7 @@ static gboolean load_pdf(const char *path, guint requested_page,
             requested_page + 1U, pages);
         return FALSE;
     }
+    if (cancelled(cancellable, error)) { g_object_unref(document); return FALSE; }
     PopplerPage *page = poppler_document_get_page(
         document, (gint) requested_page);
     if (page == NULL) {
@@ -323,6 +373,9 @@ static gboolean load_pdf(const char *path, guint requested_page,
         g_set_error_literal(error, preview_error(), 7,
             "La page PDF demandée est indisponible.");
         return FALSE;
+    }
+    if (cancelled(cancellable, error)) {
+        g_object_unref(page); g_object_unref(document); return FALSE;
     }
     double page_width = 0, page_height = 0;
     poppler_page_get_size(page, &page_width, &page_height);
@@ -336,8 +389,17 @@ static gboolean load_pdf(const char *path, guint requested_page,
     cairo_surface_t *surface = cairo_image_surface_create(
         CAIRO_FORMAT_ARGB32, width, height);
     cairo_t *cr = cairo_create(surface); cairo_set_source_rgb(cr, 1, 1, 1);
+    if (cancelled(cancellable, error)) {
+        cairo_destroy(cr); cairo_surface_destroy(surface);
+        g_object_unref(page); g_object_unref(document); return FALSE;
+    }
     cairo_paint(cr); cairo_scale(cr, scale, scale); poppler_page_render(page, cr);
-    cairo_destroy(cr); result->item_count = (guint) pages;
+    cairo_destroy(cr);
+    if (cancelled(cancellable, error)) {
+        cairo_surface_destroy(surface); g_object_unref(page);
+        g_object_unref(document); return FALSE;
+    }
+    result->item_count = (guint) pages;
     result->current_page = requested_page + 1U;
     gboolean ok = surface_to_result(surface, width, height, result, error);
     cairo_surface_destroy(surface); g_object_unref(page);
@@ -351,11 +413,12 @@ static char *header_line(EmlAnalysis *analysis, const char *name,
         value != NULL ? value : "Non renseigné");
 }
 static gboolean load_email(const char *path, const guint8 *data, gsize size,
-    EvidencePreviewResult *result, GError **error)
+    EvidencePreviewResult *result, GCancellable *cancellable, GError **error)
 {
+    if (cancelled(cancellable, error)) return FALSE;
     EmlAnalysis *analysis = eml_analyzer_analyze_file(path, error);
     if (analysis == NULL) return FALSE;
-    EmlMimeResult *mime = eml_mime_build_preview(path, NULL, error);
+    EmlMimeResult *mime = eml_mime_build_preview(path, cancellable, error);
     if (mime == NULL) { eml_analysis_free(analysis); return FALSE; }
     GString *text = g_string_new("APERÇU EML — contenu passif\n\n");
     static const struct { const char *name; const char *label; } headers[] = {
@@ -392,6 +455,15 @@ static gboolean load_email(const char *path, const guint8 *data, gsize size,
     }
     result->item_count = mime->attachments->len;
     result->truncated = mime->body_truncated;
+    /* INVARIANT: UI text is bounded independently of parser output. Keep the
+     * byte boundary valid UTF-8 before handing ownership to the result. */
+    if (text->len > EVIDENCE_PREVIEW_MAX_TEXT_BYTES) {
+        gsize end = EVIDENCE_PREVIEW_MAX_TEXT_BYTES;
+        while (end > 0 && (((guint8) text->str[end]) & 0xc0U) == 0x80U)
+            end--;
+        g_string_truncate(text, end);
+        result->truncated = TRUE;
+    }
     result->text = g_string_free(text, FALSE);
     result->preview_available = TRUE;
     eml_mime_result_free(mime); eml_analysis_free(analysis); return TRUE;
@@ -402,7 +474,8 @@ EvidencePreviewRequest *evidence_preview_request_new(const char *root,
     const char *mime_type, guint64 generation)
 {
     if (root == NULL || !g_uuid_string_is_valid(identifier) ||
-        relative_path == NULL || sha256 == NULL) return NULL;
+        !relative_path_is_controlled(relative_path) || sha256 == NULL)
+        return NULL;
     EvidencePreviewRequest *request = g_new0(EvidencePreviewRequest, 1);
     request->investigation_root_path = g_strdup(root);
     request->evidence_identifier = g_strdup(identifier);
@@ -442,7 +515,9 @@ EvidencePreviewResult *evidence_preview_load(
     const EvidencePreviewRequest *request, GCancellable *cancellable,
     GError **error)
 {
-    if (request == NULL) { g_set_error_literal(error, preview_error(), 1,
+    if (request == NULL ||
+        !relative_path_is_controlled(request->relative_path)) {
+        g_set_error_literal(error, preview_error(), 1,
         "Aperçu indisponible."); return NULL; }
     EvidenceIntegrityVerificationResult *verification =
         evidence_integrity_verifier_verify(request->investigation_root_path,
@@ -470,6 +545,7 @@ EvidencePreviewResult *evidence_preview_load(
     data[read_size] = '\0'; g_object_unref(stream); stream = NULL;
     PreviewFormat format = detect_format(data, read_size, path,
         request->mime_type);
+    if (cancelled(cancellable, error)) goto failed;
     if ((format == FORMAT_PNG || format == FORMAT_JPEG ||
          format == FORMAT_HEIF || format == FORMAT_HEIC) &&
         size > EVIDENCE_PREVIEW_MAX_FILE_BYTES) {
@@ -478,13 +554,19 @@ EvidencePreviewResult *evidence_preview_load(
             "Fichier importable, mais aperçu désactivé en raison de sa taille.");
         goto done;
     }
+    if (format == FORMAT_PDF && size > EVIDENCE_PREVIEW_MAX_PDF_BYTES) {
+        g_set_error(error, preview_error(), 9,
+            "Aperçu PDF refusé : le document dépasse la limite de %u Mio.",
+            EVIDENCE_PREVIEW_MAX_PDF_BYTES / (1024U * 1024U));
+        goto failed;
+    }
     gboolean ok = TRUE;
     switch (format) {
     case FORMAT_PNG:
         result->kind = EVIDENCE_PREVIEW_KIND_IMAGE;
         result->effective_mime_type = g_strdup("image/png");
         result->effective_format = g_strdup("PNG");
-        ok = load_png(path, result, error); break;
+        ok = load_png(path, data, read_size, result, error); break;
     case FORMAT_JPEG:
         result->kind = EVIDENCE_PREVIEW_KIND_IMAGE;
         result->effective_mime_type = g_strdup("image/jpeg");
@@ -517,18 +599,44 @@ EvidencePreviewResult *evidence_preview_load(
         result->kind = EVIDENCE_PREVIEW_KIND_EMAIL;
         result->effective_mime_type = g_strdup("message/rfc822");
         result->effective_format = g_strdup("EML");
-        ok = load_email(path, data, read_size, result, error); break;
+        if (size > EVIDENCE_PREVIEW_MAX_TEXT_BYTES) {
+            result->message = g_strdup("E-mail importé, mais aperçu désactivé "
+                "car son contenu dépasse la limite sûre.");
+            result->truncated = TRUE;
+            break;
+        }
+        ok = load_email(path, data, read_size, result, cancellable, error);
+        break;
     case FORMAT_PDF:
         result->kind = EVIDENCE_PREVIEW_KIND_PDF;
         result->effective_mime_type = g_strdup("application/pdf");
         result->effective_format = g_strdup("PDF");
-        ok = load_pdf(path, request->pdf_page, result, error); break;
+        ok = load_pdf(path, request->pdf_page, result, cancellable, error); break;
     default:
         result->message = g_strdup("Format non pris en charge ou contenu invalide.");
         result->effective_format = g_strdup("Inconnu"); break;
     }
-    if (!ok) goto failed;
+    if (!ok || cancelled(cancellable, error)) goto failed;
 done:
+{
+    /* CONTRACT: bytes decoded above must still be the imported evidence at
+     * publication time. A second verification closes the ordinary mutation
+     * window and prevents a stale/altered preview from being returned. */
+    EvidenceIntegrityVerificationResult *final_verification =
+        evidence_integrity_verifier_verify(request->investigation_root_path,
+            request->relative_path, request->expected_sha256,
+            cancellable, error);
+    if (final_verification == NULL) goto failed;
+    gboolean still_valid =
+        evidence_integrity_verification_result_get_status(final_verification) ==
+        EVIDENCE_INTEGRITY_STATUS_VALID;
+    evidence_integrity_verification_result_free(final_verification);
+    if (!still_valid) {
+        g_set_error_literal(error, preview_error(), 2,
+            "Aperçu refusé : la preuve a changé pendant sa lecture.");
+        goto failed;
+    }
+}
     g_free(data); g_object_unref(file); g_free(path);
     evidence_integrity_verification_result_free(verification); return result;
 failed:

@@ -64,6 +64,16 @@ typedef struct
     const char *relative_directory;
     const char *type_identifier;
 
+    /**
+     * UUID et nom réservés par une intention durable, ou NULL pour conserver
+     * le comportement historique. Les chaînes sont empruntées.
+     *
+     * CONTRACT: un UUID fourni est utilisé tel quel et n'est jamais remplacé.
+     * Le nom original reste une métadonnée et ne participe pas au chemin.
+     */
+    const char *reserved_identifier;
+    const char *original_name;
+
     const char *collected_at;
     const char *source;
     const char *description;

@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "database/schema.h"
+#include "database/transaction.h"
 
 #include "database_internal.h"
 #include "core/relation_type_normalizer.h"
@@ -443,6 +444,42 @@ bool schema_install_v20(Database *database)
 {
     return schema_execute_file(database, "database/schema_v20.sql",
         "la migration SQLite V20");
+}
+
+bool schema_install_v21_direct(Database *database)
+{
+    sqlite3 *handle = database_get_handle(database);
+    sqlite3_stmt *statement = NULL;
+    gboolean empty = FALSE;
+    if (handle == NULL || database_transaction_is_active(database)) return false;
+    if (sqlite3_prepare_v2(handle,
+            "SELECT 1 FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' LIMIT 1;",
+            -1, &statement, NULL) != SQLITE_OK) return false;
+    empty = sqlite3_step(statement) == SQLITE_DONE;
+    sqlite3_finalize(statement);
+    if (!empty) {
+        database_set_error(database, DATABASE_ERROR_INVALID_STATE,
+            "L’installation directe V21 exige une base vide.");
+        return false;
+    }
+    if (!database_transaction_begin(database)) return false;
+    if (!schema_execute_file(database, "database/schema_v21.sql",
+            "le schéma SQLite autonome V21")) {
+        database_transaction_rollback(database); return false;
+    }
+    statement = NULL;
+    if (sqlite3_prepare_v2(handle, "PRAGMA foreign_key_check;", -1,
+            &statement, NULL) != SQLITE_OK || sqlite3_step(statement) != SQLITE_DONE) {
+        sqlite3_finalize(statement); database_transaction_rollback(database);
+        return false;
+    }
+    sqlite3_finalize(statement);
+    if (sqlite3_exec(handle, "PRAGMA foreign_keys=ON;", NULL, NULL, NULL) != SQLITE_OK ||
+        !database_transaction_commit(database)) {
+        if (database_transaction_is_active(database)) database_transaction_rollback(database);
+        return false;
+    }
+    return true;
 }
 
 bool schema_ensure_current(

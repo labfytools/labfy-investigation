@@ -2639,6 +2639,37 @@ static void test_evidence_importer_cleanup_failure_reports_orphan(void)
     );
 }
 
+static void test_evidence_importer_reserved_identity_and_original_name(void)
+{
+    TestEvidenceImporterFixture fixture = test_evidence_importer_fixture_create();
+    GError *error = NULL;
+    char *source_path = g_build_filename(fixture.source_directory,
+                                         "transport-name.bin", NULL);
+    const char bytes[] = "Contenu SPECIMEN réservé\n";
+    assert(g_file_set_contents(source_path, bytes, sizeof(bytes) - 1, &error));
+    assert(error == NULL);
+    EvidenceImportRequest request = {
+        .source_path = source_path,
+        .destination_directory = fixture.destination_directory,
+        .relative_directory = TEST_EVIDENCE_RELATIVE_DIRECTORY,
+        .type_identifier = "document",
+        .reserved_identifier = "12345678-1234-4234-8234-123456789abc",
+        .original_name = "Nom original Ω.pdf"
+    };
+    EvidenceRecord *record = evidence_importer_import(
+        fixture.evidence_importer, &request, NULL, &error);
+    assert(error == NULL); assert(record != NULL);
+    assert(strcmp(evidence_record_get_identifier(record),
+                  request.reserved_identifier) == 0);
+    assert(strcmp(evidence_record_get_original_name(record),
+                  request.original_name) == 0);
+    char *stored = g_build_filename(fixture.root_directory,
+        evidence_record_get_relative_path(record), NULL);
+    assert(g_remove(stored) == 0); assert(g_remove(source_path) == 0);
+    g_free(stored); g_free(source_path); evidence_record_free(record);
+    test_evidence_importer_fixture_clear(&fixture);
+}
+
 int main(void)
 {
     test_evidence_importer_new_null_database();
@@ -2656,6 +2687,7 @@ int main(void)
     test_evidence_importer_cancelled_after_copy_cleanup();
     test_evidence_importer_commit_failure_cleanup();
     test_evidence_importer_cleanup_failure_reports_orphan();
+    test_evidence_importer_reserved_identity_and_original_name();
 
     printf(
         "EvidenceImporter : premiers tests transactionnels valides.\n"

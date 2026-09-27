@@ -6,7 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <poll.h>
+#include <signal.h>
+#include <sys/types.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 static int has_argument(int argc, char **argv, const char *value)
 {
@@ -37,6 +40,13 @@ static long argument_long(
     return fallback;
 }
 
+static const char *argument_value(int argc, char **argv, const char *name)
+{
+    for (int index = 1; index + 1 < argc; index++)
+        if (strcmp(argv[index], name) == 0) return argv[index + 1];
+    return NULL;
+}
+
 static void write_repeated(FILE *stream, char value, long count)
 {
     char block[1024];
@@ -54,6 +64,48 @@ static void write_repeated(FILE *stream, char value, long count)
 
 int main(int argc, char **argv)
 {
+    if (has_argument(argc, argv, "--inspect-runner"))
+    {
+        int inherited_fd = (int) argument_long(argc, argv, "--fd", -1);
+        char byte = 0;
+        int readable = inherited_fd >= 0 && read(inherited_fd, &byte, 1) == 1;
+        int stdout_flags = fcntl(STDOUT_FILENO, F_GETFL);
+        int stderr_flags = fcntl(STDERR_FILENO, F_GETFL);
+        printf("inherited=%d stdout_nonblocking=%d stderr_nonblocking=%d\n",
+            readable, (stdout_flags & O_NONBLOCK) != 0,
+            (stderr_flags & O_NONBLOCK) != 0);
+        return 0;
+    }
+    if (has_argument(argc, argv, "--binary"))
+    {
+        const unsigned char value[] = {'A', 0, 0xff, 'B'};
+        return fwrite(value, 1, sizeof(value), stdout) == sizeof(value) ? 0 : 3;
+    }
+    if (has_argument(argc, argv, "--signal"))
+    {
+        raise(SIGUSR1);
+        return 4;
+    }
+    if (has_argument(argc, argv, "--sleep"))
+    {
+        const char *started = argument_value(argc, argv, "--started-file");
+        if (started != NULL) {
+            FILE *marker = fopen(started, "wb");
+            if (marker == NULL) return 8;
+            fputs("started\n", marker); fclose(marker);
+        }
+        if (has_argument(argc, argv, "--ignore-term")) signal(SIGTERM, SIG_IGN);
+        sleep(10);
+        return 0;
+    }
+    if (has_argument(argc, argv, "--descendant-pipe"))
+    {
+        pid_t child = fork();
+        if (child < 0) return 5;
+        if (child == 0) { sleep(10); _exit(0); }
+        puts("parent-finished");
+        return 0;
+    }
     if (has_argument(argc, argv, "--list-langs"))
     {
         puts("List of available languages in synthetic fixture (2):");

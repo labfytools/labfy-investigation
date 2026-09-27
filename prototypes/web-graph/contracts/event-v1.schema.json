@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "labfy://prototype/web-graph/event-v1",
+  "title": "Labfy Web Graph experimental event v1",
+  "type": "object",
+  "required": [
+    "contract",
+    "id",
+    "base_revision",
+    "revision",
+    "kind",
+    "node_id",
+    "changes",
+    "message"
+  ],
+  "properties": {
+    "contract": { "const": "labfy.web_graph.event.v1" },
+    "id": { "type": "string", "pattern": "^[0-9]+$" },
+    "base_revision": { "type": "integer", "minimum": 1 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "kind": { "enum": ["node_patch", "resync_required", "scenario_end"] },
+    "node_id": { "type": ["string", "null"] },
+    "changes": {
+      "type": "object",
+      "properties": {
+        "label": { "type": "string" },
+        "state": { "type": "string" },
+        "raw": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "message": { "type": "string" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "node_patch" } } },
+      "then": {
+        "properties": {
+          "node_id": { "type": "string" },
+          "changes": { "minProperties": 1 }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

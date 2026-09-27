@@ -43,6 +43,26 @@ static void test_invalid_json(void)
     g_clear_error(&error);
 }
 
+static void test_structural_values_and_cardinality(void)
+{
+    const char *json = "[{\"XMP:Creator\":[\"Élodie\",\"Noé\"],"
+        "\"XMP:Nullable\":null,\"XMP:Markup\":\"<b>inerte</b>\"}]";
+    GError *error = NULL;
+    ExiftoolAnalysisResult *result = exiftool_analysis_parse(
+        "SPECIMEN.png", json, "", 0, &error);
+    g_assert_no_error(error); g_assert_nonnull(result);
+    g_assert_cmpuint(result->metadata->len, ==, 3U);
+    DocumentMetadataEntry *array = g_ptr_array_index(result->metadata, 0U);
+    DocumentMetadataEntry *null_value = g_ptr_array_index(result->metadata, 1U);
+    g_assert_cmpstr(array->raw_value, ==, "[\"Élodie\",\"Noé\"]");
+    g_assert_cmpstr(null_value->raw_value, ==, "null");
+    exiftool_analysis_result_free(result);
+    g_assert_null(exiftool_analysis_parse("SPECIMEN.png", "[]", "", 0, &error));
+    g_assert_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA); g_clear_error(&error);
+    g_assert_null(exiftool_analysis_parse("SPECIMEN.png", "[{},{}]", "", 0, &error));
+    g_assert_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA); g_clear_error(&error);
+}
+
 static void test_run_and_unavailable(void)
 {
     GError *error = NULL;
@@ -122,6 +142,8 @@ int main(int argc, char **argv)
     g_test_add_func("/exiftool-analysis/parse-gps",
         test_parse_and_sensitive_gps);
     g_test_add_func("/exiftool-analysis/invalid-json", test_invalid_json);
+    g_test_add_func("/exiftool-analysis/structural-values",
+        test_structural_values_and_cardinality);
     g_test_add_func("/exiftool-analysis/run-unavailable",
         test_run_and_unavailable);
     g_test_add_func("/exiftool-analysis/cancellation-truncated",

@@ -31,6 +31,8 @@ struct EvidenceImporter
     EvidenceDao *evidence_dao;
 };
 
+static gboolean evidence_importer_original_name_is_valid(const char *name);
+
 #ifdef EVIDENCE_IMPORTER_ENABLE_TEST_HOOKS
 
 static gboolean evidence_importer_test_cancel_after_copy = FALSE;
@@ -289,6 +291,18 @@ static gboolean evidence_importer_request_is_valid(
 
     if (request->type_identifier == NULL ||
         request->type_identifier[0] == '\0')
+    {
+        return FALSE;
+    }
+
+    if (request->reserved_identifier != NULL &&
+        !g_uuid_string_is_valid(request->reserved_identifier))
+    {
+        return FALSE;
+    }
+
+    if (request->original_name != NULL &&
+        !evidence_importer_original_name_is_valid(request->original_name))
     {
         return FALSE;
     }
@@ -599,8 +613,12 @@ static gboolean evidence_importer_prepare_storage(
         return FALSE;
     }
 
-    storage->identifier =
-        g_uuid_string_random();
+    /* WHY: une intention Web doit retrouver la même preuve après une réponse
+     * perdue ou un arrêt post-commit. Le chemin historique continue à laisser
+     * l'importeur générer l'identité lorsque rien n'est réservé. */
+    storage->identifier = request->reserved_identifier != NULL
+        ? g_strdup(request->reserved_identifier)
+        : g_uuid_string_random();
 
     if (storage->identifier == NULL)
     {
@@ -626,10 +644,9 @@ static gboolean evidence_importer_prepare_storage(
         goto failure;
     }
 
-    storage->original_name =
-        g_path_get_basename(
-            request->source_path
-        );
+    storage->original_name = request->original_name != NULL
+        ? g_strdup(request->original_name)
+        : g_path_get_basename(request->source_path);
 
     if (!evidence_importer_original_name_is_valid(
             storage->original_name

@@ -7,6 +7,7 @@
 #define LABFY_INVESTIGATION_DATABASE_H
 
 #include <stdbool.h>
+#include <glib.h>
 
 /**
  * @brief Contexte opaque représentant une connexion SQLite.
@@ -29,6 +30,28 @@ typedef struct Database Database;
  */
 Database *database_open(
     const char *database_path
+);
+
+/**
+ * @brief Ouvre une base runtime existante en lecture seule effective.
+ *
+ * CONTRACT: cette ouverture utilise SQLITE_OPEN_READONLY, ne crée jamais un
+ * fichier absent, n'exécute aucune migration et refuse toute version autre que
+ * la version runtime prise en charge. PRAGMA query_only renforce la frontière
+ * pour les requêtes préparées par les DAO.
+ *
+ * La chaîne de chemin est copiée. L'instance retournée appartient à l'appelant
+ * et doit être libérée avec database_close(). En cas d'échec, aucune connexion
+ * n'est retournée et error reçoit un diagnostic structuré si fourni.
+ *
+ * @param database_path Chemin d'une base SQLite existante.
+ * @param error Emplacement facultatif recevant une erreur G_IO_ERROR.
+ *
+ * @return Nouvelle connexion read-only, ou NULL.
+ */
+Database *database_open_read_only(
+    const char *database_path,
+    GError **error
 );
 
 /**

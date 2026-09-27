@@ -1,6 +1,66 @@
-## [0.1.0-dev]
+## [0.1.0-dev] — en préparation, non publiée
+
+### Pivots locaux J7
+
+- Index C typé des observations persistées, rapprochements explicables
+  e-mail/domaine/IP, connexions locales bornées et corpus Web SPECIMEN
+  multi-preuves.
+- Annulation active propagée jusqu’au groupe d’outil, annulation d’attente sans
+  interruption du worker actif et temporaires d’export concurrents uniques.
+
+### Jobs locaux J5
+
+- Ajout du JobStore V1 séparé, du worker mono-propriétaire, des contrôles CLI,
+  de la reprise après publication et de l’export Web en lecture seule.
+- Durcissement du runner et du replay ExifTool typé, y compris la vérification
+  d’un résultat historique lorsque l’outil courant est indisponible.
+
+### Poste Web local J6
+
+- Ajout d’une session loopback protégée, d’un bridge JSON vers le service C,
+  des actions EML/ExifTool depuis le graphe et des contrôles de file.
+- Actualisation automatique des jobs et résultats persistés, avec conservation
+  du contexte graphique et tests Firefox de bout en bout.
+
+### Foundation
+
+- Repositionnement canonique de Labfy comme environnement local-first
+  d'investigation numérique centré sur le graphe interactif.
+- Adoption de « THE GRAPH IS THE INVESTIGATION » comme principe UX et métier :
+  Identity, Infrastructure, Finance, Timeline, Geo et Evidence deviennent des
+  projections d'un même réseau logique.
+- Choix du Web comme future interface principale, sans sélection prématurée du
+  framework, du protocole d'événements ou du serveur HTTP local ; GTK reste
+  l'interface fonctionnelle existante pendant la transition.
+- Architecture cible du Toolkit Registry, des adapters, du Job Engine, du
+  Pivot Engine, du Correlation Engine, du planner et des contrôles de scope.
+- Séparation canonique des entités, artefacts, preuves, observations, claims,
+  événements, transactions et hypothèses dans une projection graphique
+  unifiée.
+- Définition d'une autonomie progressive, de budgets multidimensionnels et
+  d'une confiance qualitative explicable.
+- Adoption de Catppuccin Mocha avec Lavender comme direction visuelle de la
+  future interface Web et création d'une bannière dédiée au README.
+- Refonte du README et remplacement de la roadmap par une séquence V2 ordonnée,
+  sans annoncer les fonctionnalités cibles comme déjà disponibles.
+- Ajout de l'index documentaire, du contrat conceptuel du graphe, des décisions
+  Web/graph-first/polyglotte, du registre Toolkit, du modèle de sécurité, du
+  design system et du backlog local préparé.
+- Ajout d'une source SVG éditable pour la bannière et structuration de la
+  roadmap en jalons J0 à J9 avec portes de validation et non-objectifs.
 
 ### Added
+
+- Premier lot J3 expérimental en lecture seule : ouverture SQLite V20 sans
+  création/migration, projection C unifiée des entités, relations, preuves,
+  observations et exécutions OSINT, snapshot JSON v2 borné/atomique et mode de
+  démonstration Web alimenté par une fixture créée avec les DAO de production.
+- Extension J3 EML synthétique : analyse native réellement exécutée, dérivé
+  versionné, extraction et observations proposées publiés atomiquement en V20,
+  replay idempotent vérifié après réouverture et projection Web snapshot v3.
+- Lot J4 local : registre de capabilities consommé, runner POSIX borné,
+  adapters EML/ExifTool, publication idempotente V20 et démonstration Web sur
+  fixtures SPECIMEN avec ExifTool réel.
 
 - Assistant de création de personne en sept étapes séparant la révision OCR,
   la projection facultative et les relations factuelles avant confirmation.
@@ -58,3 +118,66 @@
 - Persistance SQLite du zoom et de la position du graphe entre deux sessions.
 - Réduction de la fenêtre d’intégration des extractions pour maintenir les
   actions accessibles sur les petits écrans.
+# Changements locaux non publiés — J8
+
+- Ajout du planner C explicable, des plans/budgets persistants JobStore V3 et de
+  l'admission Web atomique pour le corpus synthétique local.
+- Fiabilisation J7 des révisions, plafonds, références, transactions de lecture
+  et normalisation prudente.
+- Finalisation JobStore V3 : budgets opposables au claim, temps monotone,
+  réserve conservée après crash, états de plan exportés et scénario Firefox J8.
+
+# Changements locaux non publiés — J9
+
+## Espace local et import navigateur (non publié)
+
+- création Web explicite d’une enquête V20 et d’un JobStore V3 réellement vides ;
+- réception privée EML/PNG/JPEG, limites serveur, contrôle de signature et
+  confirmation idempotente par UUID réservé ;
+- raccord aux projections, planner, analyses et rapports existants ;
+- matrice Python/C et scénario Firefox canonique depuis zéro.
+- fermeture d’intégrité de l’import local : création non destructive, intention
+  et reçus structurés, rejeu revalidé sur l’original V20, états terminaux
+  immuables, réservations concurrentes atomiques et timeout de corps opposable ;
+- durcissement P01–P06 du cycle de vie, des réservations, du rejeu et du
+  framing HTTP ; refus des corps tronqués ou ambigus sans réouverture d’un état
+  terminal ;
+- aperçu Web EML/PNG/JPEG produit par le bridge C après intégrité et bornes,
+  sans servir l’original ni son chemin ; l’identité de cache ne crée aucun cache
+  disque persistant ;
+- revue transactionnelle d’observations avec journal V20 non signé, corrections
+  distinctes et rejeu strict ; la confirmation décrit la revue d’une
+  observation, jamais une identité ;
+- promotion volontaire par création ou rattachement d’un indicateur e-mail,
+  domaine ou IP, et retrait non destructif préservant observation, entités et
+  rattachements indépendants ;
+- republication réessayable du graphe, des corrélations et du planner après
+  import ou revue, sans relancer d’analyse, nouveau claim ni consommation de
+  budget.
+
+- Ajout des projections Web Preuves, Chronologie et Infrastructure locale sur
+  le graphe cœur, avec dates persistées et prudence temporelle.
+- Ajout de la sélection explicite, de la prévisualisation révisionnée et du
+  dossier hors ligne HTML/JSON/PDF avec manifeste, hashes et vérificateur.
+- Ajout des limites, de la minimisation, de l'idempotence et des reprises après
+  interruption, ainsi que des tests C, API, Python et Firefox correspondants.
+- Renforcement de l’intégrité du rapport : PDF Cairo/Pango Unicode fidèle,
+  sections effectives, fermeture de provenance orientée, refus de troncature,
+  vérificateur hostile strict et réconciliation durable après interruption.
+
+# Changements locaux non publiés — poste Web UX V1
+
+- Réorganisation graph-first en barre compacte, projections, inspecteur à
+  onglets et tiroir Tâches/Actions/Plans/Rapports responsive.
+- Ajout d’actions ancrées près des nœuds, avec clic droit, `Maj+F10`, fermeture
+  `Échap`, alternative visible et motifs issus du registre de capabilities.
+- Conservation du brouillon de rapport pendant une actualisation, validation
+  Firefox des cinq téléchargements réels et ouverture du HTML reçu hors ligne.
+- Prise en charge de dates ISO 8601 à la minute avec `Z` ou offset explicite,
+  sans promotion artificielle de leur précision à la seconde.
+- Clôture sur graphe alimenté : classification par `object_kind`, disposition
+  bornée par étages, navigation cohérente et provenance interactive.
+- Application des snapshots modifiés à UUID constants, aperçu de rapport
+  invalidé dès l’édition et tiroir libérant réellement le graphe.
+- Scénario Firefox lançant six analyses depuis l’UI puis validant le snapshot C
+  observé à 62 nœuds/100 arêtes, sans relation ajoutée côté JavaScript.

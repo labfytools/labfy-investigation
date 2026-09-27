@@ -1,0 +1,12 @@
+{
+  "name": "labfy-web-graph-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/test_graph_state.mjs",
+    "test:browser": "node tests/test_browser.mjs && node tests/test_core_browser.mjs && node tests/test_eml_browser.mjs && node tests/test_local_toolkit_browser.mjs && node tests/test_workspace_control_browser.mjs && node tests/test_j8_browser.mjs && node tests/test_j8_runtime_browser.mjs && node tests/test_j9_browser.mjs && node tests/test_workbench_browser.mjs && node tests/test_workbench_populated_browser.mjs && node tests/test_local_workspace_import_browser.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "24.28.0"
+  }
+}

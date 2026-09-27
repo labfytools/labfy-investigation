@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "labfy://prototype/web-graph/snapshot-v1",
+  "title": "Labfy Web Graph experimental snapshot v1",
+  "type": "object",
+  "required": [
+    "contract",
+    "investigation",
+    "revision",
+    "nodes",
+    "edges",
+    "capability_catalog",
+    "capabilities"
+  ],
+  "properties": {
+    "contract": { "const": "labfy.web_graph.snapshot.v1" },
+    "investigation": {
+      "type": "object",
+      "required": ["id", "label", "synthetic"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "synthetic": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "revision": { "type": "integer", "minimum": 1 },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "object_kind", "object_id", "type", "label", "state", "x", "y"],
+        "properties": {
+          "id": { "type": "string" },
+          "object_kind": { "type": "string" },
+          "object_id": { "type": "string" },
+          "type": { "type": "string" },
+          "label": { "type": "string" },
+          "state": { "type": "string" },
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "group": { "type": ["string", "null"] },
+          "raw": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "source", "target", "kind", "directed", "review_state"],
+        "properties": {
+          "id": { "type": "string" },
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "kind": { "enum": ["business", "support", "contradiction", "provenance"] },
+          "directed": { "type": "boolean" },
+          "review_state": { "type": "string" },
+          "time_precision": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "capability_catalog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "intent", "network_contact", "experimental"],
+        "properties": {
+          "id": { "type": "string" },
+          "intent": { "type": "string" },
+          "network_contact": { "enum": ["NONE", "THIRD_PARTY", "TARGET"] },
+          "experimental": { "const": true }
+        },
+        "additionalProperties": false
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["node_id", "object_ref", "capability_id", "available", "reason"],
+        "properties": {
+          "node_id": { "type": "string" },
+          "object_ref": {
+            "type": "object",
+            "required": ["object_kind", "object_id"],
+            "properties": {
+              "object_kind": { "type": "string" },
+              "object_id": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "capability_id": { "type": "string" },
+          "available": { "type": "boolean" },
+          "reason": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

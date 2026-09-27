@@ -788,6 +788,24 @@ static void test_evidence_record_invalid_imported_at(void)
     );
 }
 
+static void test_evidence_record_minute_with_timezone(void)
+{
+    TestEvidenceRecordInput input = test_evidence_record_valid_input();
+    GError *error = NULL;
+
+    input.imported_at = "2026-09-26T14:05+02:00";
+    input.collected_at = "2026-09-26T12:05Z";
+    EvidenceRecord *record = test_evidence_record_create(&input, &error);
+
+    g_assert_no_error(error);
+    g_assert_nonnull(record);
+    g_assert_cmpstr(evidence_record_get_imported_at(record), ==,
+                    input.imported_at);
+    g_assert_cmpstr(evidence_record_get_collected_at(record), ==,
+                    input.collected_at);
+    evidence_record_free(record);
+}
+
 static void test_evidence_record_invalid_collected_at(void)
 {
     TestEvidenceRecordInput input =
@@ -1067,6 +1085,10 @@ int main(
         "/evidence_record/invalid_collected_at",
         test_evidence_record_invalid_collected_at
     );
+    g_test_add_func(
+        "/evidence_record/minute_with_timezone",
+        test_evidence_record_minute_with_timezone
+    );
 
     g_test_add_func(
         "/evidence_record/invalid_status",
@@ -1095,4 +1117,3 @@ int main(
 
     return g_test_run();
 }
-

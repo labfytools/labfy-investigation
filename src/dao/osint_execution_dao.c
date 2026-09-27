@@ -30,11 +30,30 @@ static const char *const list_by_selection_sql =
     "OR (?='relation' AND id IN (SELECT execution_id "
     "FROM osint_execution_relations WHERE relation_id=?)) "
     "ORDER BY finished_at DESC,id DESC;";
+static const char *const list_all_sql =
+    "SELECT id,tool_identifier,tool_version,action_identifier,selection_id,"
+    "selection_kind,target_value,arguments,started_at,finished_at,exit_code,"
+    "final_state,stdout_raw,stderr_raw,output_sha256 FROM osint_executions "
+    "ORDER BY started_at,id;";
 static const char *const list_linked_objects_sql =
     "SELECT 'Entité',entity_id,disposition FROM osint_execution_entities "
     "WHERE execution_id=? UNION ALL "
     "SELECT 'Relation',relation_id,disposition FROM osint_execution_relations "
     "WHERE execution_id=? ORDER BY 1,2;";
+static const char *const list_links_sql =
+    "SELECT 'entity',entity_id,disposition FROM osint_execution_entities "
+    "WHERE execution_id=? UNION ALL "
+    "SELECT 'relation',relation_id,disposition FROM osint_execution_relations "
+    "WHERE execution_id=? ORDER BY 1,2;";
+
+void osint_execution_link_free(OsintExecutionLink *link)
+{
+    if (link == NULL) return;
+    g_free(link->object_kind);
+    g_free(link->object_identifier);
+    g_free(link->disposition);
+    g_free(link);
+}
 
 static void osint_execution_dao_set_error(
     OsintExecutionDao *dao, GError **error, const char *context
@@ -207,6 +226,93 @@ failure:
         "Impossible de lister l'historique OSINT");
     database_statement_finalize(statement);
     g_clear_pointer(&records, g_ptr_array_unref);
+    return NULL;
+}
+
+GPtrArray *osint_execution_dao_list_all(
+    OsintExecutionDao *dao,
+    GError **error
+)
+{
+    DatabaseStatement *statement = NULL;
+    GPtrArray *records = NULL;
+    DatabaseStatementStepResult step = DATABASE_STATEMENT_STEP_ERROR;
+
+    g_return_val_if_fail(error == NULL || *error == NULL, NULL);
+    if (dao == NULL) return NULL;
+
+    statement = database_statement_prepare(dao->database, list_all_sql);
+    records = g_ptr_array_new_with_free_func(
+        (GDestroyNotify) osint_execution_record_free);
+    if (statement == NULL || records == NULL) goto failure;
+
+    while ((step = database_statement_step(statement)) ==
+           DATABASE_STATEMENT_STEP_ROW)
+    {
+        OsintExecutionRecord *record =
+            osint_execution_dao_read_record(statement, error);
+        if (record == NULL) goto failure;
+        g_ptr_array_add(records, record);
+    }
+    if (step != DATABASE_STATEMENT_STEP_DONE) goto failure;
+
+    database_statement_finalize(statement);
+    return records;
+
+failure:
+    osint_execution_dao_set_error(dao, error,
+        "Impossible de lister les exécutions OSINT");
+    database_statement_finalize(statement);
+    g_clear_pointer(&records, g_ptr_array_unref);
+    return NULL;
+}
+
+GPtrArray *osint_execution_dao_list_links(
+    OsintExecutionDao *dao,
+    const char *execution_identifier,
+    GError **error
+)
+{
+    DatabaseStatement *statement = NULL;
+    GPtrArray *links = NULL;
+    DatabaseStatementStepResult step = DATABASE_STATEMENT_STEP_ERROR;
+
+    g_return_val_if_fail(error == NULL || *error == NULL, NULL);
+    if (dao == NULL || execution_identifier == NULL) return NULL;
+
+    statement = database_statement_prepare(dao->database, list_links_sql);
+    links = g_ptr_array_new_with_free_func(
+        (GDestroyNotify) osint_execution_link_free);
+    if (statement == NULL || links == NULL ||
+        !database_statement_bind_text(statement, 1, execution_identifier) ||
+        !database_statement_bind_text(statement, 2, execution_identifier))
+        goto failure;
+
+    while ((step = database_statement_step(statement)) ==
+           DATABASE_STATEMENT_STEP_ROW)
+    {
+        OsintExecutionLink *link = g_try_new0(OsintExecutionLink, 1);
+        if (link == NULL ||
+            !database_statement_column_text(statement, 0, &link->object_kind) ||
+            !database_statement_column_text(statement, 1,
+                &link->object_identifier) ||
+            !database_statement_column_text(statement, 2, &link->disposition))
+        {
+            osint_execution_link_free(link);
+            goto failure;
+        }
+        g_ptr_array_add(links, link);
+    }
+    if (step != DATABASE_STATEMENT_STEP_DONE) goto failure;
+
+    database_statement_finalize(statement);
+    return links;
+
+failure:
+    osint_execution_dao_set_error(dao, error,
+        "Impossible de lister les liens structurés de l'exécution OSINT");
+    database_statement_finalize(statement);
+    g_clear_pointer(&links, g_ptr_array_unref);
     return NULL;
 }
 

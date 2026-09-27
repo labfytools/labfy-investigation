@@ -1,7 +1,7 @@
 CC = gcc
 
 PKG_CONFIG = pkg-config
-REQUIRED_PACKAGES = gtk4 sqlite3 libheif poppler-glib
+REQUIRED_PACKAGES = gtk4 sqlite3 libheif poppler-glib json-glib-1.0
 ifeq ($(shell $(PKG_CONFIG) --exists $(REQUIRED_PACKAGES) && echo yes),)
 $(error Dépendances de compilation manquantes : $(REQUIRED_PACKAGES). Voir docs/DEPENDENCE.md)
 endif
@@ -17,7 +17,8 @@ SOURCE_SIZE_EXCEPTIONS := \
 	src/views/main_window.c:2239 \
 	src/views/create_relation_dialog.c:2043
 
-.PHONY: check-source-size
+.PHONY: check-source-size web-workspace web-workspace-j7 web-workspace-j8 web-workspace-j9 web-workspace-local web-workspace-review-check
+.NOTPARALLEL: web-workspace-review-check
 check-source-size:
 	@limit=$(SOURCE_SIZE_LIMIT); failed=0; \
 	files="$$(git ls-files --cached --others --exclude-standard -- \
@@ -38,6 +39,39 @@ check-source-size:
 	done; \
 	exit $$failed
 
+web-workspace: tools/local-jobs
+	@test -n "$(WORKSPACE)" || (echo "Usage: make web-workspace WORKSPACE=/tmp/labfy-local-workspace"; exit 2)
+	python3 prototypes/web-graph/run_web_workspace.py --workspace "$(WORKSPACE)"
+
+web-workspace-local: web-workspace
+
+web-workspace-j7: tools/local-jobs
+	@test -n "$(WORKSPACE)" || (echo "Usage: make web-workspace-j7 WORKSPACE=/tmp/labfy-j7-specimen"; exit 2)
+	@if [ ! -f "$(WORKSPACE)/Enquete.sqlite" ]; then \
+		tools/local-jobs init-j7-specimen --workspace "$(WORKSPACE)"; \
+	fi
+	python3 prototypes/web-graph/run_web_workspace.py --workspace "$(WORKSPACE)"
+
+web-workspace-j8: tools/local-jobs
+	@test -n "$(WORKSPACE)" || (echo "Usage: make web-workspace-j8 WORKSPACE=/tmp/labfy-j8-specimen"; exit 2)
+	@if [ ! -f "$(WORKSPACE)/Enquete.sqlite" ]; then \
+		tools/local-jobs init-j7-specimen --workspace "$(WORKSPACE)"; \
+	fi
+	python3 prototypes/web-graph/run_web_workspace.py --workspace "$(WORKSPACE)"
+
+web-workspace-j9: tools/local-jobs
+	@test -n "$(WORKSPACE)" || (echo "Usage: make web-workspace-j9 WORKSPACE=/tmp/labfy-j9-specimen"; exit 2)
+	@if [ ! -f "$(WORKSPACE)/Enquete.sqlite" ]; then \
+		tools/local-jobs init-j7-specimen --workspace "$(WORKSPACE)"; \
+	fi
+	python3 prototypes/web-graph/run_web_workspace.py --workspace "$(WORKSPACE)"
+
+web-workspace-review-check: tools/local-jobs tools/local-jobs-test
+	@echo "Phase 1/2 — régressions Python complètes de l'espace de travail local"
+	python3 prototypes/web-graph/tests/test_local_workspace_import.py
+	@echo "Phase 2/2 — parcours navigateur de l'espace de travail local"
+	node prototypes/web-graph/tests/test_local_workspace_import_browser.mjs
+
 CFLAGS = -std=c17 \
           -Wall \
           -Wextra \
@@ -46,9 +80,9 @@ CFLAGS = -std=c17 \
           -Iinclude \
           -MMD \
           -MP \
-          $(shell $(PKG_CONFIG) --cflags gtk4 sqlite3 libheif poppler-glib)
+          $(shell $(PKG_CONFIG) --cflags gtk4 sqlite3 libheif poppler-glib json-glib-1.0)
 
-LDFLAGS = $(shell $(PKG_CONFIG) --libs gtk4 sqlite3 libheif poppler-glib) -ljpeg
+LDFLAGS = $(shell $(PKG_CONFIG) --libs gtk4 sqlite3 libheif poppler-glib json-glib-1.0) -ljpeg
 
 TEST_CFLAGS = -std=c17 \
               -Wall \
@@ -177,6 +211,8 @@ TEST_EML_INTEGRATION := tests/test_eml_integration
 TEST_IBAN_ANALYZER := tests/test_iban_analyzer
 TEST_FINANCIAL_FOUNDATION := tests/test_financial_foundation
 TEST_BANK_STRUCTURED_EXTRACTOR := tests/test_bank_structured_extractor
+TEST_SCHEMA_V21 := tests/test_schema_v21
+TEST_FINANCIAL_DAO := tests/test_financial_dao
 TEST_EXIFTOOL_METADATA := tests/test_exiftool_metadata
 TEST_PDF_PASSWORD_RECOVERY := tests/test_pdf_password_recovery
 TEST_EXTRACTION_DROP_SERVICE := tests/test_extraction_drop_service
@@ -190,6 +226,13 @@ TEST_EXIFTOOL_ANALYSIS := tests/test_exiftool_analysis
 TEST_OCR_ANALYSIS := tests/test_ocr_analysis
 TEST_PDF_ANALYSIS := tests/test_pdf_analysis
 TEST_DOCUMENT_TOOL_RUNNER := tests/test_document_tool_runner
+TEST_LOCAL_TOOL_RUNNER := tests/test_local_tool_runner
+TEST_LOCAL_CAPABILITY_REGISTRY := tests/test_local_capability_registry
+TEST_LOCAL_JOB_STORE := tests/test_local_job_store
+TEST_LOCAL_CORRELATION := tests/test_local_correlation
+TEST_LOCAL_PLANNER := tests/test_local_planner
+TEST_LOCAL_REPORT := tests/test_local_report
+TEST_OBSERVATION_REVIEW_SERVICE := tests/test_observation_review_service
 TEST_IDENTITY_OCR := tests/test_identity_ocr
 TEST_IDENTITY_OCR_PREPROCESSOR := tests/test_identity_ocr_preprocessor
 TEST_IDENTITY_TRACEABILITY := tests/test_identity_traceability
@@ -204,6 +247,64 @@ TEST_DOCUMENT_IDENTITY_MISUSE_EDITOR_GTK := tests/test_document_identity_misuse_
 TEST_PERSON_DETAILS_TRACEABILITY_GTK := tests/test_person_details_traceability_gtk
 TEST_PERSON_OCR_PROJECTION := tests/test_person_ocr_projection
 TEST_PERSON_OCR_PROJECTION_EDITOR_GTK := tests/test_person_ocr_projection_editor_gtk
+TEST_CORE_GRAPH := tests/test_core_graph
+CORE_GRAPH_DEMO := tools/core_graph_demo
+TEST_EML_ANALYSIS_PERSISTENCE := tests/test_eml_analysis_persistence
+EML_GRAPH_DEMO := tools/eml_graph_demo
+LOCAL_TOOLKIT_DEMO := tools/local_toolkit_demo
+LOCAL_JOBS := tools/local-jobs
+LOCAL_JOBS_TEST := tools/local-jobs-test
+
+LOCAL_REVIEW_PREVIEW_SOURCES := \
+	src/core/observation_review_service.c \
+	src/core/evidence_preview.c src/core/evidence_integrity_verifier.c \
+	src/core/eml_mime_extractor.c src/core/relation_type_normalizer.c
+
+CORE_GRAPH_SOURCES := \
+	src/core/core_graph_projection_service.c \
+	src/core/core_graph_snapshot_serializer.c \
+	src/core/local_capability_registry.c \
+	src/core/local_tool_runner.c \
+	src/core/core_graph_specimen.c \
+	src/core/investigation_graph_loader.c \
+	src/models/core_graph_snapshot.c \
+	src/models/investigation_graph_model.c \
+	src/models/investigation_record.c \
+	src/models/entity_record.c src/models/relation_record.c \
+	src/models/evidence_record.c src/models/evidence_observation.c \
+	src/models/osint_execution_record.c src/models/relation_type.c \
+	src/dao/investigation_dao.c src/dao/entity_dao.c \
+	src/dao/relation_dao.c src/dao/relation_type_dao.c \
+	src/dao/evidence_dao.c src/dao/evidence_entity_dao.c \
+	src/dao/extraction_dao.c \
+	src/dao/osint_execution_dao.c \
+	src/database/database.c src/database/schema.c \
+	src/database/statement.c src/database/transaction.c src/database/error.c
+
+CORE_GRAPH_CFLAGS := $(TEST_CFLAGS) -Wpedantic \
+	$(shell $(PKG_CONFIG) --cflags sqlite3 json-glib-1.0)
+CORE_GRAPH_LDFLAGS := $(TEST_LDFLAGS) \
+	$(shell $(PKG_CONFIG) --libs sqlite3 json-glib-1.0)
+
+EML_GRAPH_SOURCES := \
+	src/core/eml_graph_specimen.c \
+	src/core/eml_analysis_persistence_service.c \
+	src/core/observation_review_service.c \
+	src/core/eml_analyzer.c \
+	src/core/evidence_importer.c \
+	src/core/evidence_copy.c \
+	src/core/file_hash.c \
+	$(CORE_GRAPH_SOURCES)
+
+LOCAL_TOOLKIT_SOURCES := \
+	src/core/local_correlation_service.c \
+	src/core/local_report_service.c \
+	src/core/local_toolkit_specimen.c \
+	src/core/exiftool_persistence_service.c \
+	src/core/exiftool_analysis.c \
+	src/core/document_analysis.c \
+	src/core/document_tool_runner.c \
+	$(EML_GRAPH_SOURCES)
 FAKE_DOCUMENT_TOOL := tests/fake_document_tool
 
 DOCUMENT_ANALYSIS_TEST_SOURCES := \
@@ -217,6 +318,51 @@ $(TEST_DOCUMENT_TOOL_RUNNER): tests/test_document_tool_runner.c \
 	$(CC) $(TEST_CFLAGS) -Wpedantic \
 		tests/test_document_tool_runner.c \
 		$(DOCUMENT_ANALYSIS_TEST_SOURCES) -o $@ $(TEST_LDFLAGS)
+
+$(TEST_LOCAL_TOOL_RUNNER): tests/test_local_tool_runner.c \
+	src/core/local_tool_runner.c $(FAKE_DOCUMENT_TOOL)
+	$(CC) $(TEST_CFLAGS) -Wpedantic $< src/core/local_tool_runner.c \
+		-o $@ $(TEST_LDFLAGS)
+
+$(TEST_LOCAL_CAPABILITY_REGISTRY): tests/test_local_capability_registry.c \
+	src/core/local_capability_registry.c src/core/local_tool_runner.c
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
+
+$(TEST_LOCAL_JOB_STORE): tests/test_local_job_store.c src/core/local_job_store.c
+	$(CC) $(CORE_GRAPH_CFLAGS) -DLOCAL_JOB_STORE_ENABLE_TEST_HOOKS $^ -o $@ $(CORE_GRAPH_LDFLAGS)
+
+$(TEST_LOCAL_CORRELATION): tests/test_local_correlation.c \
+	src/core/local_correlation_service.c \
+	src/dao/evidence_dao.c src/dao/evidence_entity_dao.c \
+	src/models/evidence_record.c src/models/evidence_observation.c \
+	src/models/entity_record.c src/database/database.c src/database/schema.c \
+	src/database/statement.c src/database/transaction.c src/database/error.c
+	$(CC) $(CORE_GRAPH_CFLAGS) $^ -o $@ $(CORE_GRAPH_LDFLAGS)
+
+$(TEST_LOCAL_PLANNER): tests/test_local_planner.c src/core/local_planner_service.c \
+	src/core/local_job_store.c \
+	$(CORE_GRAPH_SOURCES)
+	$(CC) $(CORE_GRAPH_CFLAGS) $^ -o $@ $(CORE_GRAPH_LDFLAGS)
+
+$(TEST_LOCAL_REPORT): tests/test_local_report.c src/core/local_report_service.c \
+	src/core/local_correlation_service.c $(CORE_GRAPH_SOURCES)
+	$(CC) $(CORE_GRAPH_CFLAGS) $^ -o $@ $(CORE_GRAPH_LDFLAGS)
+
+$(TEST_OBSERVATION_REVIEW_SERVICE): tests/test_observation_review_service.c \
+	src/core/observation_review_service.c src/database/database.c \
+	src/database/schema.c src/database/statement.c src/database/transaction.c \
+	src/database/error.c
+	$(CC) $(CORE_GRAPH_CFLAGS) $^ -o $@ $(CORE_GRAPH_LDFLAGS)
+
+$(LOCAL_JOBS): tools/local_jobs.c src/core/local_job_store.c \
+	src/core/local_planner_service.c \
+	$(LOCAL_REVIEW_PREVIEW_SOURCES) $(LOCAL_TOOLKIT_SOURCES)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+
+$(LOCAL_JOBS_TEST): tools/local_jobs.c src/core/local_job_store.c \
+	src/core/local_planner_service.c \
+	$(LOCAL_REVIEW_PREVIEW_SOURCES) $(LOCAL_TOOLKIT_SOURCES)
+	$(CC) $(CFLAGS) -DLOCAL_JOBS_ENABLE_CRASH_HOOK $^ -o $@ $(LDFLAGS)
 
 $(TEST_DIALOG_GEOMETRY_GTK): tests/test_dialog_geometry_gtk.c \
 	src/views/dialog_geometry.c
@@ -278,6 +424,32 @@ $(TEST_PERSON_OCR_PROJECTION_EDITOR_GTK): tests/test_person_ocr_projection_edito
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 all: $(TARGET)
+
+.PHONY: core-graph-demo eml-graph-demo local-toolkit-demo
+core-graph-demo: $(CORE_GRAPH_DEMO)
+
+eml-graph-demo: $(EML_GRAPH_DEMO)
+
+local-toolkit-demo: $(LOCAL_TOOLKIT_DEMO)
+
+$(CORE_GRAPH_DEMO): tools/core_graph_demo.c $(CORE_GRAPH_SOURCES)
+	$(CC) $(CORE_GRAPH_CFLAGS) $^ -o $@ $(CORE_GRAPH_LDFLAGS)
+
+$(EML_GRAPH_DEMO): tools/eml_graph_demo.c $(EML_GRAPH_SOURCES)
+	$(CC) $(CORE_GRAPH_CFLAGS) $^ -o $@ $(CORE_GRAPH_LDFLAGS)
+
+$(LOCAL_TOOLKIT_DEMO): tools/local_toolkit_demo.c $(LOCAL_TOOLKIT_SOURCES)
+	$(CC) $(CORE_GRAPH_CFLAGS) $^ -o $@ $(CORE_GRAPH_LDFLAGS)
+
+$(TEST_EML_ANALYSIS_PERSISTENCE): \
+	tests/test_eml_analysis_persistence.c \
+	$(EML_GRAPH_SOURCES)
+	$(CC) $(CORE_GRAPH_CFLAGS) \
+		-DEML_ANALYSIS_PERSISTENCE_ENABLE_TEST_HOOKS \
+		$^ -o $@ $(CORE_GRAPH_LDFLAGS)
+
+$(TEST_CORE_GRAPH): tests/test_core_graph.c $(CORE_GRAPH_SOURCES)
+	$(CC) $(CORE_GRAPH_CFLAGS) $^ -o $@ $(CORE_GRAPH_LDFLAGS)
 
 $(TEST_IDENTITY_OCR): tests/test_identity_ocr.c \
 	src/models/identity_ocr.c src/core/identity_field_extractor.c \
@@ -354,6 +526,7 @@ $(TEST_EML_PIPELINE_TASK): \
 	src/core/pdf_analysis.c src/core/document_file_analysis.c \
 	src/core/tool_process.c $(FAKE_DOCUMENT_TOOL)
 	$(CC) $(TEST_CFLAGS) -Wpedantic \
+		$(shell $(PKG_CONFIG) --cflags json-glib-1.0) \
 		tests/test_eml_pipeline_task.c \
 		src/core/eml_pipeline_task.c src/core/eml_mime_extractor.c \
 		src/core/eml_analyzer.c src/core/bank_proposal.c \
@@ -362,7 +535,8 @@ $(TEST_EML_PIPELINE_TASK): \
 		src/core/document_analysis.c src/core/document_tool_runner.c \
 		src/core/exiftool_analysis.c src/core/ocr_analysis.c \
 		src/core/pdf_analysis.c src/core/document_file_analysis.c \
-		src/core/tool_process.c -o $@ $(TEST_LDFLAGS) -lsqlite3
+		src/core/tool_process.c -o $@ $(TEST_LDFLAGS) -lsqlite3 \
+		$(shell $(PKG_CONFIG) --libs json-glib-1.0)
 
 $(TEST_EML_MIME_EXTRACTOR): \
 	tests/test_eml_mime_extractor.c \
@@ -377,8 +551,10 @@ $(TEST_EXIFTOOL_ANALYSIS): tests/test_exiftool_analysis.c \
 	src/core/exiftool_analysis.c $(DOCUMENT_ANALYSIS_TEST_SOURCES) \
 	$(FAKE_DOCUMENT_TOOL)
 	$(CC) $(TEST_CFLAGS) -Wpedantic \
+		$(shell $(PKG_CONFIG) --cflags json-glib-1.0) \
 		tests/test_exiftool_analysis.c src/core/exiftool_analysis.c \
-		$(DOCUMENT_ANALYSIS_TEST_SOURCES) -o $@ $(TEST_LDFLAGS)
+		$(DOCUMENT_ANALYSIS_TEST_SOURCES) -o $@ $(TEST_LDFLAGS) \
+		$(shell $(PKG_CONFIG) --libs json-glib-1.0)
 
 $(TEST_OCR_ANALYSIS): tests/test_ocr_analysis.c \
 	src/core/ocr_analysis.c $(DOCUMENT_ANALYSIS_TEST_SOURCES) \
@@ -1145,6 +1321,19 @@ $(TEST_BANK_STRUCTURED_EXTRACTOR): tests/test_bank_structured_extractor.c \
 	src/core/iban_analyzer.c
 	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS)
 
+FINANCIAL_V21_TEST_DATABASE_SOURCES := src/database/database.c \
+	src/database/schema.c src/database/statement.c src/database/transaction.c \
+	src/database/error.c
+
+$(TEST_SCHEMA_V21): tests/test_schema_v21.c $(FINANCIAL_V21_TEST_DATABASE_SOURCES)
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
+$(TEST_FINANCIAL_DAO): tests/test_financial_dao.c \
+	src/models/financial_records.c src/models/financial_foundation.c \
+	src/dao/financial_dao.c src/core/iban_analyzer.c src/core/bic_validator.c \
+	$(FINANCIAL_V21_TEST_DATABASE_SOURCES)
+	$(CC) $(TEST_CFLAGS) -Wpedantic $^ -o $@ $(TEST_LDFLAGS) -lsqlite3
+
 $(TEST_EXIFTOOL_METADATA): tests/test_exiftool_metadata.c \
 	src/core/exiftool_metadata.c
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
@@ -1252,9 +1441,12 @@ test: \
 	$(TEST_PERSON_CREATION_COORDINATOR) \
 	$(TEST_EML_ANALYZER) \
 	$(TEST_EML_INTEGRATION) \
+	$(TEST_EML_ANALYSIS_PERSISTENCE) \
 	$(TEST_IBAN_ANALYZER) \
 	$(TEST_FINANCIAL_FOUNDATION) \
 	$(TEST_BANK_STRUCTURED_EXTRACTOR) \
+	$(TEST_SCHEMA_V21) \
+	$(TEST_FINANCIAL_DAO) \
 	$(TEST_EXIFTOOL_METADATA) \
 	$(TEST_PDF_PASSWORD_RECOVERY) \
 	$(TEST_EXTRACTION_DROP_SERVICE) \
@@ -1268,6 +1460,14 @@ test: \
 	$(TEST_OCR_ANALYSIS) \
 	$(TEST_PDF_ANALYSIS) \
 	$(TEST_DOCUMENT_TOOL_RUNNER) \
+	$(TEST_LOCAL_TOOL_RUNNER) \
+	$(TEST_LOCAL_CAPABILITY_REGISTRY) \
+	$(TEST_LOCAL_JOB_STORE) \
+	$(TEST_LOCAL_CORRELATION) \
+	$(TEST_LOCAL_PLANNER) \
+	$(TEST_LOCAL_REPORT) \
+	$(TEST_OBSERVATION_REVIEW_SERVICE) \
+	$(LOCAL_JOBS_TEST) \
 	$(TEST_IDENTITY_OCR) \
 	$(TEST_IDENTITY_OCR_PREPROCESSOR) \
 	$(TEST_IDENTITY_TRACEABILITY) \
@@ -1281,7 +1481,8 @@ test: \
 	$(TEST_DOCUMENT_IDENTITY_MISUSE_EDITOR_GTK) \
 	$(TEST_PERSON_DETAILS_TRACEABILITY_GTK) \
 	$(TEST_PERSON_OCR_PROJECTION) \
-	$(TEST_PERSON_OCR_PROJECTION_EDITOR_GTK)
+	$(TEST_PERSON_OCR_PROJECTION_EDITOR_GTK) \
+	$(TEST_CORE_GRAPH)
 	@echo "Exécution des tests..."
 	@./$(TEST_NODE)
 	@./$(TEST_TREE_MODEL)
@@ -1355,9 +1556,12 @@ test: \
 	@$(TEST_PERSON_CREATION_COORDINATOR)
 	@$(TEST_EML_ANALYZER)
 	@$(TEST_EML_INTEGRATION)
+	@$(TEST_EML_ANALYSIS_PERSISTENCE)
 	@$(TEST_IBAN_ANALYZER)
 	@$(TEST_FINANCIAL_FOUNDATION)
 	@$(TEST_BANK_STRUCTURED_EXTRACTOR)
+	@$(TEST_SCHEMA_V21)
+	@$(TEST_FINANCIAL_DAO)
 	@$(TEST_EXIFTOOL_METADATA)
 	@$(TEST_PDF_PASSWORD_RECOVERY)
 	@$(TEST_EXTRACTION_DROP_SERVICE)
@@ -1371,6 +1575,12 @@ test: \
 	@$(TEST_OCR_ANALYSIS)
 	@$(TEST_PDF_ANALYSIS)
 	@$(TEST_DOCUMENT_TOOL_RUNNER)
+	@$(TEST_LOCAL_TOOL_RUNNER)
+	@$(TEST_LOCAL_CAPABILITY_REGISTRY)
+	@$(TEST_LOCAL_JOB_STORE)
+	@$(TEST_LOCAL_CORRELATION)
+	@$(TEST_LOCAL_REPORT)
+	@$(TEST_OBSERVATION_REVIEW_SERVICE)
 	@$(TEST_IDENTITY_OCR)
 	@$(TEST_IDENTITY_OCR_PREPROCESSOR)
 	@$(TEST_IDENTITY_TRACEABILITY)
@@ -1385,6 +1595,7 @@ test: \
 	@$(TEST_PERSON_DETAILS_TRACEABILITY_GTK)
 	@$(TEST_PERSON_OCR_PROJECTION)
 	@$(TEST_PERSON_OCR_PROJECTION_EDITOR_GTK)
+	@$(TEST_CORE_GRAPH)
 	@echo "Tous les tests sont valides."
 
 %.o: %.c
@@ -1472,12 +1683,17 @@ clean:
 		$(TEST_BANK_PROPOSAL) \
 		$(TEST_FINANCIAL_FOUNDATION) \
 		$(TEST_BANK_STRUCTURED_EXTRACTOR) \
+		$(TEST_SCHEMA_V21) \
+		$(TEST_FINANCIAL_DAO) \
 		$(TEST_EML_PIPELINE_TASK) \
 		$(TEST_EML_MIME_EXTRACTOR) \
 		$(TEST_EXIFTOOL_ANALYSIS) \
 		$(TEST_OCR_ANALYSIS) \
 		$(TEST_PDF_ANALYSIS) \
 		$(TEST_DOCUMENT_TOOL_RUNNER) \
+		$(TEST_LOCAL_TOOL_RUNNER) \
+		$(TEST_LOCAL_CAPABILITY_REGISTRY) \
+		$(TEST_LOCAL_JOB_STORE) \
 	$(TEST_IDENTITY_OCR) \
 	$(TEST_IDENTITY_OCR_PREPROCESSOR) \
 	$(TEST_IDENTITY_TRACEABILITY) \
@@ -1492,6 +1708,11 @@ clean:
 	$(TEST_PERSON_DETAILS_TRACEABILITY_GTK) \
 	$(TEST_PERSON_OCR_PROJECTION) \
 	$(TEST_PERSON_OCR_PROJECTION_EDITOR_GTK) \
+	$(TEST_CORE_GRAPH) \
+	$(CORE_GRAPH_DEMO) \
+	$(TEST_EML_ANALYSIS_PERSISTENCE) \
+	$(EML_GRAPH_DEMO) \
+	$(LOCAL_TOOLKIT_DEMO) \
 	$(FAKE_DOCUMENT_TOOL)
 
 

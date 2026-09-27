@@ -142,6 +142,51 @@ bool database_transaction_begin(
     return true;
 }
 
+bool database_transaction_begin_read_only(
+    Database *database
+)
+{
+    if (database == NULL)
+    {
+        return false;
+    }
+
+    if (database_get_transaction_active(database))
+    {
+        database_set_error(
+            database,
+            DATABASE_ERROR_INVALID_STATE,
+            "Une transaction est déjà active."
+        );
+
+        return false;
+    }
+
+    /*
+     * WHY: BEGIN IMMEDIATE, utilisé par le chemin d'écriture historique,
+     * tente de réserver un verrou d'écriture et échoue sur SQLITE_OPEN_READONLY.
+     * BEGIN différé fournit le snapshot cohérent sans élargir les droits.
+     */
+    if (!database_transaction_execute(
+            database,
+            "BEGIN;"
+        ))
+    {
+        return false;
+    }
+
+    database_set_transaction_active(
+        database,
+        true
+    );
+
+    database_clear_error_internal(
+        database
+    );
+
+    return true;
+}
+
 bool database_transaction_commit(
     Database *database
 )

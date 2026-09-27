@@ -43,6 +43,9 @@ static void wait_for_frame(GtkWidget *widget)
 
 static void test_paned_applied_once(void)
 {
+    const double initial_ratio = 2.0 / 3.0;
+    const int minimum_start = 320;
+    const int minimum_end = 180;
     GtkWindow *window = GTK_WINDOW(gtk_window_new());
     GtkPaned *paned = GTK_PANED(
         gtk_paned_new(GTK_ORIENTATION_HORIZONTAL));
@@ -50,21 +53,32 @@ static void test_paned_applied_once(void)
     gtk_paned_set_end_child(paned, gtk_label_new("Aperçu"));
     gtk_window_set_default_size(window, 900, 600);
     gtk_window_set_child(window, GTK_WIDGET(paned));
-    labfy_paned_apply_initial_ratio(paned, 2.0 / 3.0, 320, 180);
+    labfy_paned_apply_initial_ratio(
+        paned, initial_ratio, minimum_start, minimum_end);
     gtk_window_present(window);
     for (guint frame = 0; frame < 6; frame++)
         wait_for_frame(GTK_WIDGET(window));
     int allocated = gtk_widget_get_width(GTK_WIDGET(paned));
-    int expected = (allocated * 2) / 3;
-    int tolerance = MAX(4, allocated / 50);
+    int ratio_position = (int) (allocated * initial_ratio);
+    g_assert_cmpint(
+        allocated, >=, minimum_start + minimum_end);
+    int expected = CLAMP(
+        ratio_position, minimum_start, allocated - minimum_end);
     int position = gtk_paned_get_position(paned);
-    g_assert_cmpint(ABS(position - expected), <=, tolerance);
-    g_assert_cmpint(position, >=, 320);
-    g_assert_cmpint(allocated - position, >=, 180);
+    /* Le ratio initial cède devant les minima lorsque l'allocation réelle de
+     * la fenêtre est plus petite que sa taille demandée. Le contrat à tester
+     * est la position bornée effectivement appliquée, sans tolérance. */
+    g_assert_true(labfy_paned_initial_ratio_applied(paned));
+    g_assert_cmpint(position, ==, expected);
+    g_assert_cmpint(position, >=, minimum_start);
+    g_assert_cmpint(allocated - position, >=, minimum_end);
     int user_position = (allocated * 11) / 20;
     gtk_paned_set_position(paned, user_position);
     gtk_window_set_default_size(window, 1000, 700);
-    wait_for_frame(GTK_WIDGET(window));
+    /* Plusieurs frames dépassent la fenêtre de stabilité de l'initialisation :
+     * une réapplication indésirable écraserait donc la position utilisateur. */
+    for (guint frame = 0; frame < 4; frame++)
+        wait_for_frame(GTK_WIDGET(window));
     g_assert_cmpint(gtk_paned_get_position(paned), ==, user_position);
     labfy_paned_apply_initial_ratio(paned, 0.5, 100, 100);
     g_assert_cmpint(gtk_paned_get_position(paned), ==, user_position);

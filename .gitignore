@@ -6,6 +6,11 @@ labfy-investigation
 # Executables de tests
 /tests/test_*
 /tests/fake_document_tool
+/tools/eml_graph_demo
+/tools/core_graph_demo
+/tools/local-jobs
+/tools/local-jobs-test
+/tools/local_toolkit_demo
 
 # Conserver les sources des tests
 !/tests/test_*.c

@@ -10,6 +10,7 @@
 
 #include "database_internal.h"
 
+#include <gio/gio.h>
 #include <glib.h>
 #include <sqlite3.h>
 
@@ -1083,6 +1084,160 @@ Database *database_open(
 
     database->transaction_active = false;
     database->schema_version = 0;
+
+    return database;
+}
+
+Database *database_open_read_only(
+    const char *database_path,
+    GError **error
+)
+{
+    Database *database = NULL;
+    int result = SQLITE_ERROR;
+    int schema_version = 0;
+
+    g_return_val_if_fail(
+        error == NULL || *error == NULL,
+        NULL
+    );
+
+    if (database_path == NULL || database_path[0] == '\0')
+    {
+        g_set_error_literal(
+            error,
+            G_IO_ERROR,
+            G_IO_ERROR_INVALID_ARGUMENT,
+            "Le chemin de la base en lecture seule est obligatoire."
+        );
+
+        return NULL;
+    }
+
+    database = g_try_new0(
+        Database,
+        1
+    );
+
+    if (database == NULL)
+    {
+        g_set_error_literal(
+            error,
+            G_IO_ERROR,
+            G_IO_ERROR_NO_SPACE,
+            "Impossible d'allouer la connexion Database en lecture seule."
+        );
+
+        return NULL;
+    }
+
+    database->database_path =
+        g_strdup(
+            database_path
+        );
+
+    if (database->database_path == NULL)
+    {
+        database_close(database);
+        g_set_error_literal(
+            error,
+            G_IO_ERROR,
+            G_IO_ERROR_NO_SPACE,
+            "Impossible de copier le chemin de la base en lecture seule."
+        );
+
+        return NULL;
+    }
+
+    result = sqlite3_open_v2(
+        database_path,
+        &database->handle,
+        SQLITE_OPEN_READONLY |
+        SQLITE_OPEN_PRIVATECACHE,
+        NULL
+    );
+
+    if (result != SQLITE_OK)
+    {
+        g_set_error(
+            error,
+            G_IO_ERROR,
+            result == SQLITE_CANTOPEN
+                ? G_IO_ERROR_NOT_FOUND
+                : G_IO_ERROR_FAILED,
+            "Impossible d'ouvrir la base runtime en lecture seule : %s",
+            database->handle != NULL
+                ? sqlite3_errmsg(database->handle)
+                : sqlite3_errstr(result)
+        );
+        database_close(database);
+
+        return NULL;
+    }
+
+    /*
+     * INVARIANT: ces PRAGMA sont propres à la connexion. Ils ne changent ni
+     * le journal, ni les métadonnées, ni aucun octet métier de la base.
+     */
+    if (!database_execute_sql(
+            database->handle,
+            "PRAGMA foreign_keys = ON; PRAGMA query_only = ON;"
+        ))
+    {
+        g_set_error_literal(
+            error,
+            G_IO_ERROR,
+            G_IO_ERROR_FAILED,
+            "Impossible de protéger la connexion SQLite en lecture seule."
+        );
+        database_close(database);
+
+        return NULL;
+    }
+
+    database->transaction_active = false;
+    database->schema_version = 0;
+
+    if (!database_read_schema_version(
+            database,
+            &schema_version
+        ))
+    {
+        g_set_error(
+            error,
+            G_IO_ERROR,
+            G_IO_ERROR_INVALID_DATA,
+            "Impossible de lire la version du schéma runtime : %s",
+            database_get_error_message_internal(database) != NULL
+                ? database_get_error_message_internal(database)
+                : "métadonnée absente ou invalide"
+        );
+        database_close(database);
+
+        return NULL;
+    }
+
+    if (schema_version != DATABASE_SCHEMA_VERSION_CURRENT)
+    {
+        g_set_error(
+            error,
+            G_IO_ERROR,
+            G_IO_ERROR_NOT_SUPPORTED,
+            "Version de schéma runtime non prise en charge : %d (attendue : %d).",
+            schema_version,
+            DATABASE_SCHEMA_VERSION_CURRENT
+        );
+        database_close(database);
+
+        return NULL;
+    }
+
+    database->schema_version =
+        schema_version;
+
+    database_clear_error_internal(
+        database
+    );
 
     return database;
 }

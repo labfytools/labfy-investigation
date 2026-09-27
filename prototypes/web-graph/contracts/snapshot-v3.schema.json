@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "labfy://prototype/web-graph/snapshot-v3",
+  "title": "Labfy EML analysis graph read-only snapshot v3",
+  "type": "object",
+  "required": ["contract", "origin", "transport_revision", "revision", "schema_version", "complete", "investigation", "limits", "presentation", "nodes", "edges", "capability_catalog", "capabilities"],
+  "properties": {
+    "contract": {"const": "labfy.web_graph.snapshot.v3"},
+    "origin": {"const": "core"},
+    "transport_revision": {"const": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "schema_version": {"const": 20},
+    "complete": {"const": true},
+    "investigation": {"type": "object", "required": ["id", "label", "synthetic"], "properties": {"id": {"type": "string", "minLength": 1}, "label": {"type": "string", "minLength": 1}, "synthetic": {"const": true}}, "additionalProperties": false},
+    "limits": {"type": "object", "required": ["max_nodes", "max_edges", "max_serialized_bytes", "truncated"], "properties": {"max_nodes": {"type": "integer", "minimum": 1}, "max_edges": {"type": "integer", "minimum": 1}, "max_serialized_bytes": {"type": "integer", "minimum": 1}, "truncated": {"const": false}}, "additionalProperties": false},
+    "presentation": {"type": "object", "required": ["coordinates_source"], "properties": {"coordinates_source": {"const": "web_bridge"}}, "additionalProperties": false},
+    "nodes": {"type": "array", "maxItems": 500, "items": {"type": "object", "required": ["id", "object_kind", "object_id", "type", "label", "state", "group", "raw", "object_ref", "details"], "properties": {
+      "id": {"type": "string", "minLength": 1}, "object_kind": {"enum": ["entity", "evidence", "observation", "execution", "extraction"]}, "object_id": {"type": "string", "minLength": 1}, "type": {"type": "string", "minLength": 1}, "label": {"type": "string"}, "state": {"type": "string", "minLength": 1}, "group": {"type": ["string", "null"]}, "raw": {"type": ["string", "null"]},
+      "object_ref": {"type": "object", "required": ["investigation_id", "object_kind", "object_id"], "properties": {"investigation_id": {"type": "string", "minLength": 1}, "object_kind": {"type": "string", "minLength": 1}, "object_id": {"type": "string", "minLength": 1}}, "additionalProperties": false},
+      "details": {"type": "object", "required": ["value_raw", "value_normalized", "value_corrected", "review_state", "provenance_kind", "source_header", "promoted_entity_id", "promotion_kind", "tool_id", "tool_version", "started_at", "finished_at", "collected_at", "imported_at", "observed_at", "integrated_at", "provenance_complete", "missing_provenance_reason"], "properties": {"value_raw": {"type": ["string", "null"]}, "value_normalized": {"type": ["string", "null"]}, "value_corrected": {"type": ["string", "null"]}, "review_state": {"type": ["string", "null"]}, "provenance_kind": {"type": ["string", "null"]}, "source_header": {"type": ["string", "null"]}, "promoted_entity_id": {"type": ["string", "null"]}, "promotion_kind": {"type": ["string", "null"]}, "tool_id": {"type": ["string", "null"]}, "tool_version": {"type": ["string", "null"]}, "started_at": {"type": ["string", "null"]}, "finished_at": {"type": ["string", "null"]}, "collected_at": {"type": ["string", "null"]}, "imported_at": {"type": ["string", "null"]}, "observed_at": {"type": ["string", "null"]}, "integrated_at": {"type": ["string", "null"]}, "provenance_complete": {"type": "boolean"}, "missing_provenance_reason": {"type": ["string", "null"]}}, "additionalProperties": false}
+    }, "additionalProperties": false}},
+    "edges": {"type": "array", "maxItems": 1000, "items": {"type": "object", "required": ["id", "source", "target", "kind", "semantic", "review_state", "disposition", "directed"], "properties": {"id": {"type": "string", "minLength": 1}, "source": {"type": "string", "minLength": 1}, "target": {"type": "string", "minLength": 1}, "kind": {"enum": ["business", "support", "contradiction", "provenance"]}, "semantic": {"type": "string", "minLength": 1}, "review_state": {"type": "string", "minLength": 1}, "disposition": {"type": ["string", "null"]}, "directed": {"type": "boolean"}}, "additionalProperties": false}},
+    "capability_catalog": {"type": "array", "items": {"type": "object", "required": ["id", "intent", "network_contact", "experimental"], "properties": {"id": {"type": "string"}, "intent": {"type": "string"}, "network_contact": {"enum": ["NONE", "THIRD_PARTY", "TARGET"]}, "experimental": {"const": true}}, "additionalProperties": false}},
+    "capabilities": {"type": "array", "items": {"type": "object", "required": ["node_id", "object_ref", "capability_id", "available", "reason"], "properties": {"node_id": {"type": "string"}, "object_ref": {"type": "object", "required": ["investigation_id", "object_kind", "object_id"], "properties": {"investigation_id": {"type": "string"}, "object_kind": {"type": "string"}, "object_id": {"type": "string"}}, "additionalProperties": false}, "capability_id": {"type": "string"}, "available": {"type": "boolean"}, "reason": {"type": "string"}}, "additionalProperties": false}}
+  },
+  "additionalProperties": false
+}

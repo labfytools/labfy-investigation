@@ -233,6 +233,26 @@ gboolean evidence_entity_dao_add_observation(
     const char *verification_status, const char *created_at,
     char **out_observation_identifier, GError **error);
 
+/**
+ * Publie une observation non promue avec sa provenance d'extraction exacte.
+ * Les deux UUID doivent déjà exister. La fonction n'ouvre pas de transaction :
+ * l'appelant publie extraction, dérivé et lot d'observations atomiquement.
+ */
+gboolean evidence_entity_dao_add_extracted_observation(
+    EvidenceEntityDao *dao,
+    const char *evidence_identifier,
+    const char *extraction_identifier,
+    const char *entity_type,
+    const char *value_raw,
+    const char *value_normalized,
+    const char *role,
+    const char *provenance_kind,
+    const char *source_header,
+    guint occurrence,
+    const char *observed_at,
+    char **out_observation_identifier,
+    GError **error);
+
 gboolean evidence_entity_dao_promote_observation(
     EvidenceEntityDao *dao, const char *observation_identifier,
     const char *entity_identifier, const char *promoted_at,

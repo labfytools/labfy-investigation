@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Labfy — poste local</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <section id="workspace-create" class="modal-card" hidden aria-labelledby="create-title">
+      <h1 id="create-title">Créer l’enquête</h1>
+      <p>La destination locale a été fixée au lancement. Aucun exemple ne sera ajouté.</p>
+      <form id="workspace-create-form"><label>Titre
+        <input id="workspace-title" maxlength="160" required /></label>
+        <button type="submit">Créer l’enquête vide</button></form>
+      <p id="workspace-create-status" role="alert"></p>
+    </section>
+    <dialog id="import-dialog" aria-labelledby="import-title">
+      <form method="dialog"><button class="dialog-close" aria-label="Fermer">×</button></form>
+      <h2 id="import-title">Ajouter des preuves</h2>
+      <p>Réception privée, contrôle du type, puis confirmation explicite.</p>
+      <label>Fichiers EML, PNG ou JPEG
+        <input id="import-files" type="file" multiple accept=".eml,.png,.jpg,.jpeg,message/rfc822,image/png,image/jpeg" /></label>
+      <label>Source déclarée <input id="import-source" maxlength="512" /></label>
+      <label>Commentaire <textarea id="import-description" maxlength="512"></textarea></label>
+      <ol id="import-list" aria-live="polite"></ol>
+      <button id="import-confirm" type="button" disabled>Confirmer les imports préparés</button>
+      <p id="import-status" role="status"></p>
+    </dialog>
+    <header class="topbar">
+      <div class="brand">
+        <strong>LABFY</strong><span id="investigation-title">Enquête locale</span
+        ><span id="mode-badge" class="badge"
+          >Prototype — données synthétiques — lecture seule</span
+        >
+      </div>
+      <label class="global-search"
+        ><span class="sr-only">Rechercher</span
+        ><input
+          id="search"
+          type="search"
+          placeholder="Rechercher un objet…"
+        /><button id="search-button">Recentrer</button></label
+      >
+      <div id="connection" role="status">Chargement…</div>
+    </header>
+    <nav class="projection-bar" aria-label="Projections et contrôles du graphe">
+      <div class="projection-tabs" role="group">
+        <button id="reset" class="projection-tab active">Réseau</button
+        ><button id="view-evidence" class="projection-tab">Preuves</button
+        ><button id="view-timeline" class="projection-tab">Chronologie</button
+        ><button id="view-infrastructure" class="projection-tab">
+          Infrastructure locale
+        </button>
+      </div>
+      <div class="graph-tools">
+        <button id="open-import">Ajouter des preuves</button
+        >
+        <button id="back" disabled>← Retour</button
+        ><button id="collapse">Replier Preuves</button
+        ><button id="reset-layout">Réinitialiser</button
+        ><label
+          >Type
+          <select id="type-filter">
+            <option value="">Tous</option>
+          </select></label
+        ><label
+          >État
+          <select id="state-filter">
+            <option value="">Tous</option>
+            <option>observed</option>
+            <option>under_review</option>
+          </select></label
+        ><span id="hidden-count">0 masqué</span>
+      </div>
+    </nav>
+    <main class="workbench">
+      <section id="graph-panel" aria-label="Graphe interactif">
+        <div id="graph-state" role="alert"></div>
+        <div class="graph-legend" aria-label="Légende">
+          <span><i class="shape round"></i>Entité</span
+          ><span><i class="shape square"></i>Preuve</span
+          ><span><i class="shape diamond"></i>Extraction</span
+          ><span><i class="shape capsule"></i>Observation</span
+          ><span><i class="line provenance"></i>Provenance</span
+          ><span><i class="line support"></i>Appui</span
+          ><span><i class="line contradiction"></i>Contradiction</span>
+        </div>
+        <svg
+          id="graph"
+          tabindex="0"
+          aria-label="Réseau d’investigation synthétique"
+        >
+          <defs>
+            <marker
+              id="arrowhead"
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="3"
+              orient="auto"
+              markerUnits="strokeWidth"
+            >
+              <path d="M0,0 L0,6 L8,3 z"></path>
+            </marker>
+          </defs>
+          <rect
+            id="graph-background"
+            x="-100%"
+            y="-100%"
+            width="300%"
+            height="300%"
+          ></rect>
+          <g id="viewport">
+            <g id="edges"></g>
+            <g id="nodes"></g>
+          </g>
+        </svg>
+        <div class="hint">
+          Molette : zoom · glisser : déplacer · flèches : parcourir ·
+          Entrée/Menu : actions
+        </div>
+        <div
+          id="node-context-menu"
+          class="context-menu"
+          role="menu"
+          aria-label="Actions de l’objet"
+          hidden
+        ></div>
+      </section>
+      <aside id="inspector" aria-label="Inspecteur contextuel">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Objet sélectionné</span>
+            <h2>Inspecteur</h2>
+          </div>
+        </div>
+        <div class="tablist" role="tablist">
+          <button role="tab" data-panel="details-panel" aria-selected="true">
+            Détails</button
+          ><button role="tab" data-panel="actions-panel">Actions</button
+          ><button role="tab" data-panel="provenance-panel">Provenance</button>
+        </div>
+        <section id="details-panel" class="tab-panel">
+          <div id="details">Sélectionnez un objet.</div>
+          <details open>
+            <summary>Objets visibles</summary>
+            <ol id="object-list" tabindex="0"></ol>
+          </details>
+        </section>
+        <section id="actions-panel" class="tab-panel" hidden>
+          <h3>Actions expliquées</h3>
+          <div id="actions"></div>
+        </section>
+        <section id="provenance-panel" class="tab-panel" hidden>
+          <h3>Traçabilité</h3>
+          <div id="provenance-mirror">Sélectionnez un objet.</div>
+        </section>
+        <section id="timeline-panel" hidden aria-labelledby="timeline-title">
+          <h3 id="timeline-title">Chronologie disponible</h3>
+          <p>
+            Dates de collecte ou traitement ; aucune date de message n’est
+            inventée.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Catégorie</th>
+                <th>Objet</th>
+              </tr>
+            </thead>
+            <tbody id="timeline-list"></tbody>
+          </table>
+        </section>
+      </aside>
+      <section id="work-panel" class="work-panel" aria-label="Travail local">
+        <div class="work-panel-header">
+          <div class="tablist" role="tablist">
+            <button
+              role="tab"
+              data-work-panel="tasks-panel"
+              aria-selected="true"
+            >
+              Tâches</button
+            ><button role="tab" data-work-panel="next-panel">
+              Prochaines actions</button
+            ><button role="tab" data-work-panel="plans-panel">Plans</button
+            ><button role="tab" data-work-panel="reports-panel">
+              Rapports
+            </button>
+          </div>
+          <button id="work-panel-toggle" aria-expanded="true">Réduire</button>
+        </div>
+        <div class="work-panel-body">
+          <section id="tasks-panel" class="work-tab-panel">
+            <h3>Jobs locaux</h3>
+            <p id="jobs-note">Chargement…</p>
+            <div id="queue-controls">
+              <button id="queue-pause">Pause</button
+              ><button id="queue-resume">Reprendre</button
+              ><button id="queue-stop">Arrêter</button>
+            </div>
+            <ol id="jobs-list" aria-live="polite">
+              <li>Export non configuré.</li>
+            </ol>
+            <h4>Rapprochements locaux</h4>
+            <p id="correlations-note">Aucune observation analysée.</p>
+            <ol id="correlations-list"></ol>
+          </section>
+          <section id="next-panel" class="work-tab-panel" hidden>
+            <h3 id="planner-title">Prochaines actions</h3>
+            <p id="planner-note">Chargement…</p>
+            <ol id="planner-list"></ol>
+            <label
+              >Budget
+              <select id="planner-profile"></select></label
+            ><button id="planner-launch" disabled>Lancer la sélection</button>
+          </section>
+          <section id="plans-panel" class="work-tab-panel" hidden>
+            <h3>Plans approuvés</h3>
+            <ol id="plans-list"></ol>
+          </section>
+          <section id="reports-panel" class="work-tab-panel" hidden>
+            <div id="report-panel">
+              <h3 id="report-title">Préparer le rapport</h3>
+              <p id="report-count">0 objet sélectionné</p>
+              <div class="report-form">
+                <label
+                  >Titre
+                  <input
+                    id="report-name"
+                    maxlength="160"
+                    value="Rapport SPECIMEN" /></label
+                ><label
+                  >Commentaire humain
+                  <textarea id="report-comment" maxlength="1000"></textarea>
+                </label>
+                <fieldset>
+                  <legend>Sections</legend>
+                  <label
+                    ><input
+                      type="checkbox"
+                      name="report-section"
+                      value="evidence"
+                      checked
+                    />
+                    Preuves</label
+                  ><label
+                    ><input
+                      type="checkbox"
+                      name="report-section"
+                      value="timeline"
+                      checked
+                    />
+                    Chronologie</label
+                  ><label
+                    ><input
+                      type="checkbox"
+                      name="report-section"
+                      value="infrastructure"
+                      checked
+                    />
+                    Infrastructure</label
+                  >
+                </fieldset>
+              </div>
+              <ol id="report-selection"></ol>
+              <button id="report-preview" disabled>Prévisualiser</button>
+              <div id="report-preview-content"></div>
+              <button id="report-generate" disabled>Générer le dossier</button>
+              <div id="report-status" role="status"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+    <dialog id="evidence-dialog" aria-labelledby="evidence-title">
+      <form method="dialog" class="dialog-close"><button>Fermer</button></form>
+      <h2 id="evidence-title">Ouvrir la preuve</h2>
+      <p id="evidence-status" role="status"></p>
+      <section class="evidence-preview" aria-labelledby="preview-title">
+        <h3 id="preview-title">Aperçu borné</h3>
+        <img id="evidence-image" alt="Aperçu dérivé de la preuve" hidden />
+        <pre id="evidence-text" hidden></pre>
+      </section>
+      <section aria-labelledby="review-title">
+        <h3 id="review-title">Examiner les observations</h3>
+        <p>
+          Confirmer valide une observation dans son contexte ; cela ne confirme
+          jamais l’identité d’une personne.
+        </p>
+        <ol id="observation-list"></ol>
+      </section>
+    </dialog>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

@@ -9,10 +9,12 @@ n’est persisté.
 | --- | --- | --- |
 | HEIC/HEIF | `libheif` | `libheif-dev` |
 | PDF natif | `poppler-glib` | `libpoppler-glib-dev` |
+| Snapshot JSON cœur | `json-glib` | `libjson-glib-dev` |
 | Vidéo GTK | `gst-plugins-base`, `gst-plugins-good` | `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good` |
 
 Les codecs vidéo supplémentaires restent optionnels.
-Le Makefile vérifie explicitement GTK4, SQLite, libheif et Poppler GLib avant
+Le Makefile vérifie explicitement GTK4, SQLite, libheif, Poppler GLib et
+JSON-GLib avant
 compilation et renvoie vers ce document si une dépendance manque.
 
 Ce fichier recense les outils utilisés par LabFy Investigation et leur
@@ -111,7 +113,21 @@ vérifiée avec `command -v`, puis avec son option de version (`--version` ou
 - Ne pas installer ces outils dans le dépôt Git.
 - ExifTool, Tesseract et Poppler sont optionnels pour le pivot EML. Leur
   absence laisse disponibles l'analyse des en-têtes et l'extraction MIME.
+- La démonstration `eml-graph-demo` réutilise GLib/GIO, SQLite et JSON-GLib déjà
+  requis ; elle n'ajoute aucun analyseur externe ni téléchargement implicite.
+- La démonstration J4 exige un ExifTool déjà installé et qualifié par
+  `exiftool -config "" -ver`. Elle se lance avec `make -j8 local-toolkit-demo`
+  puis `python3 prototypes/web-graph/run_local_toolkit_demo.py --port 8765`.
+  Labfy ne l'installe, ne le met à jour et ne charge aucune configuration
+  utilisateur.
 - Ne jamais stocker de jetons, mots de passe ou données privées dans ce
   fichier.
+- Le rendu PDF J9 utilise les bindings Cairo/Pango et DejaVu Sans installés avec
+  le runtime graphique. Les validations utilisent `pdftotext` et `pdftoppm` de
+  Poppler ; aucune ressource réseau ou police téléchargée n'est requise.
 - Les versions peuvent varier selon la distribution ; noter ici toute
   commande particulière nécessaire à Ubuntu des forces de l’ordre.
+
+L’import d’espace local n’ajoute aucune dépendance : le transport borné utilise
+la bibliothèque HTTP Python existante, et la publication/empreinte réutilise le
+cœur C/GLib. Firefox et `puppeteer-core` restent nécessaires au scénario Web.

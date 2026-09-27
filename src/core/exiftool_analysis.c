@@ -5,7 +5,11 @@
 #include "core/exiftool_analysis.h"
 #include "core/document_tool_runner.h"
 
+#include <json-glib/json-glib.h>
 #include <string.h>
+
+#define EXIFTOOL_MAX_TAGS 2048U
+#define EXIFTOOL_MAX_DEPTH 16U
 
 typedef struct
 {
@@ -55,105 +59,46 @@ void exiftool_analysis_result_free(ExiftoolAnalysisResult *result)
     g_free(result);
 }
 
-static char *exiftool_json_extract_value(
-    const char *json,
-    const char *tag
-)
+static const ExiftoolMapping *exiftool_mapping_find(const char *tag)
 {
-    char *escaped = g_regex_escape_string(tag, -1);
-    char *pattern = g_strdup_printf(
-        "\"%s\"\\s*:\\s*(\"(?:[^\"\\\\]|\\\\.)*\"|-?[0-9]+(?:\\.[0-9]+)?|true|false|null)",
-        escaped
-    );
-    GRegex *regex = g_regex_new(pattern, G_REGEX_DOTALL, 0, NULL);
-    GMatchInfo *match = NULL;
-    char *value = NULL;
-    g_regex_match(regex, json, 0, &match);
-    if (g_match_info_matches(match))
-    {
-        value = g_match_info_fetch(match, 1);
-        if (value[0] == '"' && strlen(value) >= 2)
-        {
-            gsize length = strlen(value);
-            memmove(value, value + 1, length - 2);
-            value[length - 2] = '\0';
-        }
+    for (guint index = 0U; index < G_N_ELEMENTS(exiftool_mappings); index++)
+        if (g_strcmp0(exiftool_mappings[index].tag, tag) == 0)
+            return &exiftool_mappings[index];
+    return NULL;
+}
+
+static gboolean exiftool_node_depth_valid(JsonNode *node, guint depth)
+{
+    if (node == NULL || depth > EXIFTOOL_MAX_DEPTH) return FALSE;
+    if (JSON_NODE_HOLDS_ARRAY(node)) {
+        JsonArray *array = json_node_get_array(node);
+        for (guint index = 0U; index < json_array_get_length(array); index++)
+            if (!exiftool_node_depth_valid(json_array_get_element(array, index),
+                    depth + 1U)) return FALSE;
+    } else if (JSON_NODE_HOLDS_OBJECT(node)) {
+        JsonObject *object = json_node_get_object(node);
+        GList *members = json_object_get_members(object);
+        for (GList *item = members; item != NULL; item = item->next)
+            if (!exiftool_node_depth_valid(json_object_get_member(object,
+                    item->data), depth + 1U)) {
+                g_list_free(members); return FALSE;
+            }
+        g_list_free(members);
     }
-    g_match_info_free(match);
-    g_regex_unref(regex);
-    g_free(pattern);
-    g_free(escaped);
+    return TRUE;
+}
+
+static char *exiftool_node_to_value(JsonNode *node)
+{
+    if (JSON_NODE_HOLDS_NULL(node)) return g_strdup("null");
+    if (JSON_NODE_HOLDS_VALUE(node) &&
+        json_node_get_value_type(node) == G_TYPE_STRING)
+        return g_strdup(json_node_get_string(node));
+    JsonGenerator *generator = json_generator_new();
+    json_generator_set_root(generator, node);
+    char *value = json_generator_to_data(generator, NULL);
+    g_object_unref(generator);
     return value;
-}
-
-static gboolean exiftool_json_shape_is_valid(const char *json)
-{
-    char *copy = json != NULL ? g_strdup(json) : NULL;
-    gboolean valid = FALSE;
-    if (copy != NULL)
-    {
-        g_strstrip(copy);
-        gsize length = strlen(copy);
-        valid = length >= 2 && copy[0] == '[' && copy[length - 1] == ']';
-    }
-    g_free(copy);
-    return valid;
-}
-
-static gboolean exiftool_metadata_contains_tag(
-    const GPtrArray *metadata,
-    const char *group,
-    const char *tag
-)
-{
-    for (guint index = 0; index < metadata->len; index++)
-    {
-        const DocumentMetadataEntry *entry =
-            g_ptr_array_index((GPtrArray *) metadata, index);
-        if (g_strcmp0(entry->original_group, group) == 0 &&
-            g_strcmp0(entry->original_tag, tag) == 0)
-            return TRUE;
-    }
-    return FALSE;
-}
-
-static void exiftool_analysis_add_unknown_tags(
-    ExiftoolAnalysisResult *result,
-    const char *json
-)
-{
-    GRegex *regex = g_regex_new(
-        "\"([A-Za-z0-9_ -]+):([A-Za-z0-9_ -]+)\"\\s*:\\s*"
-        "(\"(?:[^\"\\\\]|\\\\.)*\"|-?[0-9]+(?:\\.[0-9]+)?|true|false|null)",
-        G_REGEX_DOTALL, 0, NULL);
-    GMatchInfo *match = NULL;
-    g_regex_match(regex, json, 0, &match);
-    while (g_match_info_matches(match))
-    {
-        char *group = g_match_info_fetch(match, 1);
-        char *tag = g_match_info_fetch(match, 2);
-        char *value = g_match_info_fetch(match, 3);
-        if (!exiftool_metadata_contains_tag(result->metadata, group, tag))
-        {
-            DocumentMetadataEntry *entry =
-                g_new0(DocumentMetadataEntry, 1);
-            entry->code = g_strdup("metadata.unknown");
-            entry->original_group = group;
-            entry->original_tag = tag;
-            entry->raw_value = value;
-            g_ptr_array_add(result->metadata, entry);
-        }
-        else
-        {
-            g_free(group);
-            g_free(tag);
-            g_free(value);
-        }
-        if (!g_match_info_next(match, NULL))
-            break;
-    }
-    g_match_info_free(match);
-    g_regex_unref(regex);
 }
 
 ExiftoolAnalysisResult *exiftool_analysis_parse(
@@ -170,10 +115,35 @@ ExiftoolAnalysisResult *exiftool_analysis_parse(
             "Le résultat ExifTool à analyser est invalide.");
         return NULL;
     }
-    if (!exiftool_json_shape_is_valid(json))
-    {
+    JsonParser *parser = json_parser_new();
+    json_parser_set_strict(parser, TRUE);
+    GError *parse_error = NULL;
+    if (!json_parser_load_from_data(parser, json, -1, &parse_error)) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+            "La sortie JSON ExifTool est invalide ou tronquée : %s",
+            parse_error != NULL ? parse_error->message : "syntaxe invalide");
+        g_clear_error(&parse_error);
+        g_object_unref(parser);
+        return NULL;
+    }
+    JsonNode *root = json_parser_get_root(parser);
+    if (!JSON_NODE_HOLDS_ARRAY(root) ||
+        json_array_get_length(json_node_get_array(root)) != 1U ||
+        !JSON_NODE_HOLDS_OBJECT(json_array_get_element(
+            json_node_get_array(root), 0U)) ||
+        !exiftool_node_depth_valid(root, 0U)) {
         g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
-            "La sortie JSON ExifTool est invalide ou tronquée.");
+            "La racine, la cardinalité ou la profondeur JSON ExifTool est invalide.");
+        g_object_unref(parser);
+        return NULL;
+    }
+    JsonObject *object = json_node_get_object(json_array_get_element(
+        json_node_get_array(root), 0U));
+    GList *members = json_object_get_members(object);
+    if (g_list_length(members) > EXIFTOOL_MAX_TAGS) {
+        g_list_free(members); g_object_unref(parser);
+        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NO_SPACE,
+            "La sortie ExifTool dépasse la limite de tags.");
         return NULL;
     }
     ExiftoolAnalysisResult *result = g_new0(ExiftoolAnalysisResult, 1);
@@ -189,24 +159,25 @@ ExiftoolAnalysisResult *exiftool_analysis_parse(
         ? DOCUMENT_ANALYSIS_STATE_SUCCESS
         : DOCUMENT_ANALYSIS_STATE_PARTIAL;
 
-    for (guint index = 0; index < G_N_ELEMENTS(exiftool_mappings); index++)
-    {
-        char *value = exiftool_json_extract_value(
-            json, exiftool_mappings[index].tag);
-        if (value == NULL)
-            continue;
+    for (GList *item = members; item != NULL; item = item->next) {
+        const char *qualified = item->data;
+        const char *colon = strchr(qualified, ':');
+        const ExiftoolMapping *mapping = exiftool_mapping_find(qualified);
         DocumentMetadataEntry *entry = g_new0(DocumentMetadataEntry, 1);
-        entry->code = g_strdup(exiftool_mappings[index].code);
-        const char *colon = strchr(exiftool_mappings[index].tag, ':');
-        entry->original_group = g_strndup(exiftool_mappings[index].tag,
-            (gsize) (colon - exiftool_mappings[index].tag));
-        entry->original_tag = g_strdup(colon + 1);
-        entry->raw_value = value;
-        entry->sensitive = exiftool_mappings[index].sensitive;
+        entry->code = g_strdup(mapping != NULL
+            ? mapping->code : "metadata.unknown");
+        entry->original_group = colon != NULL
+            ? g_strndup(qualified, (gsize) (colon - qualified))
+            : g_strdup("Unknown");
+        entry->original_tag = g_strdup(colon != NULL ? colon + 1 : qualified);
+        entry->raw_value = exiftool_node_to_value(
+            json_object_get_member(object, qualified));
+        entry->sensitive = mapping != NULL && mapping->sensitive;
         entry->requires_confirmation = entry->sensitive;
         g_ptr_array_add(result->metadata, entry);
     }
-    exiftool_analysis_add_unknown_tags(result, json);
+    g_list_free(members);
+    g_object_unref(parser);
     return result;
 }
 
@@ -233,8 +204,9 @@ ExiftoolAnalysisResult *exiftool_analysis_run_with_limits(
     GError **error
 )
 {
-    const char *arguments[] = { "-j", "-G1", "-n", "--", file_path, NULL };
-    const char *version_arguments[] = { "-ver", NULL };
+    const char *arguments[] = {
+        "-config", "", "-j", "-G1", "-n", "--", file_path, NULL };
+    const char *version_arguments[] = { "-config", "", "-ver", NULL };
     DocumentToolExecution *execution = NULL;
     if (!document_tool_runner_run_with_limits("exiftool", executable,
             arguments, file_path, limits, cancellable, &execution, error))

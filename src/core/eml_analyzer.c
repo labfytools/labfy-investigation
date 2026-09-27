@@ -208,6 +208,7 @@ static void eml_analyzer_observe_email_header(EmlAnalysis *analysis,
     GRegex *email_regex, const char *header, const char *role)
 {
     const GPtrArray *values = eml_analysis_get_header_values(analysis, header);
+    guint match_occurrence = 0U;
     for (guint index = 0; values != NULL && index < values->len; index++)
     {
         const char *value = g_ptr_array_index((GPtrArray *) values, index);
@@ -215,17 +216,18 @@ static void eml_analyzer_observe_email_header(EmlAnalysis *analysis,
         g_regex_match(email_regex, value, 0, &matches);
         while (g_match_info_matches(matches))
         {
+            match_occurrence++;
             char *raw = g_match_info_fetch(matches, 1);
             char *normalized = g_ascii_strdown(raw, -1);
             eml_analyzer_add_unique(analysis->emails, normalized, FALSE);
             eml_analyzer_add_observation(analysis, "email_address", raw,
-                normalized, role, header, index + 1);
+                normalized, role, header, match_occurrence);
             const char *at = strrchr(normalized, '@');
             if (at != NULL && eml_analyzer_valid_domain(at + 1))
             {
                 eml_analyzer_add_unique(analysis->domains, at + 1, TRUE);
                 eml_analyzer_add_observation(analysis, "domain_name", at + 1,
-                    at + 1, role, header, index + 1);
+                    at + 1, role, header, match_occurrence);
             }
             g_free(normalized); g_free(raw);
             if (!g_match_info_next(matches, NULL)) break;

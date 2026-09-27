@@ -1237,6 +1237,71 @@ cleanup:
     return success;
 }
 
+gboolean evidence_entity_dao_add_extracted_observation(
+    EvidenceEntityDao *dao,
+    const char *evidence_identifier,
+    const char *extraction_identifier,
+    const char *entity_type,
+    const char *value_raw,
+    const char *value_normalized,
+    const char *role,
+    const char *provenance_kind,
+    const char *source_header,
+    guint occurrence,
+    const char *observed_at,
+    char **out_observation_identifier,
+    GError **error)
+{
+    static const char *sql =
+        "INSERT INTO evidence_entity_observations("
+        "id,evidence_id,entity_type,value_raw,value_normalized,role,"
+        "provenance_kind,source_header,occurrence,extraction_id,"
+        "verification_status,observed_at,integrated_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,'proposed',?,?);";
+    DatabaseStatement *statement = NULL;
+    char *identifier = NULL;
+    gboolean success = FALSE;
+    g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+    if (out_observation_identifier != NULL) *out_observation_identifier = NULL;
+    if (!evidence_entity_dao_validate_list_request(dao, evidence_identifier,
+            "L'identifiant de preuve est invalide.", error) ||
+        extraction_identifier == NULL ||
+        !g_uuid_string_is_valid(extraction_identifier) ||
+        entity_type == NULL || entity_type[0] == '\0' || value_raw == NULL ||
+        value_normalized == NULL || role == NULL || role[0] == '\0' ||
+        provenance_kind == NULL || provenance_kind[0] == '\0' ||
+        source_header == NULL || source_header[0] == '\0' || occurrence == 0 ||
+        observed_at == NULL || out_observation_identifier == NULL)
+        return FALSE;
+    identifier = g_uuid_string_random();
+    statement = database_statement_prepare(dao->database, sql);
+    success = identifier != NULL && statement != NULL &&
+        database_statement_bind_text(statement, 1, identifier) &&
+        database_statement_bind_text(statement, 2, evidence_identifier) &&
+        database_statement_bind_text(statement, 3, entity_type) &&
+        database_statement_bind_text(statement, 4, value_raw) &&
+        database_statement_bind_text(statement, 5, value_normalized) &&
+        database_statement_bind_text(statement, 6, role) &&
+        database_statement_bind_text(statement, 7, provenance_kind) &&
+        database_statement_bind_text(statement, 8, source_header) &&
+        database_statement_bind_int64(statement, 9, occurrence) &&
+        database_statement_bind_text(statement, 10, extraction_identifier) &&
+        database_statement_bind_text(statement, 11, observed_at) &&
+        database_statement_bind_text(statement, 12, observed_at) &&
+        database_statement_step(statement) == DATABASE_STATEMENT_STEP_DONE;
+    if (success) *out_observation_identifier = g_strdup(identifier);
+    if (!success || *out_observation_identifier == NULL)
+    {
+        success = FALSE;
+        evidence_entity_dao_set_database_error(dao, error,
+            EVIDENCE_ENTITY_DAO_ERROR_EXECUTE,
+            "Impossible d'enregistrer l'observation extraite");
+    }
+    database_statement_finalize(statement);
+    g_free(identifier);
+    return success;
+}
+
 gboolean evidence_entity_dao_promote_observation(EvidenceEntityDao *dao,
     const char *observation_identifier, const char *entity_identifier,
     const char *promoted_at, const char *promotion_kind, GError **error)
@@ -1333,11 +1398,13 @@ GPtrArray *evidence_entity_dao_list_observations(EvidenceEntityDao *dao,
     const char *evidence_identifier, GError **error)
 {
     static const char *sql =
-        "SELECT id,COALESCE(value_normalized,value_raw),entity_type,role,"
+        "SELECT id,evidence_id,COALESCE(value_corrected,value_normalized,value_raw),"
+        "value_raw,value_normalized,value_corrected,entity_type,role,"
         "source_header,occurrence,provenance_kind,verification_status,"
-        "integrated_at,entity_id,promotion_kind "
+        "observed_at,integrated_at,extraction_id,warning,entity_id,promoted_at,"
+        "promotion_kind "
         "FROM evidence_entity_observations WHERE evidence_id=? "
-        "ORDER BY source_header,occurrence,2,role;";
+        "ORDER BY source_header,occurrence,3,role,id;";
     DatabaseStatement *statement = NULL;
     GPtrArray *items = NULL;
     g_return_val_if_fail(error == NULL || *error == NULL, NULL);
@@ -1357,16 +1424,24 @@ GPtrArray *evidence_entity_dao_list_observations(EvidenceEntityDao *dao,
         EvidenceObservation *item = g_new0(EvidenceObservation, 1);
         int64_t occurrence = 0;
         if (!database_statement_column_text(statement, 0, &item->identifier) ||
-            !database_statement_column_text(statement, 1, &item->value) ||
-            !database_statement_column_text(statement, 2, &item->type_identifier) ||
-            !database_statement_column_text(statement, 3, &item->role) ||
-            !database_statement_column_text(statement, 4, &item->source_header) ||
-            !database_statement_column_int64(statement, 5, &occurrence) ||
-            !database_statement_column_text(statement, 6, &item->provenance_kind) ||
-            !database_statement_column_text(statement, 7, &item->verification_status) ||
-            !database_statement_column_text(statement, 8, &item->integrated_at) ||
-            !database_statement_column_text(statement, 9, &item->entity_identifier) ||
-            !database_statement_column_text(statement, 10, &item->promotion_kind))
+            !database_statement_column_text(statement, 1, &item->evidence_identifier) ||
+            !database_statement_column_text(statement, 2, &item->value) ||
+            !database_statement_column_text(statement, 3, &item->value_raw) ||
+            !database_statement_column_text(statement, 4, &item->value_normalized) ||
+            !database_statement_column_text(statement, 5, &item->value_corrected) ||
+            !database_statement_column_text(statement, 6, &item->type_identifier) ||
+            !database_statement_column_text(statement, 7, &item->role) ||
+            !database_statement_column_text(statement, 8, &item->source_header) ||
+            !database_statement_column_int64(statement, 9, &occurrence) ||
+            !database_statement_column_text(statement, 10, &item->provenance_kind) ||
+            !database_statement_column_text(statement, 11, &item->verification_status) ||
+            !database_statement_column_text(statement, 12, &item->observed_at) ||
+            !database_statement_column_text(statement, 13, &item->integrated_at) ||
+            !database_statement_column_text(statement, 14, &item->extraction_identifier) ||
+            !database_statement_column_text(statement, 15, &item->warning) ||
+            !database_statement_column_text(statement, 16, &item->entity_identifier) ||
+            !database_statement_column_text(statement, 17, &item->promoted_at) ||
+            !database_statement_column_text(statement, 18, &item->promotion_kind))
         { evidence_observation_free(item); goto failure; }
         item->occurrence = (guint) occurrence;
         g_ptr_array_add(items, item);
