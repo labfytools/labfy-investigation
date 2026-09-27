@@ -27,6 +27,7 @@ from report_bundle import publish as publish_report, verify as verify_report, Re
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
 MAX_BODY = 4096
+SESSION_TTL_SECONDS = 3600
 MAX_EXPORT = 1024 * 1024
 MAX_PLAN_ITEMS = 8
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
@@ -47,16 +48,34 @@ class WorkspaceServer(ThreadingHTTPServer):
     block_on_close = False
 
     def __init__(self, address, handler, *, workspace: Path, bridge: Path,
-                 bootstrap: str):
+                 bootstrap: str, library=None, instance_id=None, config_id=None,
+                 session_ttl_seconds=SESSION_TTL_SECONDS):
+        if (not isinstance(session_ttl_seconds, int) or
+                isinstance(session_ttl_seconds, bool) or session_ttl_seconds <= 0):
+            raise ValueError("Durée de session invalide")
         super().__init__(address, handler)
         self.workspace = workspace.resolve()
         self.bridge = bridge.resolve()
         self.authority = f"127.0.0.1:{self.server_port}"
         self.origin = f"http://{self.authority}"
         self.bootstrap = bootstrap
+        self.library = library
+        self.active_workspace_id = None
+        self.library_generation = (library.snapshot(None)["generation"]
+                                   if library is not None else 0)
+        self.instance_id = instance_id or secrets.token_urlsafe(18)
+        self.config_id = config_id or hashlib.sha256(
+            str(self.workspace).encode()).hexdigest()
+        self.cookie_name = f"labfy_session_{self.instance_id[:12]}"
         self.session = secrets.token_urlsafe(32)
         self.csrf = secrets.token_urlsafe(32)
-        self.session_deadline = time.monotonic() + 3600
+        self.session_lock = threading.RLock()
+        # CONTRACT: la production conserve 3600 s. L'injection constructeur
+        # permet seulement aux tests d'observer une vraie expiration sans route
+        # d'administration ni manipulation de l'horloge du processus.
+        self.session_ttl_seconds = session_ttl_seconds
+        # La durée commence à la connexion, jamais au démarrage du serveur.
+        self.session_deadline = 0.0
         self.worker = None
         self.worker_supervisor = None
         self.worker_supervisor_stop = threading.Event()
@@ -70,6 +89,46 @@ class WorkspaceServer(ThreadingHTTPServer):
         self.active_uploads = 0
         self.reserved_upload_bytes = 0
         self.upload_mutexes = {}
+
+    def library_snapshot(self):
+        if self.library is None:
+            raise ValueError("Mode bibliothèque inactif")
+        value = self.library.snapshot(self.active_workspace_id)
+        self.library_generation = value["generation"]
+        return value
+
+    def create_library_workspace(self, title, idempotency_key):
+        if self.library is None:
+            raise ValueError("Mode bibliothèque inactif")
+        value = self.library.create(title, idempotency_key)
+        self.library_generation = value["generation"]
+        return value
+
+    def open_library_workspace(self, workspace_id, expected_generation):
+        if self.library is None:
+            raise ValueError("Mode bibliothèque inactif")
+        with self.lock:
+            if (self.active_workspace_id is not None and
+                    self.active_workspace_id != workspace_id):
+                raise ValueError("Une autre enquête est déjà active")
+            workspace, entry, generation = self.library.open(
+                workspace_id, expected_generation)
+            if self.active_workspace_id is None:
+                previous = self.workspace
+                self.workspace = workspace
+                try:
+                    # CONTRACT: l'ouverture valide aussi le pipeline C existant ;
+                    # le serveur Web ne reconstruit aucune projection lui-même.
+                    self.bridge_call(["export"])
+                    self.context()
+                except Exception:
+                    self.workspace = previous
+                    raise
+                self.active_workspace_id = workspace_id
+            self.library_generation = generation
+        return {"contract": "labfy.web_library.open.v1",
+                "workspace_id": workspace_id, "title": entry["title"],
+                "state": "READY", "generation": generation}
 
     def upload_mutex(self, upload_id):
         """Return the process-local owner lock for one persisted upload."""
@@ -229,18 +288,20 @@ class Handler(BaseHTTPRequestHandler):
         return self.headers.get("Host") == self.server.authority
 
     def _authenticated(self):
-        if time.monotonic() > self.server.session_deadline:
-            return False
-        cookie = SimpleCookie(self.headers.get("Cookie", ""))
-        value = cookie.get("labfy_session")
-        return value is not None and hmac.compare_digest(value.value,
-                                                          self.server.session)
+        with self.server.session_lock:
+            if time.monotonic() >= self.server.session_deadline:
+                return False
+            cookie = SimpleCookie(self.headers.get("Cookie", ""))
+            value = cookie.get(self.server.cookie_name)
+            return value is not None and hmac.compare_digest(
+                value.value, self.server.session)
 
     def _mutation_allowed(self):
-        return (self._authenticated() and
-                self.headers.get("Origin") == self.server.origin and
-                hmac.compare_digest(self.headers.get("X-Labfy-CSRF", ""),
-                                    self.server.csrf))
+        with self.server.session_lock:
+            return (self._authenticated() and
+                    self.headers.get("Origin") == self.server.origin and
+                    hmac.compare_digest(self.headers.get("X-Labfy-CSRF", ""),
+                                        self.server.csrf))
 
     def _content_length(self, maximum, *, expected=None):
         """Validate HTTP/1.1 framing before a route consumes its body."""
@@ -315,6 +376,16 @@ class Handler(BaseHTTPRequestHandler):
             raise TypeError("Tous les champs JSON doivent être textuels")
         if any(len(item) == 0 or len(item) > 512 for item in value.values()):
             raise TypeError("Champ JSON vide ou trop long")
+        return value
+
+    def _library_open_body(self):
+        value = self._json_body()
+        if (not isinstance(value, dict) or
+                set(value) != {"workspace_id", "expected_generation"} or
+                not isinstance(value["workspace_id"], str) or
+                not isinstance(value["expected_generation"], int) or
+                isinstance(value["expected_generation"], bool)):
+            raise TypeError("Demande d'ouverture de bibliothèque invalide")
         return value
 
     def _plan_body(self):
@@ -412,7 +483,8 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         if path == "/healthz":
             self._json(HTTPStatus.OK, {"contract": "labfy.workspace.health.v1",
-                                       "status": "ready"})
+                "status": "ready", "instance_id": self.server.instance_id,
+                "config_id": self.server.config_id})
             return
         if not self._authenticated():
             if path in {"/", "/login.js", "/styles.css"}:
@@ -430,7 +502,15 @@ class Handler(BaseHTTPRequestHandler):
                 "workspace_state": "READY" if context else "EMPTY",
                 "investigation_id": context.get("investigation_id") if context else None,
                 "title": context.get("title", "SPECIMEN") if context else None,
-                "mode": context.get("mode", "specimen") if context else "local_experimental"})
+                "mode": context.get("mode", "specimen") if context else "local_experimental",
+                "library_mode": self.server.library is not None,
+                "active_workspace_id": self.server.active_workspace_id,
+                "generation": self.server.library_generation})
+        elif path == "/api/v1/library":
+            try:
+                self._json(HTTPStatus.OK, self.server.library_snapshot())
+            except (OSError, ValueError, json.JSONDecodeError) as error:
+                self._error(HTTPStatus.CONFLICT, "library_unavailable", str(error))
         elif path.startswith("/api/v1/evidence/"):
             parts = path.split("/")
             if len(parts) != 6 or parts[5] not in {"preview", "observations"}:
@@ -518,7 +598,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.server.last_command = now
         try:
+            if path == "/api/v1/library/workspaces":
+                value = self._body({"title", "idempotency_key"})
+                response = self.server.create_library_workspace(
+                    value["title"], value["idempotency_key"])
+                self._json(HTTPStatus.OK if response["replayed"] else HTTPStatus.CREATED,
+                           response)
+                return
+            if path == "/api/v1/library/open":
+                value = self._library_open_body()
+                self._json(HTTPStatus.OK, self.server.open_library_workspace(
+                    value["workspace_id"], value["expected_generation"]))
+                return
             if path == "/api/v1/workspace":
+                if self.server.library is not None:
+                    raise ValueError("Utiliser la création explicite de la bibliothèque")
                 value = self._body({"title"})
                 if self.server.context() is not None:
                     raise ValueError("L’espace est déjà créé")
@@ -911,8 +1005,16 @@ class Handler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(value["bootstrap_code"], self.server.bootstrap):
             self._error(HTTPStatus.FORBIDDEN, "bootstrap_rejected", "Code éphémère invalide")
             return
-        cookie = (f"labfy_session={self.server.session}; HttpOnly; SameSite=Strict; "
-                  "Path=/; Max-Age=3600")
+        with self.server.session_lock:
+            # Une reconnexion renouvelle les secrets ; les anciens cookies
+            # expirés ne doivent pas redevenir valables.
+            self.server.session = secrets.token_urlsafe(32)
+            self.server.csrf = secrets.token_urlsafe(32)
+            self.server.session_deadline = (time.monotonic() +
+                                            self.server.session_ttl_seconds)
+            cookie = (f"{self.server.cookie_name}={self.server.session}; "
+                      "HttpOnly; SameSite=Strict; "
+                      f"Path=/; Max-Age={self.server.session_ttl_seconds}")
         self._json(HTTPStatus.OK, {"contract": "labfy.workspace.session.v1",
                                    "authenticated": True}, cookie=cookie)
 
@@ -961,7 +1063,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--bridge", type=Path, required=True)
-    parser.add_argument("--port", type=int, default=8765)
+    def port(value):
+        parsed = int(value)
+        if not 0 <= parsed <= 65535:
+            raise argparse.ArgumentTypeError("port hors limites")
+        return parsed
+    parser.add_argument("--port", type=port, default=8081)
     args = parser.parse_args()
     bootstrap = secrets.token_urlsafe(12)
     server = WorkspaceServer(("127.0.0.1", args.port), Handler,

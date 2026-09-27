@@ -7,7 +7,7 @@ import argparse
 import subprocess
 from pathlib import Path
 
-from workspace_server import main as serve_main
+from web_app import main as web_app_main
 
 
 def prepare(workspace: Path, bridge: Path):
@@ -27,12 +27,11 @@ def prepare(workspace: Path, bridge: Path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", type=Path, required=True)
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--port", type=int, default=8081)
     args = parser.parse_args()
     repository = Path(__file__).resolve().parents[2]
     bridge = repository / "tools" / "local-jobs"
     prepare(args.workspace.resolve(), bridge)
-    import sys
-    sys.argv = [sys.argv[0], "--workspace", str(args.workspace.resolve()),
-                "--bridge", str(bridge), "--port", str(args.port)]
-    serve_main()
+    raise SystemExit(web_app_main(["serve", "--workspace",
+        str(args.workspace.resolve()), "--bridge", str(bridge),
+        "--port", str(args.port)]))

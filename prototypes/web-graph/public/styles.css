@@ -76,6 +76,77 @@ textarea:focus-visible,
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
 }
+#workbench-shell {
+  height: 100%;
+}
+.library-home {
+  width: min(72rem, 100%);
+  height: 100%;
+  margin: 0 auto;
+  padding: clamp(1rem, 4vw, 3rem);
+  overflow: auto;
+}
+.library-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.library-header h1 {
+  margin: 0.25rem 0 0;
+  color: var(--accent);
+}
+#library-connection {
+  color: var(--muted);
+  text-align: right;
+}
+.library-create {
+  margin: 1.5rem 0 2rem;
+  padding: 1.25rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+.library-create h2,
+.library-create p {
+  margin-top: 0;
+}
+.library-create-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+.library-create-row input {
+  flex: 1;
+  min-width: 0;
+}
+.workspace-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(18rem, 100%), 1fr));
+  gap: 1rem;
+  padding: 0;
+  list-style: none;
+}
+.workspace-card,
+.empty-state {
+  padding: 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+.workspace-card h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-card p,
+.login-privacy {
+  color: var(--muted);
+}
+.workspace-card button {
+  width: 100%;
+}
 .topbar {
   height: var(--top);
   display: grid;
@@ -457,6 +528,10 @@ body.login .workbench {
   border: 1px solid var(--border);
   border-radius: 0.75rem;
 }
+.login-card form {
+  display: grid;
+  gap: 0.65rem;
+}
 @media (max-width: 900px) {
   :root {
     --top: 6.2rem;
@@ -504,6 +579,25 @@ body.login .workbench {
   }
   .hint {
     display: none;
+  }
+}
+@media (max-width: 700px) {
+  .library-header,
+  .library-create-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  #library-connection {
+    text-align: left;
+  }
+}
+@media (forced-colors: active) {
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  #graph:focus-visible {
+    outline-color: Highlight;
   }
 }
 @media (max-width: 540px) {

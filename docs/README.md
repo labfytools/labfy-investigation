@@ -16,8 +16,12 @@ déjà disponible.
 - [architecture de la base](database/DATABASE_ARCHITECTURE.md) et
   [audit courant du schéma](database/SCHEMA_AUDIT_CURRENT.md) ;
 - [test manuel du pivot EML](testing/EML_PIVOT_MANUAL_TEST.md).
+- [poste Web local contrôlé](architecture/WEB_WORKSPACE_CONTROL.md) et
+  [guide du poste Web](ui/WEB_WORKBENCH.md).
 
 Les guides GTK restent applicables tant que l'interface actuelle est maintenue.
+Le poste Web local `CURRENT` ne retire donc aucun parcours GTK ni ne décide le
+serveur, le renderer ou le packaging de production.
 
 ## Direction v0.1.0 — TARGET
 

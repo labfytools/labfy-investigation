@@ -1,10 +1,18 @@
 # Poste Web local — guide d’utilisation
 
-> **Statut CURRENT local :** poste utilisable sur une enquête `SPECIMEN`, au-dessus
-> des services C et du JobStore V3 existants. Il ne constitue pas une autorisation
-> d’ouvrir une enquête réelle ni un service distant.
+> **Statut CURRENT local :** poste utilisable au-dessus des services C et du
+> JobStore V3 existants, depuis une bibliothèque d'enquêtes explicitement
+> choisie. Les validations emploient des fixtures `SPECIMEN`. Il ne constitue
+> ni une autorisation d’ouvrir une enquête réelle, ni un service distant.
 
 ## Organisation
+
+À l'ouverture, la bibliothèque affiche les enquêtes locales enregistrées et
+permet d'en créer une avec un titre explicite. Une enquête ouverte reste la
+seule enquête active de cette instance ; le poste n'en restaure pas une autre
+automatiquement. Le titre et la génération de la bibliothèque identifient le
+contexte affiché, afin qu'une réponse tardive d'une enquête précédente ne le
+repeuple pas.
 
 Le graphe reste la surface principale. La barre haute porte l’identité de
 l’enquête, le statut local et la recherche. La rangée suivante change de
@@ -82,16 +90,18 @@ Une date sans fuseau ou invalide reste non positionnable.
 
 ## Lancement et limites
 
-Créer exclusivement une fixture synthétique dans un répertoire temporaire :
+Lancer le poste local sur une bibliothèque explicitement choisie :
 
 ```bash
-make -j8 tools/local-jobs
-tmp_workspace=$(mktemp -d /tmp/labfy-workbench-specimen-XXXXXX)
-tools/local-jobs init-j7-specimen --workspace "$tmp_workspace"
-make web-workspace-j9 WORKSPACE="$tmp_workspace"
+make web PORT=8081 LIBRARY=/chemin/vers/la-bibliotheque-locale
 ```
 
 L’écoute reste loopback, la session est authentifiée et les mutations exigent
 le jeton CSRF. Le poste n’expose pas le répertoire des preuves et n’installe
 aucun outil. Les projections vides, erreurs, annulations et limites sont des
 états explicites ; elles ne prouvent jamais une absence d’information.
+
+Pour les validations, utiliser seulement une bibliothèque temporaire et des
+enquêtes `SPECIMEN`. Les commandes d'exploitation `start`, `status`, `stop` et
+`code`, les répertoires XDG privés et les plafonds de réception sont documentés
+dans [le contrat du poste Web](../architecture/WEB_WORKSPACE_CONTROL.md).

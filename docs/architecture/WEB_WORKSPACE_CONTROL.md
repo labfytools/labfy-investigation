@@ -1,24 +1,77 @@
 # Poste de travail Web contrôlé — J6 local
 
-> État : `CURRENT` pour le seul espace `SPECIMEN` produit par le lanceur J6.
-> Runtime métier : V20 inchangé. JobStore : V1 inchangé. V21 reste indépendante.
+> État : `CURRENT` pour le poste Web local contrôlé et sa bibliothèque
+> explicitement choisie. Runtime métier : V20 inchangé. JobStore : V3 inchangé.
+> V21 reste indépendante.
 
 ## Parcours
 
-Une commande prépare ou reprend un espace synthétique, lance l’API loopback et
-son worker possédé, puis affiche l’URL et un code de session éphémère :
+La commande principale lance l’API loopback sur une bibliothèque locale
+explicitement choisie. Elle affiche l’URL et un code de session éphémère :
 
 ```sh
-make -j8 tools/local-jobs
-make web-workspace WORKSPACE=/tmp/labfy-j6-specimen
+make web PORT=8081 LIBRARY=/chemin/vers/la-bibliotheque-locale
 ```
 
-L’utilisateur ouvre l’URL, saisit le code, sélectionne l’EML ou l’image dans le
-graphe et choisit « Analyser les en-têtes » ou « Examiner les métadonnées ».
-L’intention est persistée avant la réponse HTTP `202`. Le worker C exécute le
-service J3/J4 correspondant, puis C republie atomiquement les snapshots jobs et
-métier. Le navigateur les relit sans rechargement de page. Pause, reprise, stop
-et annulation sont disponibles dans le panneau Jobs.
+L'instance écoute sur `127.0.0.1:8081` dans cet exemple. Après authentification,
+la bibliothèque permet de créer une enquête locale par le bridge C ou d'ouvrir
+une enquête enregistrée. Une seule enquête peut être active par instance ; une
+autre ouverture exige le redémarrage du poste local. L'utilisateur sélectionne
+ensuite l’EML ou l’image dans le graphe et choisit « Analyser les en-têtes » ou
+« Examiner les métadonnées ». L’intention est persistée avant la réponse HTTP
+`202`. Le worker C exécute le service J3/J4 correspondant, puis C republie
+atomiquement les snapshots jobs et métier. Le navigateur les relit sans
+rechargement de page. Pause, reprise, stop et annulation sont disponibles dans
+le panneau Jobs.
+
+Le lanceur gère une seule instance authentifiée. Ses sous-commandes sont :
+
+```sh
+python3 prototypes/web-graph/web_app.py start --library /chemin/vers/la-bibliotheque-locale --port 8081
+python3 prototypes/web-graph/web_app.py status
+python3 prototypes/web-graph/web_app.py stop
+python3 prototypes/web-graph/web_app.py code
+```
+
+`start` refuse une seconde instance active. `status`, `stop` et `code` valident
+l'identité du processus et l'état de santé loopback avant d'agir ou de révéler
+le code éphémère. Ne pas consigner ce code dans des scripts, URLs, journaux ou
+documents. Le mode `--workspace` reste le parcours ciblé existant ; il ne crée
+pas une bibliothèque implicite.
+
+## Bibliothèque, état XDG et limites
+
+La bibliothèque est privée (`0700`), refuse les liens symboliques et conserve
+un registre atomique borné à 256 enquêtes. Chaque enquête est un enfant direct
+identifié par UUID ; le bridge C existant est le seul créateur de son runtime
+V20 et de son JobStore V3. La création est idempotente pour une même clé et le
+même titre ; réemployer la clé avec un autre titre est refusé. L'ouverture exige
+la génération courante du registre afin de ne pas utiliser une projection
+périmée.
+
+L'instance place ses verrous, identité et code d'amorçage dans
+`$XDG_RUNTIME_DIR/labfy-investigation-web/`, ou dans un repli privé par UID
+sous `/tmp` si `XDG_RUNTIME_DIR` n'est pas défini. Sa configuration durable est
+dans `$XDG_STATE_HOME/labfy-investigation-web/` (ou le repli XDG usuel). Ces
+fichiers ne sont ni des données métier, ni une bibliothèque : la destination
+des enquêtes reste l'argument explicite `LIBRARY`.
+
+La session a une durée maximale de `3600` secondes (une heure) à compter de chaque connexion
+réussie, indépendamment de l'heure de démarrage du serveur. Après expiration,
+le code de l'instance permet une nouvelle authentification : les secrets de
+session et CSRF sont renouvelés et l'ancien cookie reste invalide. Un code
+incorrect ou une origine refusée ne renouvelle jamais cette durée.
+Le premier refus `session_required` reçu par le navigateur arrête ses flux et
+pollings, invalide les secrets seulement en mémoire et présente une reconnexion
+explicite. Il ne redirige pas en boucle et ne rejoue ni une mutation refusée ni
+une admission dont l'issue est inconnue. Les brouillons autorisés restent dans
+la session du navigateur, tandis que les jobs déjà admis conservent leurs
+budgets et leur cycle de vie propres.
+Les limites HTTP et opérationnelles
+restent opposables : corps JSON de commande de 4 Kio, huit fichiers sélectionnés
+pour 16 Mio, 4 Mio par réception, 64 Mio de staging, deux réceptions actives et
+deux générations de rapport simultanées. Une limite, une annulation ou une
+erreur d'export est un état explicite et ne prouve jamais l'absence de résultat.
 
 ## Décision HTTP et bridge
 
@@ -55,7 +108,7 @@ Le serveur écoute exclusivement sur l’autorité annoncée
 `127.0.0.1:<port>`. Le code d’amorçage et les secrets de session proviennent de
 `secrets`, ne sont pas placés dans une URL et ne sont pas journalisés par les
 routes. Après amorçage, le cookie est host-only, `HttpOnly`, `SameSite=Strict`,
-`Path=/`, limité à une heure. Il n’a pas l’attribut `Secure`, puisque ce mode
+`Path=/`, avec `Max-Age=3600` secondes (une heure). Il n’a pas l’attribut `Secure`, puisque ce mode
 testé utilise HTTP loopback et ne revendique pas TLS.
 
 Lectures opérationnelles et mutations exigent la session. Les mutations exigent
@@ -109,8 +162,25 @@ zoom, filtres, repli et positions épinglées restent dans l’état du navigate
 
 ## Limites
 
-Ce poste est une fondation locale synthétique : pas d’enquête réelle, LAN,
-TLS, reverse proxy, service permanent, autonomie réseau, recherche OSINT,
-worker distribué ou mutation de la V21. Les anciens modes J2–J5 restent
-strictement read-only. `ThreadingHTTPServer` n’est pas présenté comme un serveur
-Internet ou une frontière de sécurité de production.
+Ce poste est une fondation locale contrôlée : les validations automatisées
+emploient exclusivement des fixtures `SPECIMEN`. Il n'autorise ni enquête
+réelle, ni LAN, TLS, reverse proxy, service permanent, autonomie réseau,
+recherche OSINT, worker distribué ou mutation de la V21. Les anciens modes
+J2–J5 restent strictement read-only. `ThreadingHTTPServer` n’est pas présenté
+comme un serveur Internet ou une frontière de sécurité de production.
+
+## Validation Web
+
+La cible `make web-workspace-web-check` construit d'abord les bridges C requis,
+puis exécute les unités Node, la découverte Python et les parcours navigateur
+séquentiels. Le runner navigateur classe chaque scénario avec l’un des statuts
+`MISSING`, `LAUNCH_ERROR`, `EXIT_CODE`, `SIGNALED`, `TIMEOUT`, `INTERRUPTED`
+ou `SUCCESS`. Sur Linux, il crée et possède le groupe et la session de
+processus de chaque scénario ; son nettoyage est limité à ce groupe/session et
+envoie `SIGTERM`, attend une grâce bornée, puis escalade avec `SIGKILL` si
+nécessaire. Il ne recherche ni ne termine des processus utilisateur.
+Les régressions emploient un Firefox, des profils, ports, XDG et bibliothèques
+`SPECIMEN` isolés, notamment pour la connexion tardive, l'expiration et la
+reconnexion sans redémarrer le serveur. Elles ne constituent pas à elles seules
+une certification de sécurité, de production, de navigateur ou de données non
+synthétiques.

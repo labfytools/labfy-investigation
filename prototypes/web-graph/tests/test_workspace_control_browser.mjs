@@ -68,7 +68,7 @@ try {
   await Promise.all([page.waitForNavigation({ waitUntil: "domcontentloaded" }),
     page.click("#login-form button")]);
   await page.waitForSelector(`[data-id="evidence:${manifest.eml_id}"]`);
-  assert.match(await page.$eval("#mode-badge", (item) => item.textContent), /Poste J6/);
+  assert.match(await page.$eval("#mode-badge", (item) => item.textContent), /Poste local/);
 
   await page.click("#queue-pause");
   await clickEvidenceCapability(page, manifest.eml_id,

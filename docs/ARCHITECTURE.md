@@ -169,6 +169,11 @@ Le socle comprend déjà :
   extraction et observations `proposed` sont publiés atomiquement en V20, puis
   projetés en snapshot v3 sans reconstruction dans le pont Web ; voir
   [EML_ANALYSIS_TO_GRAPH.md](architecture/EML_ANALYSIS_TO_GRAPH.md).
+- poste Web local contrôlé : une instance loopback possède une bibliothèque
+  explicitement choisie et ne rend active qu'une enquête à la fois. Le bridge
+  C reste le créateur des enquêtes, le lecteur des projections et l'unique
+  accès aux stockages métier ; voir
+  [WEB_WORKSPACE_CONTROL.md](architecture/WEB_WORKSPACE_CONTROL.md).
 
 Ces composants doivent être réutilisés ou migrés. La direction V2 n'autorise
 pas une réécriture générale du cœur fonctionnel.
@@ -591,9 +596,20 @@ analyse approuvée et rapport.
 ## 17. Espace local, revue et projections — CURRENT expérimental
 
 Le parcours local est limité à une instance loopback et à des validations sur
-fixtures `SPECIMEN`. Il ne change pas le statut de la surface Web : GTK reste
-le parcours fonctionnel actuel et le serveur, son packaging ainsi que le choix
-du renderer de production restent `UNDECIDED`.
+fixtures `SPECIMEN`. Son lanceur peut ouvrir une bibliothèque locale
+explicitement choisie, en créer les enquêtes par le bridge C et n'en active
+qu'une seule dans une instance. Il ne rouvre pas implicitement l'enquête d'une
+session précédente. Cette surface ne change pas son statut : GTK reste le
+parcours fonctionnel actuel et le serveur, son packaging ainsi que le choix du
+renderer de production restent `UNDECIDED`.
+
+Le runtime métier demeure V20 et le JobStore opérationnel demeure V3 ; le
+poste Web ne migre ni ne modifie la tranche financière V21. L'état d'instance
+et le secret d'amorçage sont séparés dans le runtime privé XDG (avec un repli
+privé propre à l'UID lorsque `XDG_RUNTIME_DIR` est absent) ; la configuration
+durable est placée dans l'état XDG privé. La bibliothèque est une destination
+locale fournie explicitement au lancement : elle n'est pas déduite d'une
+dernière enquête ouverte.
 
 Après la publication d'une preuve V20, le bridge Web demande au cœur C un
 aperçu EML, PNG ou JPEG. L'original, son chemin et son répertoire ne sont jamais

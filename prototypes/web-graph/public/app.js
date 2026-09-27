@@ -118,7 +118,7 @@ let reconnectCount = 0;
 let operationalMode = false;
 let csrfToken = null;
 let workspaceReady = false;
-let workspaceMode = "specimen";
+let libraryMode = false;
 const preparedUploads = new Map();
 let jobsRefreshing = false;
 let graphRefreshing = false;
@@ -135,6 +135,109 @@ let previewSequence = 0;
 let reportDraftKey = "labfy-report-draft:unbound";
 let evidenceOpenSequence = 0;
 let openedEvidenceId = null;
+let libraryGeneration = null;
+let pendingCreateIntent = null;
+let workspaceContext = null;
+let workspaceAbortController = null;
+const refreshTimers = new Set();
+let sessionExpired = false;
+
+function invalidateWorkspaceContext() {
+  workspaceAbortController?.abort();
+  workspaceAbortController = null;
+  workspaceContext = null;
+  eventSource?.close();
+  eventSource = null;
+  for (const timer of refreshTimers) clearInterval(timer);
+  refreshTimers.clear();
+  evidenceOpenSequence += 1;
+  previewSequence += 1;
+  openedEvidenceId = null;
+  jobsRefreshing = false;
+  graphRefreshing = false;
+  correlationsRefreshing = false;
+}
+
+function beginWorkspaceContext(workspaceId, generation) {
+  invalidateWorkspaceContext();
+  workspaceAbortController = new AbortController();
+  workspaceContext = Object.freeze({ workspaceId, generation });
+  return workspaceContext;
+}
+
+function expireAuthenticatedSession() {
+  if (sessionExpired || !operationalMode) return;
+  sessionExpired = true;
+  // CONTRACT: le premier 401 authentifié ferme tous les producteurs de données
+  // et invalide les secrets en mémoire. Aucun appel refusé n'est rejoué.
+  invalidateWorkspaceContext();
+  csrfToken = null;
+  operationalMode = false;
+  libraryMode = false;
+  workspaceReady = false;
+  libraryGeneration = null;
+  pendingCreateIntent = null;
+  preparedUploads.clear();
+  for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
+  byId("node-context-menu").hidden = true;
+  byId("workbench-shell").hidden = true;
+  byId("library-home").hidden = false;
+  byId("workspace-create").hidden = true;
+  byId("library-list-section").hidden = true;
+  byId("library-title").textContent = "Session locale expirée";
+  byId("library-connection").textContent =
+    "Le travail en cours a été arrêté. Reconnectez-vous pour reprendre ; aucune action refusée n’a été relancée.";
+  let reconnect = byId("session-reconnect");
+  if (!reconnect) {
+    reconnect = document.createElement("a");
+    reconnect.id = "session-reconnect";
+    reconnect.href = "/";
+    reconnect.textContent = "Se reconnecter";
+    byId("library-connection").insertAdjacentElement("afterend", reconnect);
+  }
+  reconnect.focus();
+}
+
+async function detectExpiredSession(response) {
+  if (!operationalMode || response.status !== 401) return false;
+  let value = null;
+  try { value = await response.clone().json(); } catch (_) { return false; }
+  if (value?.error !== "session_required") return false;
+  expireAuthenticatedSession();
+  return true;
+}
+
+async function workspaceFetch(path, options = {}) {
+  const context = workspaceContext;
+  const controller = workspaceAbortController;
+  if (!context || !controller) throw new DOMException("Contexte fermé", "AbortError");
+  const response = await fetch(path, { ...options, signal: controller.signal });
+  if (await detectExpiredSession(response))
+    throw new DOMException("Session expirée", "AbortError");
+  // INVARIANT: une réponse appartient au couple espace/génération qui l'a
+  // demandée ; elle ne peut jamais repeupler l'espace ouvert ensuite.
+  if (context !== workspaceContext) throw new DOMException("Contexte remplacé", "AbortError");
+  Object.defineProperty(response, "_labfyWorkspaceContext", { value: context });
+  return response;
+}
+
+async function workspaceJson(response) {
+  const value = await response.json();
+  if (response._labfyWorkspaceContext !== workspaceContext)
+    throw new DOMException("Contexte remplacé", "AbortError");
+  return value;
+}
+
+async function responseJson(response, fallback) {
+  let value;
+  try {
+    value = await response.json();
+  } catch (_) {
+    throw new Error(fallback);
+  }
+  if (!response.ok) throw new Error(value.message ?? fallback);
+  return value;
+}
 
 function saveReportDraft() {
   if (!operationalMode) return;
@@ -153,7 +256,7 @@ function restoreReportDraft() {
   try {
     const draft = JSON.parse(sessionStorage.getItem(reportDraftKey) ?? "null");
     if (!draft) return;
-    byId("report-name").value = draft.title ?? "Rapport SPECIMEN";
+    byId("report-name").value = draft.title ?? "Rapport d’enquête";
     byId("report-comment").value = draft.comment ?? "";
     for (const input of document.querySelectorAll('[name="report-section"]'))
       input.checked = draft.sections?.includes(input.value) ?? input.checked;
@@ -176,19 +279,19 @@ function invalidateReportPreview(
 }
 
 async function postCommand(path, value = {}) {
-  const response = await fetch(path, {
+  const response = await workspaceFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Labfy-CSRF": csrfToken },
     body: JSON.stringify(value),
   });
-  const result = await response.json();
+  const result = await workspaceJson(response);
   if (!response.ok) throw new Error(result.message ?? "Commande refusée");
   return result;
 }
 
 async function evidenceJson(path) {
-  const response = await fetch(path, { cache: "no-store" });
-  const value = await response.json();
+  const response = await workspaceFetch(path, { cache: "no-store" });
+  const value = await workspaceJson(response);
   if (!response.ok) throw new Error(value.message ?? "Preuve indisponible");
   return value;
 }
@@ -307,14 +410,14 @@ async function openEvidence(evidenceId) {
     byId("evidence-status").textContent =
       `Intégrité vérifiée · cache ${preview.cache_id.slice(0, 12)} · aperçu ${preview.renderer_version}`;
   } catch (error) {
-    if (sequence === evidenceOpenSequence)
+    if (error.name !== "AbortError" && sequence === evidenceOpenSequence)
       byId("evidence-status").textContent = error.message;
   }
 }
 
 async function refreshGraphAfterImport() {
-  const response = await fetch("/api/v1/snapshot", { cache: "no-store" });
-  const value = await response.json();
+  const response = await workspaceFetch("/api/v1/snapshot", { cache: "no-store" });
+  const value = await workspaceJson(response);
   if (!response.ok) throw new Error(value.message ?? "Projection indisponible");
   snapshot = prepareSnapshot(value); coreMode = true; render();
   await refreshPlanner();
@@ -330,11 +433,11 @@ async function receiveFile(file, selectionId) {
       declared_type: file.type || "application/octet-stream",
       selection_id: selectionId,
     });
-    const response = await fetch(`/api/v1/uploads/${intention.upload_id}`, {
+    const response = await workspaceFetch(`/api/v1/uploads/${intention.upload_id}`, {
       method: "PUT", headers: {"Content-Type":"application/octet-stream",
         "X-Labfy-CSRF":csrfToken}, body:file,
     });
-    const prepared = await response.json();
+    const prepared = await workspaceJson(response);
     if (!response.ok) throw new Error(prepared.message ?? "Réception refusée");
     preparedUploads.set(prepared.upload_id, prepared);
     item.textContent = `${prepared.name} — ${prepared.expected_size} octets — ${prepared.recognized_type} — préparé`;
@@ -374,9 +477,9 @@ async function refreshJobs() {
   if (jobsRefreshing) return;
   jobsRefreshing = true;
   try {
-    const response = await fetch("/api/v1/jobs", { cache: "no-store" });
+    const response = await workspaceFetch("/api/v1/jobs", { cache: "no-store" });
     if (!response.ok) return;
-    const value = await response.json();
+    const value = await workspaceJson(response);
     if (
       value.contract !== "labfy.local_jobs.snapshot.v1" ||
       !Array.isArray(value.jobs)
@@ -449,8 +552,8 @@ async function refreshOperationalGraph() {
   if (!operationalMode || graphRefreshing) return;
   graphRefreshing = true;
   try {
-    const response = await fetch("/api/v1/snapshot", { cache: "no-store" });
-    const value = await response.json();
+    const response = await workspaceFetch("/api/v1/snapshot", { cache: "no-store" });
+    const value = await workspaceJson(response);
     if (!response.ok) throw new Error(value.message ?? "export indisponible");
     const fingerprint = snapshotFingerprint(value);
     if (fingerprint !== acceptedSnapshotFingerprint) {
@@ -492,7 +595,8 @@ async function refreshOperationalGraph() {
         "Poste local synchronisé · sans changement";
     }
   } catch (error) {
-    byId("connection").textContent = `Dernière vue valide · ${error.message}`;
+    if (error.name !== "AbortError")
+      byId("connection").textContent = `Dernière vue valide · ${error.message}`;
   } finally {
     graphRefreshing = false;
   }
@@ -502,8 +606,8 @@ async function refreshCorrelations() {
   if (!operationalMode || correlationsRefreshing) return;
   correlationsRefreshing = true;
   try {
-    const response = await fetch("/api/v1/correlations", { cache: "no-store" });
-    const value = await response.json();
+    const response = await workspaceFetch("/api/v1/correlations", { cache: "no-store" });
+    const value = await workspaceJson(response);
     if (
       !response.ok ||
       value.contract !== "labfy.local_correlation.snapshot.v1"
@@ -557,8 +661,9 @@ async function refreshCorrelations() {
         ? "Aucun rapprochement calculé depuis les observations persistées."
         : `${value.groups.length} rapprochements calculés · ${value.complete ? "index complet" : "résultat borné"}`;
   } catch (error) {
-    byId("correlations-note").textContent =
-      `Index local indisponible · ${error.message}`;
+    if (error.name !== "AbortError")
+      byId("correlations-note").textContent =
+        `Index local indisponible · ${error.message}`;
   } finally {
     correlationsRefreshing = false;
   }
@@ -567,8 +672,8 @@ async function refreshCorrelations() {
 async function refreshPlanner() {
   if (!operationalMode) return;
   try {
-    const response = await fetch("/api/v1/planner", { cache: "no-store" });
-    const value = await response.json();
+    const response = await workspaceFetch("/api/v1/planner", { cache: "no-store" });
+    const value = await workspaceJson(response);
     if (!response.ok || value.contract !== "labfy.local_planner.snapshot.v1")
       throw new Error(value.message ?? "planner indisponible");
     if (value.input_revision === plannerRevision) return;
@@ -623,8 +728,9 @@ async function refreshPlanner() {
       ? "Gain d'information attendu : heuristique locale, jamais un score d'identité."
       : "Aucune action locale pertinente dans cette projection.";
   } catch (error) {
-    byId("planner-note").textContent =
-      `Planner indisponible · ${error.message}`;
+    if (error.name !== "AbortError")
+      byId("planner-note").textContent =
+        `Planner indisponible · ${error.message}`;
   }
 }
 
@@ -1023,10 +1129,10 @@ async function generateReport() {
   byId("report-status").textContent = "Génération locale en cours…";
   for (let i = 0; i < 100; i++) {
     await new Promise((resolve) => setTimeout(resolve, 100));
-    const response = await fetch(`/api/v1/reports/${admission.report_id}`, {
+    const response = await workspaceFetch(`/api/v1/reports/${admission.report_id}`, {
         cache: "no-store",
       }),
-      status = await response.json();
+      status = await workspaceJson(response);
     if (status.state === "READY") {
       const box = byId("report-status");
       box.className = "report-ready";
@@ -1074,7 +1180,8 @@ async function runCapability(capability) {
       `[data-capability-id="${capability.id}"]`,
     );
     if (button) button.disabled = true;
-    const storageKey = `labfy-intent:${node.object_id}:${capability.id}`;
+    const storageKey = `labfy-intent:${workspaceContext.workspaceId}:` +
+      `${workspaceContext.generation}:${node.object_id}:${capability.id}`;
     const key = sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
     sessionStorage.setItem(storageKey, key);
     try {
@@ -1140,8 +1247,8 @@ function resetGlobalView() {
 async function resyncSnapshot(reason) {
   byId("connection").textContent = `Rattrapage snapshot — ${reason}`;
   try {
-    const response = await fetch("/api/v1/snapshot?size=demo&revision=latest");
-    const replacement = await response.json();
+    const response = await workspaceFetch("/api/v1/snapshot?size=demo&revision=latest");
+    const replacement = await workspaceJson(response);
     if (
       !response.ok ||
       replacement.contract !== "labfy.web_graph.snapshot.v1" ||
@@ -1199,7 +1306,7 @@ function connectEvents() {
   eventSource.onerror = () => {
     if (eventSource.readyState !== EventSource.CLOSED) {
       reconnectCount += 1;
-      byId("connection").textContent = "Reconnexion au scénario synthétique…";
+      byId("connection").textContent = "Reconnexion au flux…";
     }
   };
 }
@@ -1282,7 +1389,7 @@ function configureControls() {
         candidate.id.toLocaleLowerCase("fr").includes(query),
     );
     if (!node) {
-      byId("graph-state").textContent = "Aucun objet synthétique trouvé.";
+      byId("graph-state").textContent = "Aucun objet trouvé.";
       return;
     }
     if (!projection.nodes.some((candidate) => candidate.id === node.id)) {
@@ -1439,73 +1546,253 @@ function configureGraphInteractions() {
   });
 }
 
-async function start() {
+async function libraryRequest(path, options = {}) {
+  const response = await fetch(path, options);
+  if (await detectExpiredSession(response))
+    throw new DOMException("Session expirée", "AbortError");
+  return responseJson(response, "Bibliothèque locale indisponible");
+}
+
+function renderLibrary(value) {
+  if (value.contract !== "labfy.web_library.v1" ||
+      !Array.isArray(value.entries) || !Number.isInteger(value.generation))
+    throw new Error("Contrat de bibliothèque inattendu");
+  libraryGeneration = value.generation;
+  const list = byId("workspace-list");
+  list.replaceChildren();
+  for (const entry of value.entries) {
+    const item = document.createElement("li");
+    item.className = "workspace-card";
+    const heading = document.createElement("h3");
+    heading.textContent = entry.title;
+    const state = document.createElement("p");
+    const active = value.active_workspace_id === entry.workspace_id;
+    const anotherActive = value.active_workspace_id !== null && !active;
+    state.textContent = active ? "Ouverte dans cette session" : anotherActive
+      ? "Disponible après redémarrage du poste local"
+      : entry.state === "READY" ? "Prête à ouvrir" : `État : ${entry.state}`;
+    const open = document.createElement("button");
+    open.type = "button";
+    open.textContent = active ? "Revenir à l’enquête" : "Ouvrir l’enquête";
+    open.disabled = entry.state !== "READY" || anotherActive;
+    open.dataset.workspaceId = entry.workspace_id;
+    open.addEventListener("click", () => void openWorkspace(entry.workspace_id, open));
+    item.append(heading, state, open);
+    list.append(item);
+  }
+  byId("library-empty").hidden = value.entries.length !== 0;
+  byId("library-connection").textContent =
+    `${value.entries.length} enquête(s) · génération ${value.generation}`;
+}
+
+async function refreshLibrary() {
+  const value = await libraryRequest("/api/v1/library", { cache: "no-store" });
+  renderLibrary(value);
+  return value;
+}
+
+async function showLibrary({ focus = false } = {}) {
+  invalidateWorkspaceContext();
+  for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
+  preparedUploads.clear();
+  workspaceReady = false;
+  byId("workbench-shell").hidden = true;
+  byId("library-home").hidden = false;
+  byId("workspace-create").hidden = false;
+  byId("library-list-section").hidden = false;
+  byId("library-title").textContent = "Bibliothèque d’enquêtes";
+  byId("library-connection").textContent = "Actualisation…";
   try {
-    const initialResponse = await fetch("/api/v1/snapshot", {
-      cache: "no-store",
-    });
-    const initialValue = await initialResponse.json();
-    snapshot = prepareSnapshot(initialValue);
-    acceptedSnapshotFingerprint = snapshotFingerprint(initialValue);
+    await refreshLibrary();
+  } catch (error) {
+    byId("library-connection").textContent = error.message;
+  }
+  if (focus) byId("library-title").focus();
+}
+
+function resetWorkspacePresentation() {
+  snapshot = prepareSnapshot({ contract: "labfy.web_graph.snapshot.v3", origin: "core",
+    revision: 0, nodes: [], edges: [], capability_catalog: [], capabilities: [] });
+  acceptedSnapshotFingerprint = snapshotFingerprint(snapshot);
+  selectedNodeId = null;
+  focusNodeId = null;
+  navigationHistory = [];
+  reportSelection.clear();
+  reportPreview = null;
+  correlationRevision = null;
+  plannerRevision = null;
+  plannerValue = null;
+  preparedUploads.clear();
+  pinnedPositions.clear();
+  resetGlobalView();
+}
+
+async function activateWorkspace(opened) {
+  beginWorkspaceContext(opened.workspace_id, opened.generation);
+  resetWorkspacePresentation();
+  workspaceReady = true;
+  byId("library-home").hidden = true;
+  byId("workbench-shell").hidden = false;
+  byId("home-button").hidden = false;
+  byId("investigation-title").textContent = opened.title;
+  byId("mode-badge").textContent = "Espace local · contrôles locaux";
+  byId("open-import").disabled = false;
+  byId("connection").textContent = "Ouverture…";
+  reportDraftKey = `labfy-report-draft:${opened.workspace_id}:${opened.generation}`;
+  try {
+    const response = await workspaceFetch("/api/v1/snapshot", { cache: "no-store" });
+    const value = await workspaceJson(response);
+    if (!response.ok) throw new Error(value.message ?? "Projection indisponible");
+    snapshot = prepareSnapshot(value);
+    acceptedSnapshotFingerprint = snapshotFingerprint(value);
     coreMode = snapshot.origin === "core";
-  } catch (_) {}
-  scale = coreMode
-    ? fitGraphScale()
-    : Math.min(1, Math.max(0.6, (svg.clientWidth - 160) / 700));
-  syncTypeFilterOptions();
-  try {
-    const sessionResponse = await fetch("/api/v1/session", {
-      cache: "no-store",
-    });
-    if (sessionResponse.ok) {
-      const session = await sessionResponse.json();
-      csrfToken = session.csrf;
-      operationalMode = true;
-      workspaceReady = session.workspace_state === "READY";
-      byId("workspace-create").hidden = workspaceReady;
-      byId("open-import").disabled = !workspaceReady;
-      if (session.title) byId("investigation-title").textContent=session.title;
-      workspaceMode = session.mode;
-      byId("mode-badge").textContent = session.mode === "specimen"
-        ? "Mode SPECIMEN" : "Local expérimental";
-      const investigation =
-        snapshot.investigation?.id ?? snapshot.investigation_id ?? "unknown";
-      reportDraftKey = `labfy-report-draft:${session.contract}:${session.origin}:${investigation}`;
+    scale = fitGraphScale();
+    syncTypeFilterOptions();
+    restoreReportDraft();
+    render();
+    renderTimeline();
+    renderReportSelection();
+    byId("connection").textContent = `Ouverte · génération ${opened.generation}`;
+    await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner()]);
+    for (const [callback, delay] of [[refreshJobs, 500],
+      [refreshOperationalGraph, 700], [refreshCorrelations, 900], [refreshPlanner, 1100]])
+      refreshTimers.add(setInterval(callback, delay));
+    svg.focus();
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      byId("connection").textContent = `Ouverture incomplète · ${error.message}`;
+      byId("graph-state").textContent = "La projection de cette enquête est indisponible.";
     }
-  } catch (_) {}
-  if (coreMode) {
-    byId("mode-badge").textContent = workspaceMode === "specimen"
-      ? (operationalMode ? "Poste J6 · SPECIMEN · contrôles locaux" : "Snapshot du cœur C · SPECIMEN · lecture seule")
-      : "Local expérimental · contrôles locaux";
+  }
+}
+
+async function activateLegacyWorkspace(session) {
+  const workspaceId = session?.investigation_id ?? "legacy-read-only";
+  const generation = Number.isInteger(session?.generation) ? session.generation : 0;
+  beginWorkspaceContext(workspaceId, generation);
+  resetWorkspacePresentation();
+  workspaceReady = session?.workspace_state === "READY" || session === null;
+  byId("library-home").hidden = true;
+  byId("workbench-shell").hidden = false;
+  byId("home-button").hidden = true;
+  byId("investigation-title").textContent = session?.title ?? "Enquête locale";
+  byId("open-import").disabled = !operationalMode || !workspaceReady;
+  reportDraftKey = `labfy-report-draft:${workspaceId}:${generation}`;
+  try {
+    const response = await workspaceFetch("/api/v1/snapshot", { cache: "no-store" });
+    const value = await workspaceJson(response);
+    snapshot = prepareSnapshot(value);
+    acceptedSnapshotFingerprint = snapshotFingerprint(value);
+    coreMode = snapshot.origin === "core";
+    byId("mode-badge").textContent = operationalMode
+      ? "Poste local · contrôles locaux"
+      : coreMode ? "Snapshot du cœur C · lecture seule" : "Démonstration locale · lecture seule";
     byId("connection").textContent = snapshot._loadError
       ? `Erreur d'export cœur · ${snapshot._loadError}`
-      : "Lecture seule — snapshot cœur chargé";
-  } else {
-    byId("connection").textContent = `Connecté · révision ${snapshot.revision}`;
+      : operationalMode ? "Poste local synchronisé" :
+        coreMode ? "Lecture seule — snapshot cœur chargé" : `Connecté · révision ${snapshot.revision}`;
+    scale = coreMode ? fitGraphScale() :
+      Math.min(1, Math.max(0.6, (svg.clientWidth - 160) / 700));
+    syncTypeFilterOptions();
+    restoreReportDraft();
+    render();
+    if (snapshot._loadError)
+      byId("graph-state").textContent = `Snapshot cœur indisponible : ${snapshot._loadError}`;
+    if (!coreMode) connectEvents();
+    if (operationalMode) {
+      await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner()]);
+      for (const [callback, delay] of [[refreshJobs, 500],
+        [refreshOperationalGraph, 700], [refreshCorrelations, 900], [refreshPlanner, 1100]])
+        refreshTimers.add(setInterval(callback, delay));
+    } else {
+      byId("queue-controls").hidden = true;
+    }
+    renderTimeline();
+    renderReportSelection();
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      byId("connection").textContent = `Chargement impossible · ${error.message}`;
+      byId("graph-state").textContent = "La projection est indisponible.";
+    }
   }
+}
+
+function showLegacyCreation() {
+  beginWorkspaceContext("legacy-empty", 0);
+  workspaceReady = false;
+  byId("workbench-shell").hidden = true;
+  byId("library-home").hidden = false;
+  byId("library-title").textContent = "Créer l’enquête locale";
+  byId("library-connection").textContent = "Aucune enquête ouverte";
+  byId("library-list-section").hidden = true;
+}
+
+async function openWorkspace(workspaceId, button) {
+  button.disabled = true;
+  byId("library-connection").textContent = "Ouverture…";
+  try {
+    const opened = await libraryRequest("/api/v1/library/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Labfy-CSRF": csrfToken },
+      body: JSON.stringify({ workspace_id: workspaceId, expected_generation: libraryGeneration }),
+    });
+    if (opened.contract !== "labfy.web_library.open.v1")
+      throw new Error("Contrat d’ouverture inattendu");
+    libraryGeneration = opened.generation;
+    await activateWorkspace(opened);
+  } catch (error) {
+    byId("library-connection").textContent = error.message;
+    button.disabled = false;
+    await refreshLibrary().catch(() => {});
+  }
+}
+
+function configureApplication() {
   configureControls();
   configureGraphInteractions();
-  render();
-  if (snapshot._loadError) {
-    byId("graph-state").textContent =
-      `Snapshot cœur indisponible : ${snapshot._loadError}`;
-  }
-  if (!coreMode) connectEvents();
-  if (operationalMode) {
-    byId("workspace-create-form").addEventListener("submit",async(event)=>{
-      event.preventDefault();
-      try{await postCommand("/api/v1/workspace",{title:byId("workspace-title").value});
-        workspaceReady=true;byId("workspace-create").hidden=true;byId("open-import").disabled=false;
-        await refreshGraphAfterImport();
-      }catch(error){byId("workspace-create-status").textContent=error.message;}
-    });
-    configureImport();
-    byId("jobs-note").textContent = "Contrôle local authentifié.";
-    for (const [id, command] of [
+  configureImport();
+  byId("home-button").addEventListener("click", () => void showLibrary({ focus: true }));
+  byId("workspace-create-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector("button");
+    button.disabled = true;
+    byId("workspace-create-status").textContent = "Création…";
+    try {
+      const title = byId("workspace-title").value.trim();
+      if (pendingCreateIntent?.title !== title)
+        pendingCreateIntent = { title, idempotencyKey: crypto.randomUUID() };
+      const path = libraryMode ? "/api/v1/library/workspaces" : "/api/v1/workspace";
+      const body = libraryMode
+        ? { title, idempotency_key: pendingCreateIntent.idempotencyKey }
+        : { title };
+      const created = await libraryRequest(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Labfy-CSRF": csrfToken },
+        body: JSON.stringify(body),
+      });
+      if (libraryMode && created.contract !== "labfy.web_library.workspace.v1")
+        throw new Error("Contrat de création inattendu");
+      byId("workspace-title").value = "";
+      pendingCreateIntent = null;
+      if (libraryMode) {
+        byId("workspace-create-status").textContent = `« ${created.title} » créée. Ouvrez-la depuis la liste.`;
+        await refreshLibrary();
+        document.querySelector(`[data-workspace-id="${CSS.escape(created.workspace_id)}"]`)?.focus();
+      } else {
+        byId("workspace-create").hidden = true;
+        await activateLegacyWorkspace({ workspace_state: "READY", title,
+          investigation_id: created.investigation_id, generation: 0 });
+      }
+    } catch (error) {
+      byId("workspace-create-status").textContent = error.message;
+    } finally { button.disabled = false; }
+  });
+  byId("jobs-note").textContent = "Contrôle local authentifié.";
+  for (const [id, command] of [
       ["queue-pause", "pause"],
       ["queue-resume", "resume"],
       ["queue-stop", "stop"],
-    ]) {
+  ]) {
       byId(id).addEventListener(
         "click",
         () =>
@@ -1515,11 +1802,8 @@ async function start() {
               byId("jobs-note").textContent = error.message;
             }),
       );
-    }
-    await refreshJobs();
-    await refreshCorrelations();
-    await refreshPlanner();
-    byId("planner-launch").addEventListener("click", async () => {
+  }
+  byId("planner-launch").addEventListener("click", async () => {
       const ids = [
         ...byId("planner-list").querySelectorAll("input:checked"),
       ].map((input) => input.value);
@@ -1538,40 +1822,49 @@ async function start() {
       } catch (error) {
         byId("planner-note").textContent = error.message;
       }
-    });
-    byId("report-preview").addEventListener(
+  });
+  byId("report-preview").addEventListener(
       "click",
       () =>
         void previewReport().catch((error) => {
           byId("report-preview-content").textContent = error.message;
         }),
-    );
-    byId("report-generate").addEventListener(
+  );
+  byId("report-generate").addEventListener(
       "click",
       () =>
         void generateReport().catch((error) => {
           byId("report-status").textContent = error.message;
         }),
-    );
-    restoreReportDraft();
-    for (const input of [
+  );
+  for (const input of [
       byId("report-name"),
       byId("report-comment"),
       ...document.querySelectorAll('[name="report-section"]'),
-    ]) {
+  ]) {
       input.addEventListener("input", () => {
         invalidateReportPreview();
         saveReportDraft();
       });
-    }
-    renderTimeline();
-    renderReportSelection();
-    setInterval(refreshJobs, 500);
-    setInterval(refreshOperationalGraph, 700);
-    setInterval(refreshCorrelations, 900);
-    setInterval(refreshPlanner, 1100);
-  } else {
-    byId("queue-controls").hidden = true;
+  }
+}
+
+async function start() {
+  try {
+    const sessionResponse = await fetch("/api/v1/session", { cache: "no-store" });
+    const session = sessionResponse.ok ? await sessionResponse.json() : null;
+    csrfToken = session?.csrf ?? null;
+    operationalMode = session !== null;
+    libraryMode = session?.library_mode === true;
+    configureApplication();
+    // WHY: seule l'application bibliothèque ouvre toujours sur l'accueil ; les
+    // serveurs historiques et de démonstration conservent leur contrat direct.
+    if (libraryMode) await showLibrary();
+    else if (session?.workspace_state === "EMPTY") showLegacyCreation();
+    else await activateLegacyWorkspace(session);
+  } catch (error) {
+    byId("library-home").hidden = false;
+    byId("library-connection").textContent = error.message;
   }
 }
 
@@ -1589,6 +1882,11 @@ window.__LABFY_TEST__ = {
     reconnectCount,
     coreMode,
     contract: snapshot.contract,
+    workspaceId: workspaceContext?.workspaceId ?? null,
+    workspaceGeneration: workspaceContext?.generation ?? null,
+    sessionExpired,
+    refreshTimerCount: refreshTimers.size,
+    hasCsrf: csrfToken !== null,
   }),
   processEventData,
   selectNode,

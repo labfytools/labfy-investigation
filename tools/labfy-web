@@ -1,0 +1,7 @@
+#!/bin/sh
+# CONTRACT: ce lanceur ne compile rien et délègue les arguments tels quels au
+# gestionnaire d'instance, qui impose loopback, le port et le type de cible.
+set -eu
+
+repository=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec python3 "$repository/prototypes/web-graph/web_app.py" "$@"

@@ -17,8 +17,30 @@ SOURCE_SIZE_EXCEPTIONS := \
 	src/views/main_window.c:2239 \
 	src/views/create_relation_dialog.c:2043
 
-.PHONY: check-source-size web-workspace web-workspace-j7 web-workspace-j8 web-workspace-j9 web-workspace-local web-workspace-review-check
+.PHONY: check-source-size web web-start web-status web-stop web-code web-workspace web-workspace-j7 web-workspace-j8 web-workspace-j9 web-workspace-local web-workspace-review-check web-workspace-web-check
 .NOTPARALLEL: web-workspace-review-check
+
+# CONTRACT: le poste Web possède sa bibliothèque explicite, séparée des
+# enquêtes existantes. XDG_DATA_HOME est évalué par Python afin que Make ne
+# propage pas un chemin personnel figé dans le dépôt.
+PORT ?= 8081
+LIBRARY ?= $(shell python3 -c 'import os; from pathlib import Path; print(Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "labfy-investigation" / "web-8081-lab")')
+
+web: tools/local-jobs
+	tools/labfy-web serve --port "$(PORT)" --library "$(LIBRARY)"
+
+web-start: tools/local-jobs
+	tools/labfy-web start --port "$(PORT)" --library "$(LIBRARY)"
+
+web-status:
+	tools/labfy-web status
+
+web-stop:
+	tools/labfy-web stop
+
+web-code:
+	tools/labfy-web code
+
 check-source-size:
 	@limit=$(SOURCE_SIZE_LIMIT); failed=0; \
 	files="$$(git ls-files --cached --others --exclude-standard -- \
@@ -71,6 +93,15 @@ web-workspace-review-check: tools/local-jobs tools/local-jobs-test
 	python3 prototypes/web-graph/tests/test_local_workspace_import.py
 	@echo "Phase 2/2 — parcours navigateur de l'espace de travail local"
 	node prototypes/web-graph/tests/test_local_workspace_import_browser.mjs
+
+# CONTRACT: construit les bridges C avant les validations Web qui les invoquent.
+web-workspace-web-check: $(LOCAL_JOBS) $(LOCAL_JOBS_TEST) $(CORE_GRAPH_DEMO) $(EML_GRAPH_DEMO) $(LOCAL_TOOLKIT_DEMO)
+	@echo "Phase 1/3 — unité Node du graphe Web"
+	cd prototypes/web-graph && npm test
+	@echo "Phase 2/3 — découverte Python du Web"
+	python3 -m unittest discover -s prototypes/web-graph/tests -p 'test_*.py'
+	@echo "Phase 3/3 — parcours navigateur Web séquentiels"
+	cd prototypes/web-graph && npm run test:browser
 
 CFLAGS = -std=c17 \
           -Wall \

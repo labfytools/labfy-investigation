@@ -131,3 +131,10 @@ vérifiée avec `command -v`, puis avec son option de version (`--version` ou
 L’import d’espace local n’ajoute aucune dépendance : le transport borné utilise
 la bibliothèque HTTP Python existante, et la publication/empreinte réutilise le
 cœur C/GLib. Firefox et `puppeteer-core` restent nécessaires au scénario Web.
+
+Le poste Web local requiert également l'interpréteur `python3` déjà utilisé par
+les lanceurs du prototype. Il ne requiert ni serveur HTTP système, ni base de
+données distincte, ni installation automatique. Ses fichiers d'instance et de
+configuration suivent XDG (`XDG_RUNTIME_DIR`, `XDG_STATE_HOME`) ; la
+bibliothèque d'enquêtes est une destination locale explicitement fournie par
+`LIBRARY`, et non une dépendance à installer.

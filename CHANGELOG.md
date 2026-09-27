@@ -1,5 +1,24 @@
 ## [0.1.0-dev] — en préparation, non publiée
 
+### Connexion Web
+
+- La session de `3600` secondes (une heure) commence à l'authentification, et non au démarrage
+  du serveur ; une reconnexion après expiration renouvelle cookie et CSRF.
+- Régressions HTTP synthétiques : première connexion tardive, expiration
+  absolue, ancien cookie refusé et échec de connexion sans prolongation.
+- Le parcours Firefox synthétique couvre désormais l'expiration pendant les
+  pollings, l'arrêt unique des requêtes, la reconnexion sur le même serveur et
+  le refus du couple cookie/CSRF précédent. L'interface ne rejoue aucune
+  mutation refusée ou d'admission inconnue.
+
+### Validation Web
+
+- Le runner navigateur comptabilise `MISSING`, `LAUNCH_ERROR`, `EXIT_CODE`,
+  `SIGNALED`, `TIMEOUT`, `INTERRUPTED` et `SUCCESS`. Sur Linux, il ne termine
+  que le groupe et la session de processus qu'il a créés : `SIGTERM`, grâce
+  bornée, puis `SIGKILL` si nécessaire. Ses régressions synthétiques vérifient
+  qu'un témoin indépendant survit.
+
 ### Pivots locaux J7
 
 - Index C typé des observations persistées, rapprochements explicables
@@ -166,6 +185,17 @@
   vérificateur hostile strict et réconciliation durable après interruption.
 
 # Changements locaux non publiés — poste Web UX V1
+
+## Poste Web local et bibliothèque (non publié)
+
+- Lanceur local à instance unique, bibliothèque explicitement choisie,
+  création C idempotente et ouverture d'une seule enquête active par instance.
+- État d'instance, configuration et code d'amorçage séparés dans les répertoires
+  XDG privés ; écoute loopback et contrôles de santé avant `status`, `stop` ou
+  consultation du code.
+- Validation Web intégrée : bridges C, unités Node, découverte Python et
+  parcours navigateur exécutés séquentiellement par
+  `make web-workspace-web-check`.
 
 - Réorganisation graph-first en barre compacte, projections, inspecteur à
   onglets et tiroir Tâches/Actions/Plans/Rapports responsive.

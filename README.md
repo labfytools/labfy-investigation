@@ -10,10 +10,11 @@ Le premier lot J7 ajoute un index C recalculable et des rapprochements locaux
 explicables pour les e-mails, domaines et IP observés :
 [pivots locaux et corrélation](docs/architecture/LOCAL_PIVOTS_CORRELATION.md).
 
-Le [poste Web local](docs/ui/WEB_WORKBENCH.md) rassemble désormais le graphe,
-l’inspecteur contextuel, les tâches, le planner J8 et les rapports J9 dans une
-surface `SPECIMEN` responsive. Cette disponibilité locale ne change ni le
-statut de production, ni l’interdiction d’utiliser une enquête réelle.
+Le [poste Web local](docs/ui/WEB_WORKBENCH.md) rassemble désormais une
+bibliothèque d’enquêtes explicitement choisie, le graphe, l’inspecteur
+contextuel, les tâches, le planner J8 et les rapports J9. Cette disponibilité
+locale ne change ni le statut de production, ni l’interdiction d’utiliser une
+enquête réelle pendant les validations de développement.
 
 Le parcours local expérimental d’import et de revue est détaillé dans
 [le contrat d’espace local](docs/architecture/LOCAL_WORKSPACE_IMPORT.md) :
@@ -66,10 +67,10 @@ données. Labfy vise à relier leurs résultats dans une enquête cohérente :
 La cible de développement est **v0.1.0**. Le projet reste en développement actif
 et n'est pas prêt pour un usage opérationnel en production.
 
-**Interface GTK conservée ; poste Web local `SPECIMEN` disponible.** La
-fondation v0.1.0 reste en développement : le poste Web réutilise le moteur de
-jobs persistant existant, sans constituer une interface de production ni une
-autonomie générale.
+**Interface GTK conservée ; poste Web local contrôlé disponible.** La fondation
+v0.1.0 reste en développement : le poste Web réutilise le moteur de jobs
+persistant existant et une bibliothèque locale explicitement choisie, sans
+constituer une interface de production ni une autonomie générale.
 
 ### Disponible aujourd'hui
 
@@ -294,6 +295,19 @@ python3 run_core_demo.py --port 8765
 
 Le projet exige C17, GTK4, GLib/GIO, SQLite, libheif et Poppler GLib. Plusieurs
 outils d'analyse sont optionnels et ne sont jamais installés automatiquement.
+
+Le poste Web local se lance depuis une bibliothèque explicitement désignée ;
+il écoute par défaut sur `127.0.0.1:8081` :
+
+```bash
+make web PORT=8081 LIBRARY=/chemin/vers/la-bibliotheque-locale
+```
+
+Les commandes `start`, `status`, `stop` et `code` de ce lanceur, ainsi que les
+contrats de stockage local et de session, sont décrits dans
+[le contrôle du poste Web](docs/architecture/WEB_WORKSPACE_CONTROL.md). Le
+code éphémère affiché au démarrage reste privé : il ne doit ni être ajouté à une
+commande, ni enregistré dans la documentation.
 
 ## Documentation
 
