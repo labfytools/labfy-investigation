@@ -392,7 +392,7 @@ explicitement autorisée :
 make web-workspace-local WORKSPACE=/tmp/labfy-local-workspace
 ```
 
-Après saisie du code éphémère, créer l’enquête puis utiliser **Ajouter des
+Le workbench s’ouvre directement ; créer l’enquête puis utiliser **Ajouter des
 preuves** pour sélectionner des EML, PNG ou JPEG (4 Mio par fichier). La
 réception, la confirmation, le planner, les analyses, le graphe et les rapports
 restent séparés. La réouverture reprend le même UUID sans exemple ni duplication.

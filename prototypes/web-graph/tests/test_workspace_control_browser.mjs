@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import puppeteer from "puppeteer-core";
+import { openAutomaticSession } from "./browser_automatic_session.mjs";
 
 const REPOSITORY = new URL("../../..", import.meta.url);
 const PROTOTYPE = new URL("..", import.meta.url);
@@ -16,10 +17,9 @@ function waitForServer(server) {
     server.stdout.on("data", (chunk) => {
       output += chunk.toString();
       const url = output.match(/http:\/\/127\.0\.0\.1:(\d+)\//);
-      const code = output.match(/Code de session éphémère : ([^\s]+)/);
-      if (url && code) {
+      if (url) {
         clearTimeout(timeout);
-        resolve({ url: url[0], code: code[1] });
+        resolve({ url: url[0] });
       }
     });
     server.once("exit", (code) => reject(new Error(`serveur J6 arrêté (${code})`)));
@@ -62,11 +62,7 @@ try {
     headless: true, userDataDir: profile, args: ["--no-remote"] });
   const page = await browser.newPage();
   await page.setViewport({ width: 1440, height: 900 });
-  await page.goto(session.url, { waitUntil: "domcontentloaded" });
-  assert.ok(await page.$("#login-form"));
-  await page.type("#bootstrap-code", session.code);
-  await Promise.all([page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-    page.click("#login-form button")]);
+  await openAutomaticSession(page, session.url);
   await page.waitForSelector(`[data-id="evidence:${manifest.eml_id}"]`);
   assert.match(await page.$eval("#mode-badge", (item) => item.textContent), /Poste local/);
 

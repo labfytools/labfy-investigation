@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import puppeteer from "puppeteer-core";
+import { openAutomaticSession } from "./browser_automatic_session.mjs";
 
 const PROTOTYPE = new URL("..", import.meta.url);
 const FIREFOX = process.env.FIREFOX_PATH ?? "/usr/bin/firefox";
@@ -21,11 +22,11 @@ inactive.mkdir(mode=0o700, exist_ok=True)
 # CONTRACT: expiration réelle et courte, injectée uniquement dans ce processus
 # de test. Aucune route ne permet de modifier l'horloge ou le TTL.
 server = WorkspaceServer(("127.0.0.1", 0), Handler, workspace=inactive,
-    bridge=bridge, bootstrap="session-browser-SPECIMEN", library=library,
+    bridge=bridge, library=library,
     instance_id="session-browser-SPECIMEN", config_id="session-browser-SPECIMEN",
-    session_ttl_seconds=5)
+    session_ttl_seconds=8)
 print(json.dumps({"origin": server.origin,
-    "code": "session-browser-SPECIMEN"}), flush=True)
+    "contract": "labfy.session-lifetime.fixture.v1"}), flush=True)
 signal.signal(signal.SIGTERM,
     lambda _signum, _frame: threading.Thread(target=server.shutdown,
                                               daemon=True).start())
@@ -71,17 +72,6 @@ async function stopServer(server) {
   await exited;
 }
 
-async function login(page, session) {
-  await page.goto(session.origin, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector("#login-form");
-  await page.type("#bootstrap-code", session.code);
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-    page.click("#login-form button"),
-  ]);
-  await page.waitForSelector("#library-home:not([hidden])");
-}
-
 async function createAndOpenSpecimen(page) {
   const title = "Enquête session Firefox SPECIMEN";
   await page.type("#workspace-title", title);
@@ -109,9 +99,6 @@ try {
   const session = await ready(server);
   assert.notEqual(new URL(session.origin).port, "8081");
   assert.notEqual(new URL(session.origin).port, "8080");
-  // CONTRACT: le serveur peut être déjà ancien quand Firefox soumet son premier
-  // formulaire. La connexion réussie doit alors commencer une nouvelle durée.
-  await delay(5500);
   browser = await puppeteer.launch({ browser: "firefox", executablePath: FIREFOX,
     headless: true, userDataDir: profile, args: ["--no-remote"] });
   const page = await browser.newPage();
@@ -123,7 +110,7 @@ try {
       unauthorized.push(response.url());
   });
 
-  await login(page, session);
+  await openAutomaticSession(page, session.origin);
   const workspaceId = await createAndOpenSpecimen(page);
   assert.ok(workspaceId);
   await page.$eval("#report-comment", (input) => {
@@ -138,18 +125,14 @@ try {
     cookie.name.startsWith("labfy_session_"));
   assert.ok(oldCookie);
 
-  // WHY: un polling réel doit découvrir l'expiration et arrêter ses trois
-  // pairs ; le test n'appelle aucune route d'administration.
-  await page.waitForSelector("#session-reconnect", { timeout: 10000 });
-  const expiredState = await page.evaluate(() => window.__LABFY_TEST__.getState());
-  assert.equal(expiredState.sessionExpired, true);
-  assert.equal(expiredState.refreshTimerCount, 0);
-  assert.equal(expiredState.hasCsrf, false);
-  assert.equal(expiredState.workspaceId, null);
-  assert.equal(await page.$eval("#workbench-shell", (item) => item.hidden), true);
-  assert.match(await page.$eval("#library-connection", (item) => item.textContent),
-    /travail en cours a été arrêté/i);
-  assert.equal(await page.$$eval("#session-reconnect", (items) => items.length), 1);
+  // WHY: le polling réel observe un seul 401 puis la navigation racine détruit
+  // son contexte ; aucune route d'administration ne force l'expiration.
+  const automaticReturn = page.waitForNavigation({ waitUntil: "domcontentloaded",
+    timeout: 10000 });
+  await automaticReturn;
+  await page.waitForSelector("#library-home:not([hidden])", { timeout: 10000 });
+  assert.equal(await page.$("#login-form"), null);
+  assert.equal(await page.$("#bootstrap-code"), null);
   const requestCount = unauthorized.length;
   await new Promise((resolve) => setTimeout(resolve, 1400));
   assert.equal(unauthorized.length, requestCount,
@@ -158,14 +141,10 @@ try {
   assert.equal(await page.evaluate(() => Object.keys(sessionStorage)
     .some((key) => key.startsWith("labfy-report-draft:"))), true);
 
-  await page.click("#session-reconnect");
-  await page.waitForSelector("#login-form");
-  await page.type("#bootstrap-code", session.code);
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-    page.click("#login-form button"),
-  ]);
-  await page.waitForSelector("#library-home:not([hidden])");
+  const renewedCookie = (await page.cookies()).find((cookie) =>
+    cookie.name.startsWith("labfy_session_"));
+  assert.ok(renewedCookie);
+  assert.notEqual(renewedCookie.value, oldCookie.value);
   const renewed = await page.evaluate(async () => {
     const response = await fetch("/api/v1/session", { cache: "no-store" });
     return response.json();
@@ -187,7 +166,7 @@ try {
     body: "{}",
   })).status, 403);
   assert.deepEqual(pageErrors, []);
-  console.log("PASS Firefox session : expiration réelle, arrêt unique, reconnexion, " +
+  console.log("PASS Firefox session : expiration réelle, arrêt unique, reconnexion automatique, " +
     "contexte SPECIMEN et rotation cookie/CSRF");
 } finally {
   if (browser) await browser.close();

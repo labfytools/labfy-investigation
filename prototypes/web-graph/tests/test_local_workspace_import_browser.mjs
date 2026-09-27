@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import puppeteer from "puppeteer-core";
+import { openAutomaticSession } from "./browser_automatic_session.mjs";
 
 const PROTOTYPE=new URL("..",import.meta.url),FIREFOX=process.env.FIREFOX_PATH??"/usr/bin/firefox";
-function ready(server){return new Promise((resolve,reject)=>{let out="";const timer=setTimeout(()=>reject(new Error("démarrage import expiré")),10000);server.stdout.on("data",chunk=>{out+=chunk;const u=out.match(/http:\/\/127\.0\.0\.1:\d+\//),c=out.match(/Code de session éphémère : ([^\s]+)/);if(u&&c){clearTimeout(timer);resolve({url:u[0],code:c[1]});}});server.once("exit",code=>reject(new Error(`serveur import arrêté (${code})`)));});}
-async function login(page,session){await page.goto(session.url,{waitUntil:"domcontentloaded"});await page.type("#bootstrap-code",session.code);await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded"}),page.click("#login-form button")]);}
+function ready(server){return new Promise((resolve,reject)=>{let out="";const timer=setTimeout(()=>reject(new Error("démarrage import expiré")),10000);server.stdout.on("data",chunk=>{out+=chunk;const u=out.match(/http:\/\/127\.0\.0\.1:\d+\//);if(u){clearTimeout(timer);resolve({url:u[0]});}});server.once("exit",code=>reject(new Error(`serveur import arrêté (${code})`)));});}
 async function waitForDownload(path){let size=-1,stable=0;for(let attempt=0;attempt<120&&stable<3;attempt++){await new Promise(resolve=>setTimeout(resolve,50));try{const current=(await stat(path)).size;stable=current>0&&current===size?stable+1:0;size=current;}catch{stable=0;}}assert.ok(stable>=3,`téléchargement Firefox terminé ${path}`);return size;}
 
 const root=await mkdtemp(join(tmpdir(),"labfy-local-import-browser-")),workspace=join(root,"workspace"),fixtures=join(root,"SPECIMEN_INPUT"),profile=join(root,"firefox"),downloads=join(root,"downloads");
@@ -23,7 +23,7 @@ let server,browser;
 try{
  server=spawn("python3",["workspace_server.py","--workspace",workspace,"--bridge","../../tools/local-jobs","--port","0"],{cwd:PROTOTYPE,env:{...process.env,PYTHONUNBUFFERED:"1"},stdio:["ignore","pipe","pipe"]});
  const session=await ready(server);browser=await puppeteer.launch({browser:"firefox",executablePath:FIREFOX,headless:true,userDataDir:profile,args:["--no-remote"],extraPrefsFirefox:{"browser.download.folderList":2,"browser.download.dir":downloads,"browser.download.useDownloadDir":true,"browser.helperApps.neverAsk.saveToDisk":"text/html,application/json,application/pdf,text/plain"}});
- const page=await browser.newPage(),errors=[];page.on("pageerror",e=>errors.push(String(e)));await page.setViewport({width:1440,height:900});await login(page,session);
+ const page=await browser.newPage(),errors=[];page.on("pageerror",e=>errors.push(String(e)));await page.setViewport({width:1440,height:900});await openAutomaticSession(page,session.url);
  await page.waitForSelector("#workspace-create:not([hidden])");await page.type("#workspace-title","Enquête Firefox locale Ω");await page.click("#workspace-create-form button");await page.waitForSelector("#workspace-create[hidden]");
  await page.click("#open-import");const input=await page.$("#import-files");await input.uploadFile(eml,eml2,copy,png,jpg);
  await page.waitForFunction(()=>document.querySelectorAll("#import-list li").length===5&&[...document.querySelectorAll("#import-list li")].every(x=>x.textContent.includes("préparé")),{timeout:20000});

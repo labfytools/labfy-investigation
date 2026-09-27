@@ -59,10 +59,8 @@ class SessionLifetimeTest(unittest.TestCase):
             connection.close()
 
     def login(self):
-        status, headers, body = self.request("POST", "/api/v1/session",
-            body={"bootstrap_code": "code-SPECIMEN-only"})
-        self.assertEqual(status, 200)
-        self.assertTrue(json.loads(body)["authenticated"])
+        status, headers, body = self.request("GET", "/")
+        self.assertEqual(status, 303)
         self.assertIn("HttpOnly", headers["Set-Cookie"])
         self.assertIn("SameSite=Strict", headers["Set-Cookie"])
         self.assertIn("Max-Age=3600", headers["Set-Cookie"])
@@ -105,19 +103,17 @@ class SessionLifetimeTest(unittest.TestCase):
         self.assertNotIn(b'id="login-form"', html)
         self.assertEqual(self.server.session_deadline, self.now + 3600)
 
-    def test_invalid_login_never_extends_or_replaces_a_session(self):
+    def test_bootstrap_route_is_absent_and_never_extends_a_session(self):
         cookie = self.login()
         before = (self.server.session, self.server.csrf, self.server.session_deadline)
         for expired in (False, True):
             if expired:
                 self.now += 3601
-            for code, origin in (("wrong-SPECIMEN", self.server.origin),
-                                 ("code-SPECIMEN-only", "http://foreign.test")):
-                status, _, _ = self.request("POST", "/api/v1/session",
-                    body={"bootstrap_code": code}, origin=origin)
-                self.assertEqual(status, 403)
-                self.assertEqual((self.server.session, self.server.csrf,
-                                  self.server.session_deadline), before)
+            status, _, _ = self.request("POST", "/api/v1/session",
+                body={}, origin=self.server.origin)
+            self.assertEqual(status, 404)
+            self.assertEqual((self.server.session, self.server.csrf,
+                              self.server.session_deadline), before)
             self.assertEqual(self.request("GET", "/api/v1/session", cookie=cookie)[0],
                              401 if expired else 200)
 

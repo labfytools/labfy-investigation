@@ -187,18 +187,9 @@ function expireAuthenticatedSession() {
   byId("library-home").hidden = false;
   byId("workspace-create").hidden = true;
   byId("library-list-section").hidden = true;
-  byId("library-title").textContent = "Session locale expirée";
-  byId("library-connection").textContent =
-    "Le travail en cours a été arrêté. Reconnectez-vous pour reprendre ; aucune action refusée n’a été relancée.";
-  let reconnect = byId("session-reconnect");
-  if (!reconnect) {
-    reconnect = document.createElement("a");
-    reconnect.id = "session-reconnect";
-    reconnect.href = "/";
-    reconnect.textContent = "Se reconnecter";
-    byId("library-connection").insertAdjacentElement("afterend", reconnect);
-  }
-  reconnect.focus();
+  // CONTRACT: la reconnexion automatique ne rejoue aucune mutation. La
+  // navigation racine obtient un nouveau cookie HttpOnly local sans code ni URL.
+  window.location.replace("/");
 }
 
 async function detectExpiredSession(response) {
@@ -282,11 +273,20 @@ function invalidateReportPreview(
 }
 
 async function postCommand(path, value = {}) {
-  const response = await workspaceFetch(path, {
+  const request = () => workspaceFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Labfy-CSRF": csrfToken },
     body: JSON.stringify(value),
   });
+  let response = await request();
+  // WHY: deux intentions humaines liées (préparer puis autoriser) peuvent se
+  // succéder plus vite que le garde-fou local anti-burst. Une réponse 429 n'a
+  // admis aucune mutation ; un unique backoff borné rejoue donc la même
+  // intention, avec sa clé d'idempotence lorsqu'elle est requise.
+  if (response.status === 429) {
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    response = await request();
+  }
   const result = await workspaceJson(response);
   if (!response.ok) throw new Error(result.message ?? "Commande refusée");
   return result;
@@ -995,6 +995,7 @@ function render({ focusDomNodeId = null } = {}) {
     offset,
     focusNodeId: visibleIds.has(activeNodeId) ? activeNodeId : null,
   });
+  byId("graph-zoom").textContent = `${Math.round(scale * 100)} %`;
   renderObjectList();
   renderSelection();
 }
@@ -1025,6 +1026,13 @@ function renderSelection() {
     details.textContent = "Sélectionnez un objet.";
     actions.textContent = "Aucune action sans sélection valide.";
     byId("provenance-mirror").textContent = "Sélectionnez un objet.";
+    byId("drawer-details-summary").textContent =
+      "Sélectionnez un objet du graphe pour conserver son contexte ici.";
+    byId("drawer-provenance-summary").textContent = "Aucune source sélectionnée.";
+    byId("drawer-timeline-summary").textContent =
+      "La chronologie pertinente apparaît avec l’objet sélectionné.";
+    byId("drawer-observations-summary").textContent =
+      "Aucune observation à promouvoir automatiquement.";
     return;
   }
 
@@ -1074,6 +1082,16 @@ function renderSelection() {
   if (!provenanceMirror.hasChildNodes())
     provenanceMirror.textContent = "Aucune origine supplémentaire persistée.";
   renderActions(actions, node);
+  byId("drawer-details-summary").textContent =
+    `${node.label} · ${node.type} · état ${node.state}`;
+  byId("drawer-provenance-summary").textContent =
+    `Provenance disponible pour ${node.label}. Utilisez l’onglet Provenance de l’activité pour parcourir les origines.`;
+  byId("drawer-timeline-summary").textContent =
+    `La timeline filtre les événements attribués à ${node.label} sans inventer de date.`;
+  byId("drawer-observations-summary").textContent =
+    node.object_kind === "observation"
+      ? `${node.label} est une observation : revue explicite requise.`
+      : `Aucune observation n’est automatiquement déduite de ${node.label}.`;
 }
 
 function renderProvenance(container, nodeId, sectionId) {
@@ -1484,6 +1502,75 @@ function updateProjectionControls() {
   }
 }
 
+function configureResizableLayout() {
+  // CONTRACT: les dimensions de panneau sont des préférences locales par
+  // origine. Elles ne modifient ni le snapshot, ni les positions épinglées.
+  const workbench = document.querySelector(".workbench");
+  const dimensions = [
+    { id: "agent-resizer", property: "--agent-pane", key: "agent", axis: "x",
+      minimum: 208, maximum: 460, direction: 1 },
+    { id: "inspector-resizer", property: "--inspector-pane", key: "inspector", axis: "x",
+      minimum: 256, maximum: 520, direction: -1 },
+    { id: "drawer-resizer", property: "--drawer", key: "drawer", axis: "y",
+      minimum: 130, maximum: 440, direction: -1 },
+  ];
+  for (const dimension of dimensions) {
+    const stored = Number.parseInt(localStorage.getItem(`labfy-layout:${dimension.key}`), 10);
+    if (Number.isFinite(stored))
+      workbench.style.setProperty(dimension.property, `${stored}px`);
+    const separator = byId(dimension.id);
+    const applyKeyboardDelta = (delta) => {
+      const current = Number.parseInt(
+        getComputedStyle(workbench).getPropertyValue(dimension.property), 10,
+      );
+      const next = Math.max(dimension.minimum, Math.min(dimension.maximum, current + delta));
+      workbench.style.setProperty(dimension.property, `${next}px`);
+      localStorage.setItem(`labfy-layout:${dimension.key}`, String(next));
+      requestAnimationFrame(() => renderer.updateViewport(scale, offset));
+    };
+    separator.addEventListener("keydown", (event) => {
+      const backward = dimension.axis === "x" ? "ArrowLeft" : "ArrowUp";
+      const forward = dimension.axis === "x" ? "ArrowRight" : "ArrowDown";
+      if (![backward, forward].includes(event.key)) return;
+      event.preventDefault();
+      applyKeyboardDelta((event.key === forward ? 16 : -16) * dimension.direction);
+    });
+    separator.addEventListener("pointerdown", (event) => {
+      if (matchMedia("(max-width: 900px)").matches) return;
+      const initial = Number.parseInt(
+        getComputedStyle(workbench).getPropertyValue(dimension.property), 10,
+      );
+      const origin = dimension.axis === "x" ? event.clientX : event.clientY;
+      separator.setPointerCapture(event.pointerId);
+      const move = (moveEvent) => {
+        if (moveEvent.pointerId !== event.pointerId) return;
+        const coordinate = dimension.axis === "x" ? moveEvent.clientX : moveEvent.clientY;
+        const next = Math.max(
+          dimension.minimum,
+          Math.min(dimension.maximum, initial + (coordinate - origin) * dimension.direction),
+        );
+        workbench.style.setProperty(dimension.property, `${next}px`);
+        renderer.updateViewport(scale, offset);
+      };
+      const finish = (finishEvent) => {
+        if (finishEvent.pointerId !== event.pointerId) return;
+        if (separator.hasPointerCapture(event.pointerId))
+          separator.releasePointerCapture(event.pointerId);
+        const value = Number.parseInt(
+          getComputedStyle(workbench).getPropertyValue(dimension.property), 10,
+        );
+        localStorage.setItem(`labfy-layout:${dimension.key}`, String(value));
+        separator.removeEventListener("pointermove", move);
+        separator.removeEventListener("pointerup", finish);
+        separator.removeEventListener("pointercancel", finish);
+      };
+      separator.addEventListener("pointermove", move);
+      separator.addEventListener("pointerup", finish);
+      separator.addEventListener("pointercancel", finish);
+    });
+  }
+}
+
 function configureControls() {
   // CONTRACT: la disposition est une préférence locale par origine ; elle ne
   // transporte ni l'enquête, ni un secret, ni un état métier vers le navigateur.
@@ -1590,6 +1677,26 @@ function configureControls() {
     offset = { x: 0, y: 0 };
     render({ focusDomNodeId: selectedNodeId });
   });
+  byId("graph-search-focus").addEventListener("click", () => byId("search").focus());
+  byId("graph-home").addEventListener("click", resetGlobalView);
+  byId("graph-reset-layout").addEventListener("click", () => byId("reset-layout").click());
+  byId("graph-fullscreen").addEventListener("click", () => {
+    const workbench = document.querySelector(".workbench");
+    const active = workbench.classList.toggle("graph-priority");
+    byId("graph-fullscreen").setAttribute("aria-pressed", String(active));
+    byId("graph-fullscreen").title = active ? "Quitter le mode graphe" : "Agrandir le graphe";
+    requestAnimationFrame(() => renderer.updateViewport(scale, offset));
+  });
+  byId("activity-filter").addEventListener("change", (event) => {
+    for (const entry of document.querySelectorAll("[data-activity-type]"))
+      entry.hidden = Boolean(event.target.value) &&
+        entry.dataset.activityType !== event.target.value;
+  });
+  byId("activity-expert-toggle").addEventListener("click", (event) => {
+    const active = byId("inspector").classList.toggle("expert-mode");
+    event.currentTarget.setAttribute("aria-pressed", String(active));
+    event.currentTarget.textContent = active ? "Mode normal" : "Mode expert";
+  });
   byId("type-filter").addEventListener("change", (event) => {
     filters.type = event.target.value;
     render();
@@ -1629,7 +1736,7 @@ function configureGraphInteractions() {
   // coordonnées épinglées qui restent un état de présentation local.
   new ResizeObserver(() => requestAnimationFrame(() => {
     const panel = byId("graph-panel");
-    if (!graph_scale_initialized && snapshot.nodes.length > 0 &&
+    if (coreMode && !graph_scale_initialized && snapshot.nodes.length > 0 &&
         panel.clientWidth > 100 && panel.clientHeight > 100) {
       // WHY: le snapshot peut arriver pendant que la coque tri-panneaux passe
       // de hidden à sa largeur finale. L'auto-fit unique évite que des nœuds
@@ -1674,9 +1781,10 @@ function configureGraphInteractions() {
       event.preventDefault();
       scale = Math.max(
         0.25,
-        Math.min(3, scale * (event.deltaY < 0 ? 1.1 : 0.9)),
+        Math.min(3, scale * (event.deltaY < 0 ? 1.2 : 0.9)),
       );
       renderer.updateViewport(scale, offset);
+      byId("graph-zoom").textContent = `${Math.round(scale * 100)} %`;
     },
     { passive: false },
   );
@@ -1718,6 +1826,12 @@ function configureGraphInteractions() {
     if (event.key === "Escape" && !byId("node-context-menu").hidden) {
       byId("node-context-menu").hidden = true;
       svg.focus();
+    }
+    if (
+      event.key === "Escape" &&
+      document.querySelector(".workbench").classList.contains("graph-priority")
+    ) {
+      byId("graph-fullscreen").click();
     }
   });
   document.addEventListener("pointerdown", (event) => {
@@ -1834,6 +1948,7 @@ async function activateWorkspace(opened) {
     // repose pas sur la largeur héritée lorsque le shell était hidden.
     await new Promise((resolve) => requestAnimationFrame(resolve));
     scale = fitGraphScale();
+    graph_scale_initialized = true;
     syncTypeFilterOptions();
     restoreReportDraft();
     render();
@@ -1884,6 +1999,7 @@ async function activateLegacyWorkspace(session) {
         coreMode ? "Lecture seule — snapshot cœur chargé" : `Connecté · révision ${snapshot.revision}`;
     scale = coreMode ? fitGraphScale() :
       Math.min(1, Math.max(0.6, (svg.clientWidth - 160) / 700));
+    graph_scale_initialized = true;
     syncTypeFilterOptions();
     restoreReportDraft();
     render();
@@ -1941,12 +2057,13 @@ async function openWorkspace(workspaceId, button) {
 
 function configureApplication() {
   configureControls();
+  configureResizableLayout();
   configureGraphInteractions();
   configureImport();
   const drawerCollapsed = localStorage.getItem("labfy-pane:drawer") === "collapsed";
   if (drawerCollapsed && !byId("work-panel").classList.contains("collapsed"))
     byId("work-panel-toggle").click();
-  byId("agent-send").addEventListener("click", () => {
+  const submitAgentPrompt = () => {
     const prompt = byId("agent-prompt").value.trim();
     if (!prompt) { byId("agent-prompt").focus(); return; }
     const card = document.createElement("li");
@@ -1956,6 +2073,13 @@ function configureApplication() {
     card.append(label, text);
     document.querySelector(".agent-conversation").append(card);
     byId("agent-prompt").value = "";
+  };
+  byId("agent-send").addEventListener("click", submitAgentPrompt);
+  byId("agent-prompt").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      submitAgentPrompt();
+    }
   });
   byId("home-button").addEventListener("click", () => void showLibrary({ focus: true }));
   byId("workspace-create-form").addEventListener("submit", async (event) => {

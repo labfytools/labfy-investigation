@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import puppeteer from "puppeteer-core";
+import { openAutomaticSession } from "./browser_automatic_session.mjs";
 const REPOSITORY = new URL("../../..", import.meta.url),
   PROTOTYPE = new URL("..", import.meta.url),
   FIREFOX = process.env.FIREFOX_PATH ?? "/usr/bin/firefox";
@@ -17,11 +18,10 @@ function ready(server) {
     );
     server.stdout.on("data", (chunk) => {
       text += chunk;
-      const u = text.match(/http:\/\/127\.0\.0\.1:(\d+)\//),
-        c = text.match(/Code de session éphémère : ([^\s]+)/);
-      if (u && c) {
+      const u = text.match(/http:\/\/127\.0\.0\.1:(\d+)\//);
+      if (u) {
         clearTimeout(timer);
-        resolve({ url: u[0], code: c[1] });
+        resolve({ url: u[0] });
       }
     });
     server.once("exit", (code) =>
@@ -51,14 +51,6 @@ function start(workspace) {
 async function stop(server) {
   server.kill("SIGINT");
   await new Promise((resolve) => server.once("exit", resolve));
-}
-async function login(page, session) {
-  await page.goto(session.url, { waitUntil: "domcontentloaded" });
-  await page.type("#bootstrap-code", session.code);
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-    page.click("#login-form button"),
-  ]);
 }
 const workspace = await mkdtemp(join(tmpdir(), "labfy-j9-browser-")),
   profile = await mkdtemp(join(tmpdir(), "labfy-j9-firefox-"));
@@ -96,7 +88,7 @@ try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.setViewport({ width: 1440, height: 900 });
-  await login(page, session);
+  await openAutomaticSession(page, session.url);
   await page.waitForSelector("#view-evidence");
   await page.click("#view-evidence");
   await page.click("#view-timeline");

@@ -48,7 +48,7 @@ class WorkspaceServer(ThreadingHTTPServer):
     block_on_close = False
 
     def __init__(self, address, handler, *, workspace: Path, bridge: Path,
-                 bootstrap: str, library=None, instance_id=None, config_id=None,
+                 bootstrap: str = "", library=None, instance_id=None, config_id=None,
                  session_ttl_seconds=SESSION_TTL_SECONDS,
                  research_fixture_authority=None, automatic_session=False):
         if (not isinstance(session_ttl_seconds, int) or
@@ -59,10 +59,10 @@ class WorkspaceServer(ThreadingHTTPServer):
         self.bridge = bridge.resolve()
         self.authority = f"127.0.0.1:{self.server_port}"
         self.origin = f"http://{self.authority}"
-        self.bootstrap = bootstrap
-        # CONTRACT: ce mode est activé seulement par le lanceur possédé. Il
-        # émet un cookie HttpOnly local mais ne relâche jamais Origin/CSRF.
-        self.automatic_session = automatic_session
+        # CONTRACT: le poste Web ne possède plus de parcours code. Toute
+        # première navigation loopback établit seulement un cookie HttpOnly ;
+        # Host, Origin et CSRF restent exigés pour chaque mutation.
+        self.automatic_session = True
         self.library = library
         self.active_workspace_id = None
         self.library_generation = (library.snapshot(None)["generation"]
@@ -561,12 +561,19 @@ class Handler(BaseHTTPRequestHandler):
                 "status": "ready", "instance_id": self.server.instance_id,
                 "config_id": self.server.config_id})
             return
+        if path == "/favicon.ico":
+            # CONTRACT: les navigateurs demandent implicitement cette icône ;
+            # l'absence d'asset ne doit pas transformer un parcours sain en 404.
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self._headers()
+            self.end_headers()
+            return
+        if path in {"/login.html", "/login.js"}:
+            self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
+            return
         if not self._authenticated():
-            if path == "/" and self.server.automatic_session:
+            if path == "/":
                 self._open_automatic_session()
-                return
-            if path in {"/", "/login.js", "/styles.css"}:
-                self._serve_static("/login.html" if path == "/" else path)
                 return
             self._error(HTTPStatus.UNAUTHORIZED, "session_required",
                         "Session locale requise")
@@ -670,7 +677,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlsplit(self.path).path
         if path == "/api/v1/session":
-            self._open_session()
+            self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
             return
         if not self._mutation_allowed():
             self._error(HTTPStatus.FORBIDDEN, "mutation_rejected",
@@ -1118,31 +1125,6 @@ class Handler(BaseHTTPRequestHandler):
                 except FileNotFoundError:pass
             self._json(HTTPStatus.OK,{"contract":"labfy.local_upload.v1","state":"CANCELLED"})
 
-    def _open_session(self):
-        if self.headers.get("Origin") != self.server.origin:
-            self._error(HTTPStatus.FORBIDDEN, "origin_rejected", "Origin exact obligatoire")
-            return
-        try:
-            value = self._body({"bootstrap_code"})
-        except (TypeError, OverflowError) as error:
-            self._error(HTTPStatus.BAD_REQUEST, "invalid_request", str(error))
-            return
-        if not hmac.compare_digest(value["bootstrap_code"], self.server.bootstrap):
-            self._error(HTTPStatus.FORBIDDEN, "bootstrap_rejected", "Code éphémère invalide")
-            return
-        with self.server.session_lock:
-            # Une reconnexion renouvelle les secrets ; les anciens cookies
-            # expirés ne doivent pas redevenir valables.
-            self.server.session = secrets.token_urlsafe(32)
-            self.server.csrf = secrets.token_urlsafe(32)
-            self.server.session_deadline = (time.monotonic() +
-                                            self.server.session_ttl_seconds)
-            cookie = (f"{self.server.cookie_name}={self.server.session}; "
-                      "HttpOnly; SameSite=Strict; "
-                      f"Path=/; Max-Age={self.server.session_ttl_seconds}")
-        self._json(HTTPStatus.OK, {"contract": "labfy.workspace.session.v1",
-                                   "authenticated": True}, cookie=cookie)
-
     def _open_automatic_session(self):
         with self.server.session_lock:
             self.server.session = secrets.token_urlsafe(32)
@@ -1213,12 +1195,10 @@ def main():
         return parsed
     parser.add_argument("--port", type=port, default=8081)
     args = parser.parse_args()
-    bootstrap = secrets.token_urlsafe(12)
     server = WorkspaceServer(("127.0.0.1", args.port), Handler,
                              workspace=args.workspace, bridge=args.bridge,
-                             bootstrap=bootstrap)
+                             bootstrap="")
     print(f"Labfy J6 : {server.origin}/", flush=True)
-    print(f"Code de session éphémère : {bootstrap}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

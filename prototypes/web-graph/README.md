@@ -137,6 +137,29 @@ capabilities par objet, provenance multiple, deux reconnexions SSE, conservation
 du contexte, doublon, trou et rattrapage snapshot. Les captures sont des preuves
 visuelles complémentaires ; les assertions d'interaction font foi.
 
+### Relevé du polish visuel Web V1 du 27 septembre 2026
+
+La coque Web actuelle est organisée autour de **Agent | Graphe | Activité** et
+d’un tiroir transversal. Le graphe reste la surface dominante. Les panneaux
+latéraux et le tiroir sont repliables ; sur desktop, leurs dimensions sont
+redimensionnables et conservées comme préférences locales par origine. Cette
+préférence ne contient ni données d’enquête, ni token, ni état métier.
+
+L’Agent affiche un flux SPECIMEN typé, une demande d’autorisation explicitant
+cible, provider, données sortantes, action, exposition, budget et raison. Il
+indique clairement qu’aucun modèle local n’est connecté : cette surface prépare
+un raccordement futur, elle ne simule aucun appel IA. Activité est un terminal
+structuré filtrable ; son mode expert ne révèle que des paramètres SPECIMEN non
+secrets et une provenance bornée.
+
+test_visual_polish_browser.mjs, inclus dans npm run test:browser, exerce le
+resize et sa restauration, les panneaux repliés, le prompt Ctrl+Entrée, le
+filtre/inspecteur d’activité, le drag/pin, le mode graphe prioritaire, les
+tailles 1440×900, 1280×800, 1024×768 et 700×900, ainsi qu’un diagnostic
+d’erreur de contrat. Il produit des captures inspectables sous
+/tmp/labfy-visual-polish-*.png, toutes sur workspace et serveur loopback
+temporaires SPECIMEN.
+
 ### Relevé du lot J3 local du 26 septembre 2026
 
 | Validation | Résultat observé |

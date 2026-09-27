@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import puppeteer from "puppeteer-core";
+import { openAutomaticSession } from "./browser_automatic_session.mjs";
 const REPOSITORY = new URL("../../..", import.meta.url),
   PROTOTYPE = new URL("..", import.meta.url);
 const FIREFOX_PATH = process.env.FIREFOX_PATH ?? "/usr/bin/firefox";
@@ -16,11 +17,10 @@ function ready(server) {
     );
     server.stdout.on("data", (chunk) => {
       text += chunk;
-      const u = text.match(/http:\/\/127\.0\.0\.1:(\d+)\//),
-        c = text.match(/Code de session éphémère : ([^\s]+)/);
-      if (u && c) {
+      const u = text.match(/http:\/\/127\.0\.0\.1:(\d+)\//);
+      if (u) {
         clearTimeout(timer);
-        resolve({ url: u[0], code: c[1] });
+        resolve({ url: u[0] });
       }
     });
     server.once("exit", (code) =>
@@ -50,14 +50,6 @@ function start(workspace) {
 async function stop(server) {
   server.kill("SIGINT");
   await new Promise((resolve) => server.once("exit", resolve));
-}
-async function login(page, session) {
-  await page.goto(session.url, { waitUntil: "domcontentloaded" });
-  await page.type("#bootstrap-code", session.code);
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-    page.click("#login-form button"),
-  ]);
 }
 const workspace = await mkdtemp(join(tmpdir(), "labfy-j8-browser-")),
   profile = await mkdtemp(join(tmpdir(), "labfy-j8-firefox-"));
@@ -97,7 +89,7 @@ try {
     if (message.type() === "error") errors.push(message.text());
   });
   await page.setViewport({ width: 1440, height: 900 });
-  await login(page, session);
+  await openAutomaticSession(page, session.url);
   await page.waitForFunction(
     () =>
       document.querySelectorAll("#planner-list input:not(:disabled)").length >=
@@ -182,7 +174,7 @@ try {
   server = null;
   server = start(workspace);
   const restarted = await ready(server);
-  await login(page, restarted);
+  await openAutomaticSession(page, restarted.url);
   await page.waitForFunction(
     () =>
       document

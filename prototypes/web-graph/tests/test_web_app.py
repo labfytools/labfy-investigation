@@ -78,31 +78,27 @@ class LauncherTest(SyntheticEnvironment):
         self.assertEqual(parser.parse_args(["serve", "--workspace",
             str(self.root / "w"), "--port", "0"]).port, 0)
 
-    def test_xdg_start_status_code_double_start_and_stop(self):
+    def test_xdg_start_status_auto_session_double_start_and_stop(self):
         workspace = self.root / "workspace"
         started = self.command("start", "--workspace", str(workspace), "--port", "0",
                                "--bridge", str(self.bridge))
         self.assertEqual(started.returncode, 0, started.stderr)
-        self.assertIn("Code de session éphémère : ", started.stdout)
-        bootstrap = started.stdout.split("Code de session éphémère : ", 1)[1].strip()
+        self.assertIn("Labfy Web : http://127.0.0.1:", started.stdout)
+        self.assertNotIn("Code de session", started.stdout)
         instance = (self.runtime / web_app.APP_DIRECTORY / "instance.json")
         self.assertTrue(instance.is_file())
-        self.assertNotIn(bootstrap, instance.read_text(encoding="utf-8"))
+        self.assertIn('"automatic_session":true', instance.read_text(encoding="utf-8"))
         self.assertEqual(instance.stat().st_mode & 0o777, 0o600)
         self.assertEqual((self.runtime / web_app.APP_DIRECTORY).stat().st_mode & 0o777,
                          0o700)
         config = self.state / web_app.APP_DIRECTORY / "config.json"
         self.assertEqual(config.stat().st_mode & 0o777, 0o600)
-        self.assertNotIn(bootstrap, config.read_text(encoding="utf-8"))
         status = self.command("status")
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertIn("actif", status.stdout)
-        code = self.command("code")
-        self.assertEqual(code.returncode, 0, code.stderr)
-        self.assertEqual(code.stdout.strip(), bootstrap)
         duplicate = self.command("start", "--workspace", str(workspace), "--port", "0",
                                  "--bridge", str(self.bridge))
-        self.assertNotEqual(duplicate.returncode, 0)
+        self.assertEqual(duplicate.returncode, 0, duplicate.stderr)
         self.assertIn("déjà active", duplicate.stderr)
         stopped = self.command("stop")
         self.assertEqual(stopped.returncode, 0, stopped.stderr)
@@ -266,15 +262,13 @@ class LibraryTest(SyntheticEnvironment):
             data = response.read()
             if response.getheader("Set-Cookie"):
                 cookie = response.getheader("Set-Cookie").split(";", 1)[0]
-            result = response.status, json.loads(data)
+            result = response.status, (json.loads(data) if data else {})
             connection.close()
             return result
 
         try:
             self.assertEqual(request("GET", "/api/v1/library", authenticated=False)[0], 401)
-            self.assertEqual(request("POST", "/api/v1/session",
-                {"bootstrap_code": "SPECIMEN-bootstrap"}, authenticated=False,
-                csrf=False)[0], 200)
+            self.assertEqual(request("GET", "/", authenticated=False)[0], 303)
             self.assertEqual(request("POST", "/api/v1/library/workspaces",
                 {"title": "Sans CSRF", "idempotency_key": "x"}, csrf=False)[0], 403)
             status, empty = request("GET", "/api/v1/library")

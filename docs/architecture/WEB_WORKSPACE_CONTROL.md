@@ -7,15 +7,17 @@
 ## Parcours
 
 La commande principale lance l’API loopback sur une bibliothèque locale
-explicitement choisie. Elle affiche l’URL et un code de session éphémère :
+explicitement choisie, ouvre le navigateur et affiche directement le workbench :
 
 ```sh
 make web PORT=8081 LIBRARY=/chemin/vers/la-bibliotheque-locale
 ```
 
-L'instance écoute sur `127.0.0.1:8081` dans cet exemple. Après authentification,
-la bibliothèque permet de créer une enquête locale par le bridge C ou d'ouvrir
-une enquête enregistrée. Une seule enquête peut être active par instance ; une
+L'instance écoute sur `127.0.0.1:8081` dans cet exemple. La navigation racine
+établit automatiquement une session locale HttpOnly et ouvre directement la
+bibliothèque, sans formulaire ni code de session. La bibliothèque permet de
+créer une enquête locale par le bridge C ou d'ouvrir une enquête enregistrée.
+Une seule enquête peut être active par instance ; une
 autre ouverture exige le redémarrage du poste local. L'utilisateur sélectionne
 ensuite l’EML ou l’image dans le graphe et choisit « Analyser les en-têtes » ou
 « Examiner les métadonnées ». L’intention est persistée avant la réponse HTTP

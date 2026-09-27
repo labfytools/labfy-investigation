@@ -5,56 +5,67 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import puppeteer from "puppeteer-core";
+import { openAutomaticSession, resumeAutomaticSessionAfterOwnedRestart } from "./browser_automatic_session.mjs";
 
+const REPOSITORY = new URL("../../..", import.meta.url);
 const PROTOTYPE = new URL("..", import.meta.url);
 const FIREFOX = process.env.FIREFOX_PATH ?? "/usr/bin/firefox";
 
 function startServer(library, runtime, state, port = 0) {
-  return spawn("python3", ["web_app.py", "serve", "--library", library,
-    "--bridge", "../../tools/local-jobs", "--port", String(port)], {
-    cwd: PROTOTYPE,
+  const result = spawnSync("./tools/labfy", ["--library", library,
+    "--port", String(port)], {
+    cwd: REPOSITORY,
     env: { ...process.env, PYTHONUNBUFFERED: "1", XDG_RUNTIME_DIR: runtime,
       XDG_STATE_HOME: state },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  assert.equal(result.status, 0, result.stderr.toString());
+  return { output: result.stdout.toString(), runtime, state };
 }
 
 function ready(server) {
   return new Promise((resolve, reject) => {
     let output = "";
     const timer = setTimeout(() => reject(new Error("démarrage Web expiré")), 10000);
-    server.stdout.on("data", (chunk) => {
-      output += chunk;
-      const origin = output.match(/Labfy Web : (http:\/\/127\.0\.0\.1:\d+)\//);
-      const code = output.match(/Code de session éphémère : ([^\s]+)/);
-      if (origin && code) {
-        clearTimeout(timer);
-        resolve({ origin: origin[1], code: code[1] });
-      }
-    });
-    server.once("exit", (code) => reject(new Error(`serveur arrêté (${code})`)));
+    output += server.output;
+    const origin = output.match(/Labfy Web : (http:\/\/127\.0\.0\.1:\d+)\//);
+    if (origin) {
+      clearTimeout(timer);
+      resolve({ origin: origin[1] });
+      return;
+    }
+    clearTimeout(timer);
+    reject(new Error(`lanceur Web sans origine: ${output}`));
   });
 }
 
 async function stopServer(server) {
-  if (!server || server.exitCode !== null) return;
-  const exited = new Promise((resolve) => server.once("exit", resolve));
-  server.kill("SIGTERM");
-  await exited;
+  if (!server) return;
+  const result = spawnSync("python3", ["web_app.py", "stop"], {
+    cwd: PROTOTYPE,
+    env: { ...process.env, XDG_RUNTIME_DIR: server.runtime,
+      XDG_STATE_HOME: server.state },
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
 }
 
-async function login(page, session) {
-  try {
-    await page.evaluate((origin) => window.location.assign(origin), session.origin);
-  } catch (error) {
-    if (!String(error).includes("Execution context was destroyed")) throw error;
-  }
-  await page.waitForSelector("#login-form");
-  await page.type("#bootstrap-code", session.code);
-  await page.click("#login-form button");
-  await page.waitForSelector("#library-home:not([hidden])");
-  assert.equal(page.url().includes(session.code), false);
-  assert.equal((await page.content()).includes(session.code), false);
+async function assertServerReady(server, expectedOrigin) {
+  const origin = (await ready(server)).origin;
+  assert.equal(origin, expectedOrigin);
+  const health = await fetch(`${origin}/healthz`, { cache: "no-store" });
+  assert.equal(health.status, 200);
+  const body = await health.json();
+  assert.equal(body.contract, "labfy.workspace.health.v1");
+  return origin;
+}
+
+async function detachPageFromOwnedServer(page) {
+  // CONTRACT: avant d'arrêter un backend possédé, le client de test quitte son
+  // EventSource afin que Firefox ne réutilise pas une navigation interrompue
+  // lorsque la même origine est relancée.
+  await page.evaluate(() => window.location.replace("about:blank"));
+  await page.waitForFunction(() => location.href === "about:blank");
 }
 
 async function createWorkspace(page, title) {
@@ -129,7 +140,7 @@ try {
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
   await page.setViewport({ width: 700, height: 900 });
-  await login(page, session);
+  await openAutomaticSession(page, session.origin, "A");
 
   assert.equal(await page.$eval("#workspace-list", (item) => item.children.length), 0);
   assert.match(await page.$eval("#library-empty", (item) => item.textContent), /Aucune enquête/);
@@ -296,11 +307,11 @@ try {
 
   // Le port initial est attribué par le système. Sa réutilisation conserve le
   // même origin et permet de vérifier les brouillons session après redémarrage.
+  await detachPageFromOwnedServer(page);
   await stopServer(server);
   server = startServer(library, runtime, state, assignedPort);
-  const restartedForB = await ready(server);
-  assert.equal(restartedForB.origin, session.origin);
-  await login(page, restartedForB);
+  const restartedForB = await assertServerReady(server, session.origin);
+  await resumeAutomaticSessionAfterOwnedRestart(page, restartedForB, "B");
   assert.equal(await page.$eval("#workspace-list", (item) => item.children.length), 1);
   assert.equal(await page.$eval(".workspace-card h3", (item) => item.textContent), workspaceATitle);
   assert.match(await page.$eval(".workspace-card p", (item) => item.textContent), /Prête à ouvrir/);
@@ -332,11 +343,11 @@ try {
 
   await page.click("#home-button");
   await page.waitForSelector("#library-home:not([hidden])");
+  await detachPageFromOwnedServer(page);
   await stopServer(server);
   server = startServer(library, runtime, state, assignedPort);
-  const restartedForA = await ready(server);
-  assert.equal(restartedForA.origin, session.origin);
-  await login(page, restartedForA);
+  const restartedForA = await assertServerReady(server, session.origin);
+  await resumeAutomaticSessionAfterOwnedRestart(page, restartedForA, "C");
   assert.equal(await page.$eval("#workspace-list", (item) => item.children.length), 2);
   await openWorkspace(page, workspaceAId);
   assert.equal(await page.$eval("#investigation-title", (item) => item.textContent),

@@ -64,7 +64,7 @@ class ResearchWebTest(unittest.TestCase):
         subprocess.run([str(cls.bridge), "export", "--workspace", str(workspace)],
                        cwd=cls.repository, check=True, timeout=15)
         server = WorkspaceServer(("127.0.0.1", 0), Handler,
-            workspace=workspace, bridge=cls.bridge, bootstrap="SPECIMEN-RESEARCH",
+            workspace=workspace, bridge=cls.bridge,
             research_fixture_authority=f"127.0.0.1:{cls.provider.server_port}")
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start(); cls.instances.append((server, thread))
@@ -87,10 +87,9 @@ class ResearchWebTest(unittest.TestCase):
         result = response.status, dict(response.getheaders()), data
         connection.close(); return result
 
-    def login(self, server):
-        status, headers, _ = self.request(server, "POST", "/api/v1/session",
-            {"bootstrap_code": "SPECIMEN-RESEARCH"}, origin=server.origin)
-        self.assertEqual(status, 200)
+    def open_automatic_session(self, server):
+        status, headers, _ = self.request(server, "GET", "/")
+        self.assertEqual(status, 303)
         cookie = headers["Set-Cookie"].split(";", 1)[0]
         status, _, body = self.request(server, "GET", "/api/v1/session",
                                        cookie=cookie)
@@ -105,7 +104,7 @@ class ResearchWebTest(unittest.TestCase):
     def test_two_waves_refusal_never_contacts_and_workspace_b_isolated(self):
         Provider.requests.clear()
         workspace_a, server_a = self.start_workspace("A")
-        cookie_a, csrf_a = self.login(server_a)
+        cookie_a, csrf_a = self.open_automatic_session(server_a)
         graph = json.loads((workspace_a / "core-snapshot.json").read_text())
         seed = graph["nodes"][0]["id"]
         prepared = {"selection_ids": [seed],
@@ -191,7 +190,7 @@ class ResearchWebTest(unittest.TestCase):
         self.assertEqual(len(list((workspace_a / ".labfy/research").glob("*.txt"))), 2)
 
         _, server_b = self.start_workspace("B")
-        cookie_b, _ = self.login(server_b)
+        cookie_b, _ = self.open_automatic_session(server_b)
         status, _, body = self.request(server_b, "GET", "/api/v1/research",
                                        cookie=cookie_b)
         self.assertEqual(status, 200); self.assertEqual(json.loads(body)["state"], "EMPTY")
@@ -202,7 +201,7 @@ class ResearchWebTest(unittest.TestCase):
     def test_result_failure_compensates_final_artifact(self):
         Provider.requests.clear()
         workspace, server = self.start_workspace("artifact-failure")
-        cookie, csrf = self.login(server)
+        cookie, csrf = self.open_automatic_session(server)
         graph = json.loads((workspace / "core-snapshot.json").read_text())
         prepared = {"selection_ids": [graph["nodes"][0]["id"]],
             "question": "Faute SQLite SPECIMEN ?", "exclusions": [],
@@ -243,7 +242,7 @@ class ResearchWebTest(unittest.TestCase):
         Provider.bodies["/specimen/wave-1"] = b"x" * 4097
         try:
             workspace, server = self.start_workspace("response-limit")
-            cookie, csrf = self.login(server)
+            cookie, csrf = self.open_automatic_session(server)
             graph = json.loads((workspace / "core-snapshot.json").read_text())
             prepared = {"selection_ids": [graph["nodes"][0]["id"]],
                 "question": "Borne corps SPECIMEN ?", "exclusions": [],
@@ -281,7 +280,7 @@ class ResearchWebTest(unittest.TestCase):
     def test_crash_after_rename_reconciles_without_recontact(self):
         Provider.requests.clear()
         workspace, server = self.start_workspace("crash-reconcile")
-        cookie, csrf = self.login(server)
+        cookie, csrf = self.open_automatic_session(server)
         graph = json.loads((workspace / "core-snapshot.json").read_text())
         prepared = {"selection_ids": [graph["nodes"][0]["id"]],
             "question": "Reprise publication SPECIMEN ?", "exclusions": [],
@@ -328,7 +327,7 @@ class ResearchWebTest(unittest.TestCase):
 
     def test_research_routes_keep_host_origin_csrf_and_shape_guards(self):
         _, server = self.start_workspace("guards")
-        cookie, csrf = self.login(server)
+        cookie, csrf = self.open_automatic_session(server)
         self.assertEqual(self.request(server, "GET", "/api/v1/research",
                                      cookie=cookie, host="evil.test")[0], 403)
         value = {"selection_ids": ["x"], "question": "SPECIMEN",

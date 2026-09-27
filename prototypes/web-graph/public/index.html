@@ -56,7 +56,7 @@
           placeholder="Rechercher un objet…"
         /><button id="search-button">Recentrer</button></label
       >
-      <div id="connection" role="status">Chargement…</div>
+      <div class="topbar-status"><span id="connection" role="status">Chargement…</span><button id="graph-fullscreen" class="icon-button" type="button" aria-pressed="false" title="Agrandir le graphe">⛶<span class="sr-only">Agrandir le graphe</span></button></div>
     </header>
     <nav class="projection-bar" aria-label="Projections et contrôles du graphe">
       <div class="projection-tabs" role="group">
@@ -93,19 +93,24 @@
     <main class="workbench">
       <aside id="agent-panel" class="agent-panel" aria-label="Agent IA local">
         <div class="panel-heading"><div><span class="eyebrow">Agent IA · préparation</span><h2>Mission</h2></div><button class="pane-toggle" data-pane="agent-panel" aria-expanded="true">Réduire</button></div>
+        <label class="agent-prompt"><span>Prompt à l’agent</span><textarea id="agent-prompt" maxlength="2000" placeholder="Décrivez l’intention d’enquête…" aria-describedby="agent-prompt-hint"></textarea><small id="agent-prompt-hint">Ctrl+Entrée pour préparer la demande · aucune action n’est lancée.</small><div class="agent-prompt-actions"><button type="button" id="agent-attachment" disabled title="Pièces jointes indisponibles dans cette tranche">Joindre</button><button type="button" id="agent-send">Préparer une demande</button></div></label>
         <div class="agent-scroll">
+          <div class="agent-status"><span aria-hidden="true">◌</span><span>IA locale non connectée</span><small>Surface prête pour un agent futur</small></div>
           <p class="agent-mission">Cartographier les relations autour de <strong>example.test</strong> en respectant les autorisations explicites.</p>
           <ol class="agent-conversation" aria-label="Conversation SPECIMEN">
             <li class="agent-card user"><b>USER</b><p>Montre les pivots passifs disponibles.</p></li>
+            <li class="agent-card agent"><b>AGENT</b><p>Je prépare un plan explicable. Aucune action réseau ne part sans capability et autorisation.</p></li>
             <li class="agent-card plan"><b>PLAN</b><p>1. Lire les observations · 2. Proposer les capabilities · 3. Attendre l’accord.</p></li>
             <li class="agent-card hypothesis"><b>HYPOTHESIS</b><p>Le domaine et l’adresse contact peuvent partager une provenance, sans confirmer une identité.</p></li>
-            <li class="agent-card authorization"><b>AUTHORIZATION</b><p><strong>rdap.lookup_domain</strong><br/>Cible : example.test · Provider : SPECIMEN loopback<br/>Sortie : nom de domaine · Exposition : passive · Budget : 1 requête<br/><button type="button">Examiner l’autorisation</button></p></li>
+            <li class="agent-card authorization"><b>AUTHORIZATION</b><p><strong>rdap.lookup_domain</strong></p><dl><dt>Cible</dt><dd>example.test</dd><dt>Provider</dt><dd>SPECIMEN loopback</dd><dt>Données sortantes</dt><dd>Nom de domaine</dd><dt>Action</dt><dd>Lookup passif</dd><dt>Exposition</dt><dd>Passive</dd><dt>Budget</dt><dd>1 requête</dd><dt>Raison</dt><dd>Vérifier une provenance déclarée</dd></dl><button type="button">Examiner l’autorisation</button></li>
             <li class="agent-card result"><b>RESULT</b><p>7 observations reçues ; aucune relation n’est promue automatiquement.</p></li>
+            <li class="agent-card warning"><b>WARNING</b><p>Les hypothèses restent distinctes des observations et des décisions humaines.</p></li>
           </ol>
-          <label class="agent-prompt"><span>Prompt à l’agent</span><textarea id="agent-prompt" maxlength="2000" placeholder="Décrivez l’intention d’enquête…"></textarea><button type="button" id="agent-send">Préparer une demande</button></label>
         </div>
       </aside>
+      <div id="agent-resizer" class="pane-resizer pane-resizer-vertical" role="separator" aria-label="Redimensionner le panneau Agent" aria-orientation="vertical" tabindex="0"></div>
       <section id="graph-panel" aria-label="Graphe interactif">
+        <div class="graph-toolbar" aria-label="Commandes rapides du graphe"><button id="graph-search-focus" type="button" title="Rechercher dans le graphe">⌕<span class="sr-only">Rechercher</span></button><button id="graph-home" type="button" title="Recentrer le graphe">⌂<span class="sr-only">Recentrer</span></button><button id="graph-reset-layout" type="button" title="Réinitialiser les positions épinglées">↺<span class="sr-only">Réinitialiser les positions</span></button><span id="graph-zoom" aria-live="polite">100 %</span></div>
         <div id="graph-state" role="alert"></div>
         <div class="graph-legend" aria-label="Légende">
           <span><i class="shape round"></i>Entité</span
@@ -166,10 +171,11 @@
           </div>
           <button class="pane-toggle" data-pane="inspector" aria-expanded="true">Réduire</button>
         </div>
+        <div class="activity-controls"><label>Filtrer <select id="activity-filter"><option value="">Tous les événements</option><option>PLAN</option><option>POLICY</option><option>TOOL</option><option>JOB</option><option>NETWORK</option><option>RESULT</option><option>ERROR</option><option>RESOURCE</option><option>AGENT</option></select></label><button id="activity-expert-toggle" type="button" aria-pressed="false">Mode expert</button></div>
         <section class="activity-stream" aria-label="Timeline technique SPECIMEN">
-          <div class="activity-entry"><time>15:42:12</time><b>TOOL</b><span>rdap.lookup_domain<br/><code>target = example.test</code></span></div>
-          <div class="activity-entry policy"><time>15:42:12</time><b>POLICY</b><span>Autorisé · budget restant 18/20</span></div>
-          <div class="activity-entry result"><time>15:42:13</time><b>RESULT</b><span>1 artefact · 7 observations</span></div>
+          <details class="activity-entry" data-activity-type="TOOL"><summary><time>15:42:12</time><b>TOOL</b><span>rdap.lookup_domain<br/><code>target = example.test</code></span></summary><pre>provider: specimen-loopback\nlatence: 34 ms\nsecret: [non affiché]</pre></details>
+          <details class="activity-entry policy" data-activity-type="POLICY"><summary><time>15:42:12</time><b>POLICY</b><span>Autorisé · budget restant 18/20</span></summary><pre>risk_class: PASSIVE\nauthorization: accord explicite</pre></details>
+          <details class="activity-entry result" data-activity-type="RESULT"><summary><time>15:42:13</time><b>RESULT</b><span>1 artefact · 7 observations</span></summary><pre>provenance: tool-result/specimen\nstdout: borné</pre></details>
         </section>
         <details class="system-card"><summary>Système · ressources réelles</summary><dl><dt>CPU</dt><dd id="system-cpu">Disponible via backend</dd><dt>RAM</dt><dd id="system-ram">Disponible via backend</dd><dt>Jobs actifs</dt><dd id="system-jobs">Lecture JobStore</dd><dt>Instance Web</dt><dd id="system-instance">Loopback</dd><dt>Providers</dt><dd id="system-providers">Selon capabilities</dd></dl><p class="future-slots">Prévu : modèle · quantification · GPU AMD · KV cache · réserve RAM · swap · scratch IA.</p></details>
         <div class="tablist" role="tablist">
@@ -211,26 +217,46 @@
           </table>
         </section>
       </aside>
+      <div id="inspector-resizer" class="pane-resizer pane-resizer-vertical" role="separator" aria-label="Redimensionner le panneau Activité" aria-orientation="vertical" tabindex="0"></div>
       <section id="work-panel" class="work-panel" aria-label="Travail local">
         <div class="work-panel-header">
           <div class="tablist" role="tablist">
-            <button
-              role="tab"
-              data-work-panel="tasks-panel"
-              aria-selected="true"
-            >
-              Tâches</button
+            <button role="tab" data-work-panel="details-drawer-panel">Détails</button
+            ><button role="tab" data-work-panel="provenance-drawer-panel">Provenance</button
+            ><button role="tab" data-work-panel="timeline-drawer-panel">Timeline</button
+            ><button role="tab" data-work-panel="research-panel">Recherches</button
+            ><button role="tab" data-work-panel="observations-drawer-panel">Observations</button
+            ><button role="tab" data-work-panel="finance-drawer-panel">Finance</button
+            ><button role="tab" data-work-panel="reports-panel">Rapports</button
+            ><button role="tab" data-work-panel="tasks-panel" aria-selected="true">Tâches</button
             ><button role="tab" data-work-panel="next-panel">
               Prochaines actions</button
             ><button role="tab" data-work-panel="plans-panel">Plans</button
-            ><button role="tab" data-work-panel="research-panel">Recherches</button
-            ><button role="tab" data-work-panel="reports-panel">
-              Rapports
-            </button>
           </div>
           <button id="work-panel-toggle" aria-expanded="true">Réduire</button>
         </div>
         <div class="work-panel-body">
+          <section id="details-drawer-panel" class="work-tab-panel" hidden>
+            <h3>Détails de la sélection</h3>
+            <p id="drawer-details-summary">Sélectionnez un objet du graphe pour conserver son contexte ici.</p>
+          </section>
+          <section id="provenance-drawer-panel" class="work-tab-panel" hidden>
+            <h3>Chaîne de provenance</h3>
+            <p id="drawer-provenance-summary">Aucune source sélectionnée.</p>
+            <p class="empty-state">Les dérivés et transformations sont affichés sans confondre observation et hypothèse.</p>
+          </section>
+          <section id="timeline-drawer-panel" class="work-tab-panel" hidden>
+            <h3>Timeline</h3>
+            <p id="drawer-timeline-summary">La chronologie pertinente apparaît avec l’objet sélectionné.</p>
+          </section>
+          <section id="observations-drawer-panel" class="work-tab-panel" hidden>
+            <h3>Observations</h3>
+            <p id="drawer-observations-summary">Aucune observation à promouvoir automatiquement.</p>
+          </section>
+          <section id="finance-drawer-panel" class="work-tab-panel" hidden>
+            <h3>Finance</h3>
+            <p class="empty-state">Aucune donnée financière n’est simulée dans cette vue SPECIMEN.</p>
+          </section>
           <section id="tasks-panel" class="work-tab-panel">
             <h3>Jobs locaux</h3>
             <p id="jobs-note">Chargement…</p>
@@ -331,6 +357,7 @@
           </section>
         </div>
       </section>
+      <div id="drawer-resizer" class="pane-resizer pane-resizer-horizontal" role="separator" aria-label="Redimensionner le tiroir inférieur" aria-orientation="horizontal" tabindex="0"></div>
     </main>
     <dialog id="evidence-dialog" aria-labelledby="evidence-title">
       <form method="dialog" class="dialog-close"><button>Fermer</button></form>

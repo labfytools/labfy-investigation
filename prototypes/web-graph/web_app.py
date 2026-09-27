@@ -133,7 +133,6 @@ class InstanceFiles:
         self.runtime = runtime_directory()
         self.state_root = state_directory()
         self.instance = self.runtime / "instance.json"
-        self.secret = self.runtime / "bootstrap.code"
         self.config = self.state_root / "config.json"
         self.lifecycle = self.runtime / "lifecycle.lock"
         self.owner = self.runtime / "instance.lock"
@@ -144,7 +143,7 @@ class InstanceFiles:
         return descriptor
 
     def clear_stale(self):
-        for path in (self.instance, self.secret):
+        for path in (self.instance,):
             try:
                 path.unlink()
             except FileNotFoundError:
@@ -177,7 +176,6 @@ def serve(args):
     selection = _selection(args)
     config, config_id = _config(selection, args.bridge)
     instance_id = secrets.token_urlsafe(24)
-    bootstrap = secrets.token_urlsafe(18)
     library = None
     if selection[0] == "library":
         library = WebLibrary(selection[1], args.bridge)
@@ -188,7 +186,7 @@ def serve(args):
         workspace.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
         server = WorkspaceServer(("127.0.0.1", args.port), Handler,
-            workspace=workspace, bridge=args.bridge, bootstrap=bootstrap,
+            workspace=workspace, bridge=args.bridge, bootstrap="",
             library=library, instance_id=instance_id, config_id=config_id,
             automatic_session=args.automatic_session)
     except OSError as error:
@@ -196,28 +194,21 @@ def serve(args):
                                       "error": f"Port indisponible : {error}"})
         os.close(owner)
         return 1
-    state = {"contract": "labfy.web_instance.v1", "pid": os.getpid(),
+    state = {"contract": "labfy.web_instance.v2", "pid": os.getpid(),
              "proc_start": _proc_start(os.getpid()), "instance_id": instance_id,
-             "config_id": config_id, "port": server.server_port, "config": config}
+             "config_id": config_id, "port": server.server_port, "config": config,
+             "automatic_session": True}
     try:
         # CONTRACT: la configuration durable ne contient jamais le secret
         # d'amorçage, qui reste exclusivement dans le runtime privé.
         _atomic_json(files.config, {"contract": "labfy.web_config.v1",
                                    "config_id": config_id, **config})
         _atomic_json(files.instance, state)
-        descriptor = os.open(files.secret, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-                             0o600)
-        try:
-            os.write(descriptor, (bootstrap + "\n").encode())
-        finally:
-            os.close(descriptor)
         answer = {"ok": True, "origin": server.origin,
                   "instance_id": instance_id}
         _handshake(args.handshake_fd, answer)
         if args.handshake_fd is None:
             print(f"Labfy Web : {server.origin}/", flush=True)
-            if not args.automatic_session:
-                print(f"Code de session éphémère : {bootstrap}", flush=True)
         # INVARIANT: SIGTERM n'arrête que cette instance déjà authentifiée
         # par le lanceur ; shutdown s'exécute hors du gestionnaire de signal.
         def request_shutdown(_signum, _frame):
@@ -247,17 +238,31 @@ def start(args):
             current = None
         if current is not None and _identity_valid(current):
             origin = f"http://127.0.0.1:{current['port']}/"
-            if args.open_browser:
-                webbrowser.open(origin)
-            print(f"Instance déjà active sur {origin}", file=sys.stderr)
-            return 0
+            if (current.get("automatic_session") is True and
+                    current.get("contract") == "labfy.web_instance.v2"):
+                if args.open_browser:
+                    webbrowser.open(origin)
+                print(f"Instance déjà active sur {origin}", file=sys.stderr)
+                return 0
+            # CONTRACT: une instance authentifiée mais d'ancien profil ne peut
+            # jamais être rejointe : elle ramènerait le parcours code retiré.
+            print(f"Instance incompatible sur {origin} ; remplacement contrôlé",
+                  file=sys.stderr)
+            os.kill(current["pid"], signal.SIGTERM)
+            deadline = time.monotonic() + 5
+            while (time.monotonic() < deadline and
+                   _proc_start(current["pid"]) == current["proc_start"]):
+                time.sleep(0.05)
+            if _proc_start(current["pid"]) == current["proc_start"]:
+                print("Arrêt de l'instance incompatible expiré", file=sys.stderr)
+                return 1
+            files.clear_stale()
         files.clear_stale()
         read_fd, write_fd = os.pipe()
         command = [sys.executable, str(Path(__file__).resolve()), "serve",
                    "--port", str(args.port), "--bridge", str(args.bridge),
                    "--handshake-fd", str(write_fd)]
-        if args.automatic_session:
-            command.append("--automatic-session")
+        command.append("--automatic-session")
         mode, path = _selection(args)
         command.extend((f"--{mode}", str(path)))
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
@@ -329,21 +334,6 @@ def stop(_args):
         os.close(lifecycle)
 
 
-def code(_args):
-    files = InstanceFiles()
-    try:
-        state = _read_private_json(files.instance)
-        if not _identity_valid(state):
-            raise RuntimeError("Instance inactive")
-        if files.secret.is_symlink() or not files.secret.is_file():
-            raise RuntimeError("Code indisponible")
-        print(files.secret.read_text(encoding="utf-8").strip())
-        return 0
-    except (OSError, RuntimeError, json.JSONDecodeError) as error:
-        print(str(error), file=sys.stderr)
-        return 1
-
-
 def build_parser():
     parser = argparse.ArgumentParser(description="Poste Web local Labfy")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -363,7 +353,7 @@ def build_parser():
         if name == "serve":
             command.add_argument("--handshake-fd", type=int, help=argparse.SUPPRESS)
         command.set_defaults(function=function)
-    for name, function in (("status", status), ("stop", stop), ("code", code)):
+    for name, function in (("status", status), ("stop", stop)):
         command = subparsers.add_parser(name)
         command.set_defaults(function=function)
     help_command = subparsers.add_parser("help")

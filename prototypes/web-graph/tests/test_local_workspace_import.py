@@ -29,8 +29,7 @@ class LocalWorkspaceImportTest(unittest.TestCase):
         self.workspace = Path(self.temporary.name) / "workspace"
         self.workspace.mkdir(mode=0o700)
         self.server = WorkspaceServer(("127.0.0.1", 0), Handler,
-            workspace=self.workspace, bridge=REPOSITORY / "tools" / "local-jobs",
-            bootstrap="SPECIMEN-bootstrap")
+            workspace=self.workspace, bridge=REPOSITORY / "tools" / "local-jobs")
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.cookie = None
@@ -55,9 +54,8 @@ class LocalWorkspaceImportTest(unittest.TestCase):
         return response.status, json.loads(data) if data else None
 
     def login_create(self):
-        status, _ = self.request("POST", "/api/v1/session",
-                                 {"bootstrap_code":"SPECIMEN-bootstrap"}, csrf=False)
-        self.assertEqual(status, 200)
+        status, _ = self.request("GET", "/", csrf=False)
+        self.assertEqual(status, 303)
         status, value = self.request("POST", "/api/v1/workspace",
                                      {"title":"Dossier synthétique Ω"})
         self.assertEqual(status, 201); return value
@@ -67,20 +65,19 @@ class LocalWorkspaceImportTest(unittest.TestCase):
             "init-specimen", "--workspace", str(self.workspace)],
             cwd=REPOSITORY, text=True, capture_output=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
-        status, _ = self.request("POST", "/api/v1/session",
-            {"bootstrap_code":"SPECIMEN-bootstrap"}, csrf=False)
-        self.assertEqual(status, 200)
+        status, _ = self.request("GET", "/", csrf=False)
+        self.assertEqual(status, 303)
         return json.loads((self.workspace / ".labfy/runtime/specimen.json").read_text())
 
     def restart_server(self):
         self.server.shutdown(); self.server.server_close(); self.thread.join(3)
         self.server = WorkspaceServer(("127.0.0.1", 0), Handler,
-            workspace=self.workspace, bridge=REPOSITORY / "tools" / "local-jobs",
-            bootstrap="SPECIMEN-bootstrap")
+            workspace=self.workspace, bridge=REPOSITORY / "tools" / "local-jobs")
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start(); self.cookie = None
-        status, _ = self.request("POST", "/api/v1/session",
-            {"bootstrap_code":"SPECIMEN-bootstrap"}, csrf=False)
+        status, _ = self.request("GET", "/", csrf=False)
+        self.assertEqual(status, 303)
+        status, _ = self.request("GET", "/api/v1/session", csrf=False)
         self.assertEqual(status, 200)
 
     def prepare(self, name, data, declared="application/octet-stream"):

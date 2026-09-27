@@ -10,6 +10,9 @@ import {
 // CONTRACT: this ordered list is the complete browser-validation suite.
 export const scenarios = Object.freeze([
   "test_browser.mjs",
+  // CONTRACT: le point d'entrée utilisateur ouvre directement le workbench,
+  // établit le cookie local et refuse toute origine de mutation étrangère.
+  "test_direct_session_browser.mjs",
   "test_core_browser.mjs",
   "test_eml_browser.mjs",
   "test_local_toolkit_browser.mjs",
@@ -19,6 +22,9 @@ export const scenarios = Object.freeze([
   "test_j9_browser.mjs",
   "test_workbench_browser.mjs",
   "test_workbench_populated_browser.mjs",
+  // CONTRACT: cette vérification Firefox inspecte les tailles cibles, le
+  // tiroir, les panneaux persistants et la surface Agent uniquement sur fixture.
+  "test_visual_polish_browser.mjs",
   "test_local_workspace_import_browser.mjs",
   // Le scénario import/rapport précédent et ce cycle du vrai launcher forment
   // la preuve E2E : données SPECIMEN, rapport, bibliothèque, redémarrages et A/B.

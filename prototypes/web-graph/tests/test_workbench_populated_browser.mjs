@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import puppeteer from "puppeteer-core";
+import { openAutomaticSession } from "./browser_automatic_session.mjs";
 
 const REPOSITORY = new URL("../../..", import.meta.url);
 const PROTOTYPE = new URL("..", import.meta.url);
@@ -19,10 +20,9 @@ function ready(server) {
     server.stdout.on("data", (chunk) => {
       output += chunk;
       const url = output.match(/http:\/\/127\.0\.0\.1:\d+\//);
-      const code = output.match(/Code de session éphémère : ([^\s]+)/);
-      if (url && code) {
+      if (url) {
         clearTimeout(timer);
-        resolve({ url: url[0], code: code[1] });
+        resolve({ url: url[0] });
       }
     });
     server.once("exit", (code) =>
@@ -31,14 +31,6 @@ function ready(server) {
   });
 }
 
-async function login(page, session) {
-  await page.goto(session.url, { waitUntil: "domcontentloaded" });
-  await page.type("#bootstrap-code", session.code);
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-    page.click("#login-form button"),
-  ]);
-}
 
 const workspace = await mkdtemp(join(tmpdir(), "labfy-workbench-populated-"));
 const profile = await mkdtemp(
@@ -89,7 +81,7 @@ try {
   await page.setViewport({ width: 1440, height: 900 });
 
   const authenticationStarted = performance.now();
-  await login(page, session);
+  await openAutomaticSession(page, session.url);
   await page.waitForSelector(".node");
   const firstRenderMs = Math.round(performance.now() - authenticationStarted);
 

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import puppeteer from "puppeteer-core";
+import { openAutomaticSession } from "./browser_automatic_session.mjs";
 
 const REPOSITORY = new URL("../../..", import.meta.url);
 const PROTOTYPE = new URL("..", import.meta.url);
@@ -17,10 +18,9 @@ function ready(server) {
     server.stdout.on("data", (chunk) => {
       text += chunk;
       const url = text.match(/http:\/\/127\.0\.0\.1:(\d+)\//);
-      const code = text.match(/Code de session éphémère : ([^\s]+)/);
-      if (url && code) {
+      if (url) {
         clearTimeout(timer);
-        resolve({ url: url[0], code: code[1] });
+        resolve({ url: url[0] });
       }
     });
     server.once("exit", (code) => reject(new Error(`serveur arrêté (${code})`)));
@@ -42,12 +42,6 @@ async function stop(server) {
   await new Promise((resolve) => server.once("exit", resolve));
 }
 
-async function login(page, session) {
-  await page.goto(session.url, { waitUntil: "domcontentloaded" });
-  await page.type("#bootstrap-code", session.code);
-  await Promise.all([page.waitForNavigation({ waitUntil: "domcontentloaded" }),
-    page.click("#login-form button")]);
-}
 
 function init(workspace) {
   const result = spawnSync("./tools/local-jobs",
@@ -81,7 +75,7 @@ try {
     headless: true, userDataDir: profile, args: ["--no-remote"] });
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 900 });
-  await login(page, sessionA);
+  await openAutomaticSession(page, sessionA.url);
   await page.waitForSelector("#object-list button");
   await page.click("#object-list button");
   await page.click('[data-work-panel="research-panel"]');
@@ -108,7 +102,7 @@ try {
 
   await stop(server); server = start(workspaceB, authority);
   const sessionB = await ready(server); const pageB = await browser.newPage();
-  await login(pageB, sessionB);
+  await openAutomaticSession(pageB, sessionB.url);
   await pageB.click('[data-work-panel="research-panel"]');
   assert.equal(await pageB.$$eval(".research-card", (nodes) => nodes.length), 0);
   assert.match(await pageB.$eval("#research-note", (node) => node.textContent),

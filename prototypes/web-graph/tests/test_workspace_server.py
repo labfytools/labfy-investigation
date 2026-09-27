@@ -35,11 +35,8 @@ class WorkspaceServerTest(unittest.TestCase):
                                      bridge=cls.bridge, bootstrap="SPECIMEN-CODE")
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
-        status, headers, _ = cls.request_raw(
-            "POST", "/api/v1/session", {"bootstrap_code": "SPECIMEN-CODE"},
-            origin=cls.server.origin,
-        )
-        if status != 200:
+        status, headers, _ = cls.request_raw("GET", "/")
+        if status != 303:
             raise RuntimeError("session J6 impossible")
         cls.cookie = headers["Set-Cookie"].split(";", 1)[0]
         status, _, body = cls.request_raw("GET", "/api/v1/session", cookie=cls.cookie)
@@ -85,8 +82,7 @@ class WorkspaceServerTest(unittest.TestCase):
 
     def test_authentication_origin_csrf_and_input_rejections(self):
         self.assertEqual(self.request_raw(
-            "POST", "/api/v1/session", {"bootstrap_code": ["SPECIMEN-CODE"]},
-            origin=self.server.origin)[0], 400)
+            "POST", "/api/v1/session", {}, origin=self.server.origin)[0], 404)
         self.assertEqual(self.request_raw("GET", "/api/v1/jobs")[0], 401)
         self.assertEqual(self.request_raw("GET", "/api/v1/jobs", host="evil.test")[0], 403)
         self.assertEqual(self.request_raw("POST", "/api/v1/queue/pause", {},
