@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import subprocess
+import threading
 import uuid
 from pathlib import Path
 
@@ -21,16 +22,32 @@ class LibraryError(ValueError):
 
 
 class WebLibrary:
-    def __init__(self, root: Path, bridge: Path):
+    def __init__(self, root: Path, bridge: Path, *, lazy=False):
+        if not isinstance(lazy, bool):
+            raise TypeError("Mode de bibliothèque invalide")
         self.root = Path(root).absolute()
         self.bridge = Path(bridge).resolve()
-        self._prepare_private_root()
+        self.lazy = lazy
+        self._prepare_lock = threading.Lock()
+        self._ready = False
         self.workspaces = self.root / "workspaces"
-        self.workspaces.mkdir(mode=0o700, exist_ok=True)
-        self._assert_plain_directory(self.workspaces)
         self.registry_path = self.root / "registry.json"
         self.creation_intent_path = self.root / "creation-intent.json"
         self.lock_path = self.root / "registry.lock"
+        if not lazy:
+            self._ensure_ready()
+
+    def _ensure_ready(self):
+        # INVARIANT: lazy construction performs no stat, mkdir or registry read
+        # under the selected library. Only an explicit list/create/open call
+        # initializes it, once, before the existing locked operations run.
+        with self._prepare_lock:
+            if self._ready:
+                return
+            self._prepare_private_root()
+            self.workspaces.mkdir(mode=0o700, exist_ok=True)
+            self._assert_plain_directory(self.workspaces)
+            self._ready = True
 
     def _prepare_private_root(self):
         for component in reversed((self.root, *self.root.parents)):
@@ -50,6 +67,7 @@ class WebLibrary:
             raise LibraryError(f"Répertoire de bibliothèque invalide : {path}")
 
     def _locked(self):
+        self._ensure_ready()
         descriptor = os.open(self.lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         os.fchmod(descriptor, 0o600)
         fcntl.flock(descriptor, fcntl.LOCK_EX)

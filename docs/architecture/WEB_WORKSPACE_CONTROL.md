@@ -41,6 +41,15 @@ le code éphémère. Ne pas consigner ce code dans des scripts, URLs, journaux o
 documents. Le mode `--workspace` reste le parcours ciblé existant ; il ne crée
 pas une bibliothèque implicite.
 
+Le service personnel `invest.labfy` emploie `--lazy-library`. Dans ce mode,
+le démarrage conserve seulement le chemin configuré : il ne crée ni ne lit la
+bibliothèque et n'ouvre aucune enquête. La première page établit la session
+automatique sans appeler l'API de liste. L'action visible « Charger les
+enquêtes » déclenche seule l'initialisation et la lecture du registre ;
+l'ouverture d'une enquête exige ensuite un clic distinct. Le workspace
+inactif du serveur réside dans son espace XDG privé, hors de la bibliothèque.
+Le parcours `make web` sans cette option conserve son chargement initial.
+
 ## Bibliothèque, état XDG et limites
 
 La bibliothèque est privée (`0700`), refuse les liens symboliques et conserve

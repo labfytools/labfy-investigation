@@ -29,6 +29,9 @@ export const scenarios = Object.freeze([
   // Le scénario import/rapport précédent et ce cycle du vrai launcher forment
   // la preuve E2E : données SPECIMEN, rapport, bibliothèque, redémarrages et A/B.
   "test_web_app_browser.mjs",
+  // CONTRACT: le service persistant n'inspecte la bibliothèque qu'après le
+  // clic explicite de l'utilisateur, puis ouvre un workspace SPECIMEN choisi.
+  "test_lazy_library_browser.mjs",
   // CONTRACT: ce parcours Firefox exerce le vrai formulaire et une expiration
   // de harness isolée ; il démontre l'arrêt du polling et la reconnexion sans
   // rejouer une mutation dont l'admission n'est pas connue.

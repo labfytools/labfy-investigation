@@ -12,6 +12,7 @@
         <div><span class="eyebrow">Poste local</span><h1 id="library-title" tabindex="-1">Bibliothèque d’enquêtes</h1></div>
         <span id="library-connection" role="status">Chargement…</span>
       </header>
+      <p><button id="library-load" type="button" hidden>Charger les enquêtes</button></p>
       <section id="workspace-create" class="library-create" aria-labelledby="create-title">
         <h2 id="create-title">Nouvelle enquête</h2>
         <p>Crée un espace local vide. Aucun contenu d’exemple n’est ajouté.</p>
@@ -92,7 +93,7 @@
     </nav>
     <main class="workbench">
       <aside id="agent-panel" class="agent-panel" aria-label="Agent IA local">
-        <div class="panel-heading"><div><span class="eyebrow">Agent de démonstration déterministe</span><h2>Mission</h2></div><button class="pane-toggle" data-pane="agent-panel" aria-expanded="true">Réduire</button></div>
+        <div class="panel-heading"><div><span class="eyebrow">Agent local</span><h2>Mission</h2></div><button class="pane-toggle" data-pane="agent-panel" aria-expanded="true">Réduire</button></div>
         <label class="agent-prompt">
           <span>Objectif utilisateur</span>
           <textarea id="agent-prompt" maxlength="512" placeholder="Objectif d’enquête SPECIMEN…"

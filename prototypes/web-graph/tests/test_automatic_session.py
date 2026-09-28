@@ -54,6 +54,40 @@ class AutomaticSessionTest(unittest.TestCase):
             "Content-Type": "application/json", "Content-Length": "2"}, "{}")
         self.assertEqual(status, 403)
 
+    def test_explicit_proxy_origin_keeps_host_origin_and_csrf_strict(self):
+        self.server.shutdown(); self.server.server_close(); self.thread.join()
+        self.server = WorkspaceServer(("127.0.0.1", 0), Handler,
+            workspace=Path(self.temporary.name),
+            bridge=Path(self.temporary.name) / "missing-bridge", bootstrap="unused",
+            public_local_origin="http://invest.labfy")
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.authority = f"127.0.0.1:{self.server.server_port}"
+        status, headers, _ = self.request("GET", "/", {"Host": "invest.labfy"})
+        self.assertEqual(status, 303)
+        cookie = headers["Set-Cookie"].split(";", 1)[0]
+        status, _, body = self.request("GET", "/api/v1/session", {
+            "Host": "invest.labfy", "Cookie": cookie})
+        self.assertEqual(status, 200)
+        session = json.loads(body)
+        self.assertEqual(session["origin"], "http://invest.labfy")
+        common = {"Host": "invest.labfy", "Cookie": cookie,
+                  "X-Labfy-CSRF": session["csrf"],
+                  "Content-Type": "application/json"}
+        for origin in ("http://evil.test", self.server.origin):
+            status, _, _ = self.request("POST", "/api/v1/queue/pause",
+                {**common, "Origin": origin}, "{}")
+            self.assertEqual(status, 403)
+        status, _, _ = self.request("POST", "/api/v1/queue/pause",
+            {**common, "Origin": "http://invest.labfy",
+             "X-Labfy-CSRF": "wrong"}, "{}")
+        self.assertEqual(status, 403)
+        status, _, _ = self.request("GET", "/", {"Host": "evil.test"})
+        self.assertEqual(status, 403)
+        status, _, _ = self.request("GET", "/", {
+            "Host": "evil.test", "X-Forwarded-Host": "invest.labfy"})
+        self.assertEqual(status, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

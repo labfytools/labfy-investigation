@@ -178,8 +178,12 @@ def serve(args):
     instance_id = secrets.token_urlsafe(24)
     library = None
     if selection[0] == "library":
-        library = WebLibrary(selection[1], args.bridge)
-        workspace = library.root / ".inactive"
+        library = WebLibrary(selection[1], args.bridge, lazy=args.lazy_library)
+        # WHY: a persistent service must answer HTTP before touching the
+        # configured investigation library. Its inactive workspace belongs to
+        # private runtime state until a human opens a selected workspace.
+        workspace = (files.runtime / "inactive" if args.lazy_library
+                     else library.root / ".inactive")
         workspace.mkdir(mode=0o700, exist_ok=True)
     else:
         workspace = selection[1]
@@ -191,7 +195,8 @@ def serve(args):
             automatic_session=args.automatic_session, agent_mode=args.agent_mode,
             agent_endpoint=args.agent_endpoint, agent_model=args.agent_model,
             agent_timeout=args.agent_timeout, agent_autostart=args.agent_autostart,
-            agent_config_path=args.agent_config_path)
+            agent_config_path=args.agent_config_path,
+            public_local_origin=args.public_local_origin)
     except OSError as error:
         _handshake(args.handshake_fd, {"ok": False,
                                       "error": f"Port indisponible : {error}"})
@@ -269,6 +274,10 @@ def start(args):
         command.extend(("--agent-mode", args.agent_mode))
         if args.agent_autostart:
             command.append("--agent-autostart")
+        if args.lazy_library:
+            command.append("--lazy-library")
+        if args.public_local_origin is not None:
+            command.extend(("--public-local-origin", args.public_local_origin))
         if args.agent_config_path is not None:
             command.extend(("--agent-config-path", str(args.agent_config_path)))
         if args.agent_endpoint is not None:
@@ -372,6 +381,10 @@ def build_parser():
                              help="démarre le seul llama-server configuré dans XDG")
         command.add_argument("--agent-config-path", type=Path,
                              help="configuration agent explicite et non versionnée")
+        command.add_argument("--lazy-library", action="store_true",
+                             help="attend une action UI avant de lire la bibliothèque")
+        command.add_argument("--public-local-origin", choices=("http://invest.labfy",),
+                             help="origine navigateur locale exacte servie par nginx")
         if name == "start":
             command.add_argument("--open-browser", action="store_true",
                                  help="ouvre l'interface locale après vérification")

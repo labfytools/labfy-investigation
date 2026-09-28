@@ -1,0 +1,19 @@
+#!/bin/sh
+# CONTRACT: systemd owns this foreground process; the configured library is
+# never selected implicitly and no shell fragment is evaluated from web.env.
+set -eu
+: "${LABFY_LIBRARY:?LABFY_LIBRARY doit désigner une bibliothèque explicite}"
+: "${LABFY_WEB_PORT:?LABFY_WEB_PORT doit désigner le port loopback dédié}"
+case "$LABFY_LIBRARY" in
+  /*) ;;
+  *) echo "LABFY_LIBRARY doit être un chemin absolu" >&2; exit 2 ;;
+esac
+case "$LABFY_WEB_PORT" in
+  *[!0-9]*|'') echo "LABFY_WEB_PORT invalide" >&2; exit 2 ;;
+esac
+script=$(readlink -f -- "$0")
+repository=$(dirname -- "$(dirname -- "$script")")
+exec /usr/bin/python3 "$repository/prototypes/web-graph/web_app.py" serve \
+  --library "$LABFY_LIBRARY" --lazy-library --port "$LABFY_WEB_PORT" \
+  --automatic-session --public-local-origin http://invest.labfy \
+  --agent-mode local-model --agent-autostart --agent-timeout 90

@@ -42,6 +42,13 @@ puis ciblé après délai, ne concerne que son PID/groupe de processus possédé
 Le chemin de modèle reste hors du dépôt. Sans configuration, binaire ou
 healthcheck valides, l'agent est indisponible sans bascule cloud ou fake.
 
+Le service local utilise `--agent-mode local-model --agent-autostart
+--agent-timeout 90`. Le superviseur démarre son propre serveur modèle sur un
+port loopback éphémère ; le navigateur appelle seulement Labfy. Le champ
+« Objectif utilisateur » existant lance le turn Qwen et ses appels d'outils
+passent par `AgentRuntime` et les capabilities. L'interface distingue Qwen prêt,
+occupé et indisponible. Le choix manuel d'outil reste dans « Mode expert/debug ».
+
 ## Limites actuelles
 
 La fondation Sandbox/Tool Registry et l'egress privacy sont décrites dans leurs

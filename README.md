@@ -27,6 +27,13 @@ contextuel, les tâches, le planner J8 et les rapports J9. Cette disponibilité
 locale ne change ni le statut de production, ni l’interdiction d’utiliser une
 enquête réelle pendant les validations de développement.
 
+Le déploiement personnel local de `http://invest.labfy` repose sur une unité
+systemd utilisateur et un proxy nginx limités à `127.0.0.1`. Sur cette machine,
+le service démarre sans inspecter la bibliothèque configurée ; l'utilisateur
+charge sa liste, puis ouvre une enquête par deux actions explicites. Labfy
+démarre le Qwen local configuré dans XDG pour le prompt Agent existant. Les étapes
+d’installation et de retrait sont dans le [guide du poste Web](docs/ui/WEB_WORKBENCH.md).
+
 Le parcours local expérimental d’import et de revue est détaillé dans
 [le contrat d’espace local](docs/architecture/LOCAL_WORKSPACE_IMPORT.md) :
 l’aperçu EML/PNG/JPEG provient du cœur C après contrôle d’intégrité ; les

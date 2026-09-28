@@ -9,6 +9,17 @@ import { GraphRenderer, presentationKind } from "./graph-renderer.js";
 const byId = (id) => document.getElementById(id);
 const svg = byId("graph");
 
+function newUuid() {
+  // CONTRACT: le poste local peut être servi en HTTP sous un nom dédié. Firefox
+  // y expose getRandomValues, mais réserve randomUUID aux contextes sécurisés.
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function prepareSnapshot(value) {
   if (value?.contract === "labfy.web_graph.error.v1") {
     return {
@@ -416,7 +427,7 @@ async function startAgentMission() {
       max_tool_calls: 16,
     },
     human_confirmed: true,
-    idempotency_key: crypto.randomUUID(),
+    idempotency_key: newUuid(),
   });
   renderAgentMission(value);
   appendAgentActivity({
@@ -433,7 +444,7 @@ async function cancelAgentMission() {
     workspace_id: workspaceContext.workspaceId,
     mission_id: missionId,
     human_confirmed: true,
-    idempotency_key: crypto.randomUUID(),
+    idempotency_key: newUuid(),
   });
   renderAgentMission(value);
   appendAgentActivity({
@@ -461,11 +472,11 @@ async function decideAgentProposal(record, action) {
     `/api/v1/agent-proposals/${encodeURIComponent(record.proposal_id)}/${action}`,
     {
       workspace_id: workspaceContext.workspaceId,
-      decision_id: crypto.randomUUID(),
+      decision_id: newUuid(),
       reason: "Décision explicite depuis l’interface locale",
       decided_by: "opérateur local",
       decided_at: new Date().toISOString(),
-      idempotency_key: crypto.randomUUID(),
+      idempotency_key: newUuid(),
     },
   );
   await refreshAgentProposals();
@@ -542,9 +553,9 @@ async function loadAgentRuntime() {
   if (value.mode === "DETERMINISTIC_DEMO") return false;
   agentMode = "LOCAL";
   if (value.mode === "LOCAL_MODEL" && value.available === true) {
-    byId("agent-status").textContent = `Agent local · ${value.model ?? "modèle configuré"}`;
+    byId("agent-status").textContent = `Qwen prêt · ${value.model ?? "modèle configuré"}`;
     byId("agent-send").disabled = false;
-    byId("agent-system-qwen").textContent = value.model ?? "disponible";
+    byId("agent-system-qwen").textContent = "prêt";
   } else {
     byId("agent-status").textContent =
       `Modèle local indisponible · ${shortAgentReason(value.reason)}`;
@@ -754,6 +765,10 @@ async function refreshAgentEvents() {
       clearInterval(agentEventTimer);
       agentEventTimer = null;
     }
+    if (turn?.terminal && agentMode === "LOCAL") {
+      byId("agent-system-qwen").textContent =
+        agentTurnState === "MODEL_UNAVAILABLE" ? "indisponible" : "prêt";
+    }
     byId("activity-filter").dispatchEvent(new Event("change"));
   } finally {
     agentEventsRefreshing = false;
@@ -784,8 +799,9 @@ async function callAgentTool() {
     const path = agentMode === "LOCAL"
       ? "/api/v1/agent-runtime/turns" : "/api/v1/agent-tools/turns";
     const body = agentMode === "LOCAL"
-      ? { objective, idempotency_key: crypto.randomUUID() } : { objective };
+      ? { objective, idempotency_key: newUuid() } : { objective };
     const admitted = await postCommand(path, body);
+    if (agentMode === "LOCAL") byId("agent-system-qwen").textContent = "occupé";
     activeAgentTurnId = admitted.turn_id;
     agentTurnState = admitted.state ?? "QUEUED";
     agentEventCursor = 0;
@@ -829,7 +845,7 @@ async function evidenceJson(path) {
 
 function reviewEnvelope(observation, reason) {
   return {
-    operation_id: crypto.randomUUID(),
+    operation_id: newUuid(),
     expected_revision: String(observation.revision),
     author: "opérateur local",
     reason,
@@ -986,7 +1002,7 @@ function configureImport() {
     // CONTRACT: la sélection reste multiple, mais le client respecte la
     // concurrence serveur au lieu de transformer le troisième fichier en
     // erreur artificielle. La limite reste contrôlée côté serveur.
-    const selectionId=crypto.randomUUID();
+    const selectionId=newUuid();
     for(const file of files) await receiveFile(file,selectionId);
     event.target.value="";
   });
@@ -994,7 +1010,7 @@ function configureImport() {
     byId("import-confirm").disabled=true;
     for(const [id,prepared] of [...preparedUploads]){
       try{await postCommand(`/api/v1/uploads/${id}/confirm`,{
-        idempotency_key:crypto.randomUUID(),source:byId("import-source").value || "Non déclarée",
+        idempotency_key:newUuid(),source:byId("import-source").value || "Non déclarée",
         description:byId("import-description").value || "Sans commentaire"});
         preparedUploads.delete(id);byId("import-status").textContent=`${prepared.name} importé avec l’UUID ${prepared.evidence_id}.`;
       }catch(error){byId("import-status").textContent=error.message;}
@@ -1358,7 +1374,7 @@ async function prepareResearch() {
     selection_ids: [node.id],
     question: byId("research-question").value.trim(),
     exclusions,
-    idempotency_key: crypto.randomUUID(),
+    idempotency_key: newUuid(),
   });
   byId("research-note").textContent =
     "Plan préparé par le cœur C. Choisissez chaque action avant le lancement final.";
@@ -1382,7 +1398,7 @@ async function launchResearch() {
     selected_action_ids: actionIds,
     decisions,
     exclusions,
-    idempotency_key: crypto.randomUUID(),
+    idempotency_key: newUuid(),
   });
   const grantId = grant.grants[0]?.grant_id;
   if (!grantId) throw new Error("Autorisation durable absente.");
@@ -1390,7 +1406,7 @@ async function launchResearch() {
     grant_id: grantId,
     input_revision: grant.input_revision,
     action_ids: actionIds,
-    idempotency_key: crypto.randomUUID(),
+    idempotency_key: newUuid(),
   });
   // CONTRACT: seul le flux C existant persiste grant et campagne. Le turn ne
   // reprend qu'après ce succès ; l'agent ne possède aucune voie d'autorisation.
@@ -1839,7 +1855,7 @@ async function generateReport() {
   if (!reportPreview) return;
   const admission = await postCommand("/api/v1/reports", {
     preview_revision: reportPreview.revision,
-    idempotency_key: crypto.randomUUID(),
+    idempotency_key: newUuid(),
   });
   byId("report-status").textContent = "Génération locale en cours…";
   for (let i = 0; i < 100; i++) {
@@ -1897,7 +1913,7 @@ async function runCapability(capability) {
     if (button) button.disabled = true;
     const storageKey = `labfy-intent:${workspaceContext.workspaceId}:` +
       `${workspaceContext.generation}:${node.object_id}:${capability.id}`;
-    const key = sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
+    const key = sessionStorage.getItem(storageKey) ?? newUuid();
     sessionStorage.setItem(storageKey, key);
     try {
       await postCommand("/api/v1/jobs", {
@@ -2442,24 +2458,31 @@ function renderLibrary(value) {
 async function refreshLibrary() {
   const value = await libraryRequest("/api/v1/library", { cache: "no-store" });
   renderLibrary(value);
+  byId("library-load").hidden = true;
+  byId("workspace-create").hidden = false;
+  byId("library-list-section").hidden = false;
   return value;
 }
 
-async function showLibrary({ focus = false } = {}) {
+async function showLibrary({ focus = false, load = true } = {}) {
   invalidateWorkspaceContext();
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
   preparedUploads.clear();
   workspaceReady = false;
   byId("workbench-shell").hidden = true;
   byId("library-home").hidden = false;
-  byId("workspace-create").hidden = false;
-  byId("library-list-section").hidden = false;
+  byId("workspace-create").hidden = !load;
+  byId("library-list-section").hidden = !load;
+  byId("library-load").hidden = load;
   byId("library-title").textContent = "Bibliothèque d’enquêtes";
-  byId("library-connection").textContent = "Actualisation…";
-  try {
-    await refreshLibrary();
-  } catch (error) {
-    byId("library-connection").textContent = error.message;
+  byId("library-connection").textContent = load
+    ? "Actualisation…" : "Bibliothèque non chargée";
+  if (load) {
+    try {
+      await refreshLibrary();
+    } catch (error) {
+      byId("library-connection").textContent = error.message;
+    }
   }
   if (focus) byId("library-title").focus();
 }
@@ -2654,6 +2677,18 @@ function configureApplication() {
     }
   });
   byId("home-button").addEventListener("click", () => void showLibrary({ focus: true }));
+  byId("library-load").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    byId("library-connection").textContent = "Actualisation…";
+    try {
+      await refreshLibrary();
+    } catch (error) {
+      byId("library-connection").textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
   byId("workspace-create-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = event.currentTarget.querySelector("button");
@@ -2662,7 +2697,7 @@ function configureApplication() {
     try {
       const title = byId("workspace-title").value.trim();
       if (pendingCreateIntent?.title !== title)
-        pendingCreateIntent = { title, idempotencyKey: crypto.randomUUID() };
+        pendingCreateIntent = { title, idempotencyKey: newUuid() };
       const path = libraryMode ? "/api/v1/library/workspaces" : "/api/v1/workspace";
       const body = libraryMode
         ? { title, idempotency_key: pendingCreateIntent.idempotencyKey }
@@ -2731,7 +2766,7 @@ function configureApplication() {
         ...byId("planner-list").querySelectorAll("input:checked"),
       ].map((input) => input.value);
       if (!ids.length || !plannerValue) return;
-      const key = crypto.randomUUID();
+      const key = newUuid();
       try {
         await postCommand("/api/v1/plans", {
           recommendation_ids: ids,
@@ -2782,7 +2817,7 @@ async function start() {
     configureApplication();
     // WHY: seule l'application bibliothèque ouvre toujours sur l'accueil ; les
     // serveurs historiques et de démonstration conservent leur contrat direct.
-    if (libraryMode) await showLibrary();
+    if (libraryMode) await showLibrary({ load: session?.library_load_required !== true });
     else if (session?.workspace_state === "EMPTY") showLegacyCreation();
     else await activateLegacyWorkspace(session);
   } catch (error) {

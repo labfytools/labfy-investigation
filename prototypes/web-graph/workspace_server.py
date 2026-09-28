@@ -72,23 +72,31 @@ class WorkspaceServer(ThreadingHTTPServer):
                  research_fixture_authority=None, automatic_session=False,
                  agent_mode="deterministic-demo", agent_endpoint=None,
                  agent_model=None, agent_timeout=10.0, agent_autostart=False,
-                 agent_config_path=None):
+                 agent_config_path=None, public_local_origin=None):
         if (not isinstance(session_ttl_seconds, int) or
                 isinstance(session_ttl_seconds, bool) or session_ttl_seconds <= 0):
             raise ValueError("Durée de session invalide")
+        if public_local_origin not in (None, "http://invest.labfy"):
+            raise ValueError("Origine locale publique invalide")
         super().__init__(address, handler)
         self.workspace = workspace.resolve()
         self.bridge = bridge.resolve()
         self.authority = f"127.0.0.1:{self.server_port}"
         self.origin = f"http://{self.authority}"
+        # CONTRACT: the only alternate browser origin is the explicitly chosen
+        # local nginx hostname. It never authorizes a forwarded host or LAN bind.
+        self.public_local_origin = public_local_origin
         # CONTRACT: le poste Web ne possède plus de parcours code. Toute
         # première navigation loopback établit seulement un cookie HttpOnly ;
         # Host, Origin et CSRF restent exigés pour chaque mutation.
         self.automatic_session = True
         self.library = library
         self.active_workspace_id = None
+        # CONTRACT: the persistent lazy service must not enumerate or read the
+        # configured library during server construction. Its initial generation
+        # is only a placeholder until the user explicitly requests the list.
         self.library_generation = (library.snapshot(None)["generation"]
-                                   if library is not None else 0)
+                                   if library is not None and not library.lazy else 0)
         self.instance_id = instance_id or secrets.token_urlsafe(18)
         self.config_id = config_id or hashlib.sha256(
             str(self.workspace).encode()).hexdigest()
@@ -1092,7 +1100,17 @@ class Handler(BaseHTTPRequestHandler):
                             "error": code, "message": message})
 
     def _request_valid(self):
-        return self.headers.get("Host") == self.server.authority
+        host = self.headers.get("Host")
+        return (host == self.server.authority or
+                (self.server.public_local_origin == "http://invest.labfy" and
+                 host == "invest.labfy" and self.client_address[0] == "127.0.0.1"))
+
+    def _request_origin(self):
+        # INVARIANT: an accepted Origin is derived from the validated Host,
+        # never from Forwarded or X-Forwarded-* supplied by a client.
+        if self.headers.get("Host") == "invest.labfy":
+            return self.server.public_local_origin
+        return self.server.origin
 
     def _authenticated(self):
         with self.server.session_lock:
@@ -1106,7 +1124,7 @@ class Handler(BaseHTTPRequestHandler):
     def _mutation_allowed(self):
         with self.server.session_lock:
             return (self._authenticated() and
-                    self.headers.get("Origin") == self.server.origin and
+                    self.headers.get("Origin") == self._request_origin() and
                     hmac.compare_digest(self.headers.get("X-Labfy-CSRF", ""),
                                         self.server.csrf))
 
@@ -1406,12 +1424,14 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError,ValueError,json.JSONDecodeError) as error:
                 self._error(HTTPStatus.CONFLICT,"workspace_incomplete",str(error));return
             self._json(HTTPStatus.OK, {"contract": "labfy.workspace.session.v1",
-                "csrf": self.server.csrf, "origin": self.server.origin,
+                "csrf": self.server.csrf, "origin": self._request_origin(),
                 "workspace_state": "READY" if context else "EMPTY",
                 "investigation_id": context.get("investigation_id") if context else None,
                 "title": context.get("title", "SPECIMEN") if context else None,
                 "mode": context.get("mode", "specimen") if context else "local_experimental",
                 "library_mode": self.server.library is not None,
+                "library_load_required": (self.server.library is not None and
+                                          self.server.library.lazy),
                 "active_workspace_id": self.server.active_workspace_id,
                 "generation": self.server.library_generation})
         elif path == "/api/v1/library":

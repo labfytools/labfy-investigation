@@ -10,6 +10,12 @@
 > L'exécution intrusive reste `LAB-ONLY TARGET`; Tool Auto-Provisioning,
 > Resource Governor et Persistent Agent Memory restent `TARGET`.
 
+> Déploiement personnel `invest.labfy` : `CURRENT local` sur cette machine
+> après validation `SPECIMEN` du proxy nginx, de la résolution hostname,
+> du service systemd utilisateur, du démarrage différé de la bibliothèque et
+> du prompt Agent avec Qwen réel (`investigation.search`, final `COMPLETED`).
+> Aucune enquête réelle n'a été ouverte pendant cette validation locale.
+
 ## 1. Ordre et portes
 
 Labfy évolue sans réécriture générale. Les contrats du cœur précèdent les

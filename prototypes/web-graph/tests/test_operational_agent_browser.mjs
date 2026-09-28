@@ -111,7 +111,7 @@ try {
   await page.setViewport({ width: 1360, height: 980 });
   const session = await openAutomaticSession(page, origin, "agent opérationnel");
   await page.waitForFunction(() =>
-    document.querySelector("#agent-system-qwen")?.textContent === "qwen-SPECIMEN");
+    document.querySelector("#agent-system-qwen")?.textContent === "prêt");
   assert.equal(await page.$eval("#agent-system-sandbox", (node) => node.textContent),
     "indisponible");
   assert.equal(await page.$eval("#agent-system-privacy", (node) => node.textContent),

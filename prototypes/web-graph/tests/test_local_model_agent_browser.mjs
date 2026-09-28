@@ -128,7 +128,7 @@ try {
   await page.setViewport({ width: 1280, height: 900 });
   await openAutomaticSession(page, origin);
   await page.waitForFunction(() =>
-    document.querySelector("#agent-status")?.textContent === "Agent local · qwen-SPECIMEN");
+    document.querySelector("#agent-status")?.textContent === "Qwen prêt · qwen-SPECIMEN");
 
   const hostile = '<img src=x onerror="window.__localAgentInjected=true"> SPECIMEN';
   await page.type("#agent-prompt", hostile);

@@ -113,3 +113,45 @@ Le panneau Agent indique explicitement le parcours déterministe, un modèle loc
 configuré ou son indisponibilité. Les tours de modèle sont asynchrones, bornés
 et leurs cartes ne rendent jamais de HTML, de prompt complet ou de raisonnement
 privé. Le contrat de ce runtime est [LOCAL_MODEL_AGENT_RUNTIME.md](../architecture/LOCAL_MODEL_AGENT_RUNTIME.md).
+
+## Déploiement personnel `invest.labfy`
+
+Les templates [systemd](../../packaging/systemd/labfy-investigation-web.service)
+et [nginx](../../packaging/nginx/invest.labfy.conf) prévoient un poste publié uniquement
+sur la boucle locale. Le wrapper [labfy-investigation-web](../../scripts/labfy-investigation-web)
+exécute `web_app.py serve --library --lazy-library` en avant-plan sur le port dédié `8091`,
+avec session automatique et Qwen local démarré par Labfy. Le chemin de la
+bibliothèque et celui du modèle restent dans les fichiers XDG privés, jamais
+dans Git. L'unité est installée dans `~/.config/systemd/user/` et le wrapper
+est lié depuis `~/.local/bin/`. `web.env` contient `LABFY_LIBRARY` (chemin
+absolu explicitement choisi) et `LABFY_WEB_PORT=8091`, avec mode `0600`.
+`agent.json` suit le contrat de configuration de `LocalModelSupervisor`.
+À l'arrivée, la page n'inspecte pas la bibliothèque et n'ouvre aucune enquête.
+L'utilisateur choisit « Charger les enquêtes », puis ouvre explicitement
+l'enquête souhaitée. Le lancement du service seul ne lit pas leurs données.
+
+Le bloc nginx doit être placé dans `http {}` de `/etc/nginx/nginx.conf`, puis
+`127.0.0.1 invest.labfy` doit être ajouté une fois à `/etc/hosts`.
+Exécuter `nginx -t` avant de recharger nginx. Le backend vérifie exactement
+`Host: invest.labfy` et `Origin: http://invest.labfy` pour ce mode ; il garde
+son autorité loopback propre, le CSRF et le cookie HttpOnly/SameSite=Strict.
+Le proxy préserve Host et Origin, désactive le buffering pour l'activité et
+borne la lecture à 180 s. Il ne rend jamais le port modèle au navigateur.
+Une fois la validation `SPECIMEN` terminée, l'opérateur peut appliquer les deux
+changements root par `sudo python3 scripts/apply-local-web-root.py` depuis la
+racine du dépôt. Le script refuse les conflits, crée des sauvegardes distinctes
+dans `/etc`, valide la configuration réelle par `nginx -t`, puis recharge nginx.
+Un second passage ne duplique rien.
+
+Pour les validations, configurer temporairement `LABFY_LIBRARY` vers une
+bibliothèque `SPECIMEN`, puis lancer `systemctl --user start
+labfy-investigation-web.service`. Après validation, arrêter l'unité et
+remettre le chemin personnel sans l'ouvrir. Le service peut alors être activé
+et démarré : son mode différé attend une action explicite dans l'interface
+avant de consulter la bibliothèque. Les validations utilisent toujours une
+bibliothèque `SPECIMEN` distincte.
+Le retrait est : `systemctl --user disable --now
+labfy-investigation-web.service`, supprimer uniquement l'unité et le lien
+utilisateur installés, retirer le bloc `invest.labfy` et sa ligne hosts, puis
+valider `nginx -t` avant rechargement. Ne toucher ni au bloc Trainlog ni à son
+service.

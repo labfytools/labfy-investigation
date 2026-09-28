@@ -139,6 +139,50 @@ class LibraryTest(SyntheticEnvironment):
         intent = json.loads(self.library.creation_intent_path.read_text(encoding="utf-8"))
         return intent["workspace_id"]
 
+    def test_lazy_library_waits_for_explicit_listing(self):
+        root = self.root / "lazy-SPECIMEN"
+        idle = self.root / "private-idle"
+        idle.mkdir()
+        library = WebLibrary(root, self.bridge, lazy=True)
+        self.assertFalse(root.exists())
+        server = WorkspaceServer(("127.0.0.1", 0), Handler,
+            workspace=idle, bridge=self.bridge, library=library)
+        self.assertFalse(root.exists())
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        def request(path, cookie=None):
+            connection = http.client.HTTPConnection("127.0.0.1", server.server_port,
+                                                    timeout=3)
+            headers = {"Host": server.authority}
+            if cookie:
+                headers["Cookie"] = cookie
+            connection.request("GET", path, headers=headers)
+            response = connection.getresponse()
+            result = response.status, dict(response.getheaders()), response.read()
+            connection.close()
+            return result
+
+        try:
+            status, headers, _ = request("/")
+            self.assertEqual(status, 303)
+            cookie = headers["Set-Cookie"].split(";", 1)[0]
+            status, _, body = request("/api/v1/session", cookie)
+            self.assertEqual(status, 200)
+            session = json.loads(body)
+            self.assertTrue(session["library_load_required"])
+            self.assertIsNone(session["active_workspace_id"])
+            self.assertFalse(root.exists())
+            status, _, body = request("/api/v1/library", cookie)
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["entries"], [])
+            self.assertTrue(root.is_dir())
+            self.assertTrue((root / "workspaces").is_dir())
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(3)
+
     def _assert_resumed_once(self, expected_workspace_id, response):
         self.assertEqual(response["workspace_id"], expected_workspace_id)
         self.assertEqual(len(list(self.library.workspaces.iterdir())), 1)
