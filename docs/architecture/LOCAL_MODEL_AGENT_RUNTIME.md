@@ -2,10 +2,21 @@
 
 **Statut : CURRENT local de laboratoire.** Cette tranche qualifie un runtime
 avec fournisseur OpenAI-compatible de test sur loopback et workspaces
-`SPECIMEN`. Elle ne prouve ni llama.cpp ni des poids Qwen réels : Qwen réel et
-le Resource Governor AMD/RAM/swap/scratch restent `TARGET`.
+`SPECIMEN`. Un smoke local complet a aussi qualifié le poids Qwen indiqué
+ci-dessous. La supervision locale de son cycle de vie est `CURRENT local` après
+le smoke opérationnel unifié ; le Resource Governor AMD/RAM/swap/scratch reste
+`TARGET`.
 
-`REAL_LOCAL_MODEL_SMOKE = NOT_RUN_UNCONFIGURED`
+`REAL_LOCAL_MODEL_SMOKE = PASS_LOCAL_SPECIMEN`
+
+Le smoke manuel reproductible `tests/manual_real_local_model_smoke.py` a été
+exécuté avec `Huihui-Qwen3.5-9B-Q4_K_M.gguf` (SHA-256
+`fa6075d1ca02e269d2ecbfb36deb6d90367f157393eeb28f2a699cab8a2f80f0`) et
+llama.cpp OpenAI-compatible sur loopback. Il couvre lecture, préparation de
+recherche, pause `AUTHORIZATION_REQUIRED` sans contact, grant humain persistant,
+campagne `SPECIMEN`, reprise du même turn et bilan final. Labfy ne télécharge,
+ne convertit pas ce modèle. Le smoke opérationnel démarre et arrête son propre
+`llama-server` via `LocalModelSupervisor`, sans toucher à une instance tierce.
 
 ## Frontières
 
@@ -59,6 +70,15 @@ workspace courant et relit `research.get_state` via le gateway ; le modèle ne
 crée jamais le grant. L’annulation bloque tout effet suivant ; une requête déjà
 en vol peut finir mais sa réponse est ignorée. L’arrêt du serveur ferme le
 runtime.
+
+Le catalogue backend expose le schéma fermé réel de chaque outil, y compris les
+champs requis, les tableaux et `additionalProperties: false` de
+`research.prepare`. Les `object_refs` d’un résultat restent
+`UNTRUSTED_DATA` : le modèle doit en recopier exactement les `object_id` pour
+une sélection compatible, sans inventer ni modifier un identifiant. Une erreur
+d’outil fournit seulement son diagnostic borné ; une répétition immédiate du
+même outil avec les mêmes arguments après le même échec termine le turn au lieu
+de consommer le budget. Une reprise après autorisation n’est pas concernée.
 
 ## UI et validation
 

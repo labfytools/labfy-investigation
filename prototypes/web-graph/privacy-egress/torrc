@@ -1,0 +1,12 @@
+SocksPort 0.0.0.0:9050
+ClientOnly 1
+SafeSocks 1
+TestSocks 1
+ClientRejectInternalAddresses 1
+ClientDNSRejectInternalAddresses 1
+ClientUseIPv6 0
+FascistFirewall 1
+ReachableAddresses *:80,*:443
+DataDirectory /tmp/labfy-tor-data
+PidFile /tmp/labfy-tor.pid
+Log notice stdout

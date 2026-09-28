@@ -119,8 +119,45 @@
             <span id="agent-status">Chargement du catalogue local…</span>
             <small id="agent-runtime-detail">Gateway mémoire · aucun modèle, shell ou auto-autorisation</small>
           </div>
-          <p class="agent-mission">Les cartes viennent des événements backend. Les lectures reflètent les
-            projections validées ; une recherche préparée attend votre décision dans Recherches.</p>
+          <section class="agent-mission" aria-labelledby="agent-mission-title">
+            <h3 id="agent-mission-title">Mission bornée</h3>
+            <p id="agent-mission-state" role="status">Aucune mission active.</p>
+            <dl class="agent-mission-facts">
+              <dt>But</dt><dd id="agent-mission-goal">—</dd>
+              <dt>Scope</dt><dd id="agent-mission-scope">—</dd>
+              <dt>Risque</dt><dd id="agent-mission-risk">—</dd>
+              <dt>Profil</dt><dd id="agent-mission-profile">—</dd>
+              <dt>Contacts</dt><dd id="agent-mission-contacts">—</dd>
+              <dt>Outils</dt><dd id="agent-mission-tools">—</dd>
+              <dt>Écoulé</dt><dd id="agent-mission-elapsed">—</dd>
+            </dl>
+            <label>But explicite
+              <input id="agent-mission-goal-input" maxlength="1024"
+                placeholder="Examiner la sélection SPECIMEN">
+            </label>
+            <label>Profil
+              <select id="agent-mission-profile-input">
+                <option value="OFFLINE">Hors ligne · lecture locale</option>
+                <option value="PASSIVE_PUBLIC">Internet public passif · borné</option>
+              </select>
+            </label>
+            <p id="agent-mission-selection">Sélection courante : aucune.</p>
+            <div class="agent-mission-actions">
+              <button type="button" id="agent-mission-start">Nouvelle mission</button>
+              <button type="button" id="agent-mission-cancel" disabled>Annuler la mission</button>
+            </div>
+          </section>
+          <section class="agent-systems" aria-label="État des frontières agent">
+            <span>Qwen <b id="agent-system-qwen">indisponible</b></span>
+            <span>Sandbox <b id="agent-system-sandbox">indisponible</b></span>
+            <span>Privacy <b id="agent-system-privacy">indisponible</b></span>
+          </section>
+          <section class="agent-proposals" aria-labelledby="agent-proposals-title">
+            <div><h3 id="agent-proposals-title">Propositions</h3>
+              <button type="button" id="agent-proposals-refresh">Actualiser</button></div>
+            <p>Une approbation retient une proposition ; elle ne crée jamais de grant.</p>
+            <ol id="agent-proposal-list"></ol>
+          </section>
           <ol class="agent-conversation" aria-label="Conversation agent" aria-live="polite"></ol>
         </div>
       </aside>

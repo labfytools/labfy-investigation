@@ -60,6 +60,12 @@ class LocalModelClientTest(unittest.TestCase):
         self.assertEqual(value["model"], "SPECIMEN-model")
         self.assertFalse(value["stream"])
 
+    def test_accepts_long_local_inference_timeout_but_keeps_a_hard_ceiling(self):
+        client = LocalModelClient(self.endpoint, "model", timeout=120)
+        self.assertEqual(client.timeout, 120.0)
+        with self.assertRaises(ValueError):
+            LocalModelClient(self.endpoint, "model", timeout=120.1)
+
     def test_accepts_only_canonical_loopback_endpoint(self):
         valid = ["http://127.0.0.1:1234", "http://[::1]:1234/"]
         invalid = [

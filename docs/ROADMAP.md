@@ -4,6 +4,12 @@
 > **État :** v0.1.0 Foundation en préparation, non publiée
 > **Règle :** seul J0 appartient à la tranche documentaire courante
 
+> Les fondations locales Qwen, sandbox et documentation outils, l'egress Tor
+> rootless et la recherche Internet passive ont été qualifiés ensemble sur
+> `SPECIMEN` par le smoke Qwen réel `PASS_LOCAL_SPECIMEN` : `CURRENT local`.
+> L'exécution intrusive reste `LAB-ONLY TARGET`; Tool Auto-Provisioning,
+> Resource Governor et Persistent Agent Memory restent `TARGET`.
+
 ## 1. Ordre et portes
 
 Labfy évolue sans réécriture générale. Les contrats du cœur précèdent les
@@ -38,8 +44,9 @@ tranche financière V21 indépendante.
 > surface locale Agent | Graphe | Activité + drawer. Un gateway d’outils V1
 > `CURRENT de laboratoire` relit les snapshots backend et prépare une demande
 > d’autorisation recherche sans l’accorder. Un runtime OpenAI-compatible local
-> `CURRENT local` le pilote sur faux loopback, sans qualifier Qwen réel ; Qwen
-> réel et resource governor AMD/RAM/swap restent `TARGET`.
+> `CURRENT local` a d'abord été validé sur faux loopback ; Qwen réel est
+> `CURRENT local` après le smoke opérationnel unifié sur `SPECIMEN` ;
+> resource governor AMD/RAM/swap reste `TARGET`.
 
 **Livrables.** README, bannière et source éditable, index documentaire,
 architecture canonique, contrat du graphe, ADR Web/graph-first/polyglotte,

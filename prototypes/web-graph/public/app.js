@@ -151,6 +151,7 @@ let agentEventTimer = null;
 let activeAgentTurnId = null;
 let agentMode = "DEMO";
 let agentTurnState = null;
+let agentMissionState = null;
 
 function invalidateWorkspaceContext() {
   workspaceAbortController?.abort();
@@ -173,8 +174,10 @@ function invalidateWorkspaceContext() {
   agentEventsRefreshing = false;
   activeAgentTurnId = null;
   agentTurnState = null;
+  agentMissionState = null;
   document.querySelector(".agent-conversation")?.replaceChildren();
   document.querySelector(".activity-stream")?.replaceChildren();
+  byId("agent-proposal-list")?.replaceChildren();
 }
 
 function beginWorkspaceContext(workspaceId, generation) {
@@ -351,6 +354,181 @@ function setAgentControls() {
     !["PAUSED", "INTERRUPTED", "AUTHORIZATION_REQUIRED"].includes(agentTurnState);
 }
 
+function renderAgentMissionSelection() {
+  const selected = snapshot.nodes.find((node) => node.id === selectedNodeId);
+  byId("agent-mission-selection").textContent = selected
+    ? `Sélection courante : ${selected.label ?? selected.id}`
+    : "Sélection courante : aucune.";
+}
+
+function renderAgentMission(value) {
+  agentMissionState = value;
+  const mission = value.mission;
+  const active = value.state === "ACTIVE" && mission !== null;
+  byId("agent-mission-state").textContent = active
+    ? "Mission active · scope et budgets contrôlés par le backend."
+    : value.state === "CANCELLED" ? "Mission annulée." : "Aucune mission active.";
+  byId("agent-mission-goal").textContent = mission?.goal ?? "—";
+  byId("agent-mission-scope").textContent = mission
+    ? `${mission.scoped_refs.length} objet(s) · ${mission.pivots.length} pivot(s)` : "—";
+  byId("agent-mission-risk").textContent =
+    mission?.allowed_risk_classes.join(", ") ?? "—";
+  byId("agent-mission-profile").textContent = mission?.network_profile ?? "—";
+  byId("agent-mission-contacts").textContent = mission
+    ? `${mission.used.contacts}/${mission.limits.contacts}` : "—";
+  byId("agent-mission-tools").textContent = mission
+    ? `${mission.used.tool_calls}/${mission.limits.tool_calls}` : "—";
+  byId("agent-mission-elapsed").textContent = `${value.elapsed_seconds ?? 0} s`;
+  byId("agent-mission-start").disabled = active || !selectedNodeId;
+  byId("agent-mission-cancel").disabled = !active;
+  byId("agent-system-privacy").textContent = mission?.network_profile === "OFFLINE"
+    ? "non requis · hors ligne" : "indisponible";
+  renderAgentMissionSelection();
+}
+
+async function refreshAgentMission() {
+  const response = await workspaceFetch("/api/v1/agent-mission/current", {
+    cache: "no-store",
+  });
+  const value = await workspaceJson(response);
+  if (!response.ok || value.contract !== "labfy.agent_mission_state.v1")
+    throw new Error(value.message ?? "État de mission indisponible");
+  renderAgentMission(value);
+}
+
+async function startAgentMission() {
+  const goal = byId("agent-mission-goal-input").value.trim();
+  const profile = byId("agent-mission-profile-input").value;
+  if (!goal) throw new Error("Le but explicite de mission est obligatoire.");
+  if (!selectedNodeId || !snapshot.nodes.some((node) => node.id === selectedNodeId))
+    throw new Error("Sélectionnez d’abord un objet existant du graphe.");
+  const passive = profile === "PASSIVE_PUBLIC";
+  const value = await postCommand("/api/v1/agent-mission/start", {
+    workspace_id: workspaceContext.workspaceId,
+    specification: {
+      goal,
+      scoped_refs: [{ object_id: selectedNodeId }],
+      pivots: [{ object_id: selectedNodeId }],
+      allowed_risk_classes: [passive ? "PASSIVE_PUBLIC" : "LOCAL_READ_ONLY"],
+      network_profile: profile,
+      max_contacts: passive ? 5 : 0,
+      max_duration_seconds: 900,
+      max_tool_calls: 16,
+    },
+    human_confirmed: true,
+    idempotency_key: crypto.randomUUID(),
+  });
+  renderAgentMission(value);
+  appendAgentActivity({
+    timestamp: new Date().toISOString(),
+    kind: "agent.mission.started",
+    payload: { message: `Mission démarrée : ${goal}` },
+  }, "AGENT");
+}
+
+async function cancelAgentMission() {
+  const missionId = agentMissionState?.mission?.mission_id;
+  if (!missionId) return;
+  const value = await postCommand("/api/v1/agent-mission/cancel", {
+    workspace_id: workspaceContext.workspaceId,
+    mission_id: missionId,
+    human_confirmed: true,
+    idempotency_key: crypto.randomUUID(),
+  });
+  renderAgentMission(value);
+  appendAgentActivity({
+    timestamp: new Date().toISOString(),
+    kind: "agent.mission.cancelled",
+    payload: { message: "Mission annulée explicitement." },
+  }, "WARNING");
+}
+
+function proposalReferenceButton(record) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Voir dans le graphe";
+  const reference = record.proposal.object_refs.find(({ object_id: objectId }) =>
+    snapshot.nodes.some((node) => node.id === objectId));
+  button.disabled = !reference;
+  button.addEventListener("click", () => {
+    if (reference) selectNode(reference.object_id, { preserveDomFocus: true });
+  });
+  return button;
+}
+
+async function decideAgentProposal(record, action) {
+  const outcome = await postCommand(
+    `/api/v1/agent-proposals/${encodeURIComponent(record.proposal_id)}/${action}`,
+    {
+      workspace_id: workspaceContext.workspaceId,
+      decision_id: crypto.randomUUID(),
+      reason: "Décision explicite depuis l’interface locale",
+      decided_by: "opérateur local",
+      decided_at: new Date().toISOString(),
+      idempotency_key: crypto.randomUUID(),
+    },
+  );
+  await refreshAgentProposals();
+  const label = outcome.decision?.decision === "APPROVED" ? "approuvée" : "refusée";
+  appendAgentActivity({
+    timestamp: new Date().toISOString(),
+    kind: `agent.proposal.${label}`,
+    payload: { message: `Proposition ${label} · aucun grant créé.` },
+  }, "POLICY");
+}
+
+function renderAgentProposals(records) {
+  const list = byId("agent-proposal-list");
+  list.replaceChildren();
+  for (const record of records) {
+    const item = document.createElement("li");
+    item.className = "agent-proposal-card";
+    const title = document.createElement("h4");
+    title.textContent = record.proposal.title;
+    const reason = document.createElement("p");
+    reason.textContent = record.proposal.reason;
+    const meta = document.createElement("p");
+    meta.textContent = `${record.proposal.risk_class} · ` +
+      `${record.proposal.suggested_capability}`;
+    const actions = document.createElement("div");
+    actions.append(proposalReferenceButton(record));
+    if (record.decision === null) {
+      for (const [label, action] of [
+        ["Approuver (sans grant)", "approve"], ["Refuser", "reject"],
+      ]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.addEventListener("click", () => void decideAgentProposal(record, action)
+          .catch((error) => { byId("agent-mission-state").textContent = error.message; }));
+        actions.append(button);
+      }
+    } else {
+      const decision = document.createElement("strong");
+      decision.textContent = record.decision.decision === "APPROVED"
+        ? "Approuvée · aucun grant" : "Refusée";
+      actions.append(decision);
+    }
+    item.append(title, reason, meta, actions);
+    list.append(item);
+  }
+  if (records.length === 0) {
+    const empty = document.createElement("li");
+    empty.textContent = "Aucune proposition candidate.";
+    list.append(empty);
+  }
+}
+
+async function refreshAgentProposals() {
+  const response = await workspaceFetch("/api/v1/agent-proposals", {
+    cache: "no-store",
+  });
+  const value = await workspaceJson(response);
+  if (!response.ok || value.contract !== "labfy.agent_proposal_list.v1")
+    throw new Error(value.message ?? "Propositions indisponibles");
+  renderAgentProposals(value.proposals);
+}
+
 async function loadAgentRuntime() {
   const response = await workspaceFetch("/api/v1/agent-runtime/status", {
     cache: "no-store",
@@ -366,10 +544,12 @@ async function loadAgentRuntime() {
   if (value.mode === "LOCAL_MODEL" && value.available === true) {
     byId("agent-status").textContent = `Agent local · ${value.model ?? "modèle configuré"}`;
     byId("agent-send").disabled = false;
+    byId("agent-system-qwen").textContent = value.model ?? "disponible";
   } else {
     byId("agent-status").textContent =
       `Modèle local indisponible · ${shortAgentReason(value.reason)}`;
     byId("agent-send").disabled = true;
+    byId("agent-system-qwen").textContent = "indisponible";
   }
   byId("agent-runtime-detail").textContent =
     "Runtime local borné · aucune autorisation implicite";
@@ -409,6 +589,10 @@ async function loadAgentCatalog() {
     "Agent de démonstration déterministe";
   byId("agent-runtime-detail").textContent =
     "Gateway mémoire · aucun modèle, shell ou auto-autorisation";
+  byId("agent-system-qwen").textContent = "démo sans modèle";
+  byId("agent-system-sandbox").textContent = value.tools.some((tool) =>
+    String(tool.tool_id).startsWith("sandbox.") && tool.availability === "AVAILABLE")
+    ? "disponible" : "indisponible";
 }
 
 function agentEventKind(event) {
@@ -461,6 +645,7 @@ function agentEventMessage(kind, event) {
     return payload.message ?? "Décision humaine requise ; l’agent ne peut pas l’accorder.";
   }
   if (kind === "RESULT") return payload.summary ?? payload.message ?? "Tour terminé";
+  if (kind === "POLICY") return payload.message ?? "Décision humaine enregistrée";
   if (kind === "WARNING") return payload.message ?? "Avertissement du runtime";
   if (kind === "ERROR") return payload.message ?? "Erreur du runtime";
   return null;
@@ -480,7 +665,7 @@ function appendAgentActivity(event, kind) {
   const activityTypes = {
     USER: "AGENT", AGENT: "AGENT", PLAN: "AGENT", MODEL: "MODEL",
     TOOL_REQUEST: "TOOL", TOOL_RESULT: "TOOL",
-    AUTHORIZATION_REQUIRED: "POLICY", RESULT: "RESULT",
+    AUTHORIZATION_REQUIRED: "POLICY", POLICY: "POLICY", RESULT: "RESULT",
     WARNING: "ERROR", ERROR: "ERROR",
   };
   details.dataset.activityType = activityTypes[kind] ?? "AGENT";
@@ -1740,6 +1925,9 @@ function selectNode(nodeId, { preserveDomFocus = false } = {}) {
   byId("node-context-menu").hidden = true;
   keyboardIndex = projection.nodes.findIndex((node) => node.id === nodeId);
   render({ focusDomNodeId: preserveDomFocus ? nodeId : null });
+  renderAgentMissionSelection();
+  if (agentMissionState?.state !== "ACTIVE")
+    byId("agent-mission-start").disabled = false;
   return true;
 }
 
@@ -1760,6 +1948,8 @@ function showEdgeDetails(edgeId) {
 function resetGlobalView() {
   navigationHistory = [];
   selectedNodeId = null;
+  renderAgentMissionSelection();
+  byId("agent-mission-start").disabled = true;
   focusNodeId = null;
   filters = {};
   collapsedGroups.clear();
@@ -2323,7 +2513,8 @@ async function activateWorkspace(opened) {
     renderReportSelection();
     byId("connection").textContent = `Ouverte · génération ${opened.generation}`;
     await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner(),
-      refreshResearch(), loadAgentCatalog()]);
+      refreshResearch(), loadAgentCatalog(), refreshAgentMission(),
+      refreshAgentProposals()]);
     for (const [callback, delay] of [[refreshJobs, 500],
       [refreshOperationalGraph, 700], [refreshCorrelations, 900],
       [refreshPlanner, 1100]])
@@ -2376,7 +2567,8 @@ async function activateLegacyWorkspace(session) {
     if (!coreMode) connectEvents();
     if (operationalMode) {
       await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner(),
-        refreshResearch(), loadAgentCatalog()]);
+        refreshResearch(), loadAgentCatalog(), refreshAgentMission(),
+        refreshAgentProposals()]);
       for (const [callback, delay] of [[refreshJobs, 500],
         [refreshOperationalGraph, 700], [refreshCorrelations, 900],
         [refreshPlanner, 1100]])
@@ -2443,6 +2635,18 @@ function configureApplication() {
     void controlAgentTurn("resume").catch((error) => appendAgentCard("ERROR", error.message)));
   byId("agent-cancel").addEventListener("click", () =>
     void controlAgentTurn("cancel").catch((error) => appendAgentCard("ERROR", error.message)));
+  byId("agent-mission-start").addEventListener("click", () =>
+    void startAgentMission().catch((error) => {
+      byId("agent-mission-state").textContent = error.message;
+    }));
+  byId("agent-mission-cancel").addEventListener("click", () =>
+    void cancelAgentMission().catch((error) => {
+      byId("agent-mission-state").textContent = error.message;
+    }));
+  byId("agent-proposals-refresh").addEventListener("click", () =>
+    void refreshAgentProposals().catch((error) => {
+      byId("agent-mission-state").textContent = error.message;
+    }));
   byId("agent-prompt").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();

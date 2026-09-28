@@ -39,6 +39,9 @@ export const scenarios = Object.freeze([
   // CONTRACT: le runtime modèle contacte seulement un fake OpenAI loopback et
   // rend les événements du turn actif sans exposer les messages modèle.
   "test_local_model_agent_browser.mjs",
+  // CONTRACT: mission et proposition restent contrôlées par les routes backend;
+  // cette surface Firefox vérifie les budgets, décisions et refus SPECIMEN.
+  "test_operational_agent_browser.mjs",
   // CONTRACT: deux vagues de recherche SPECIMEN approuvées sont visibles ; une
   // branche refusée demeure hors transport et ne peut donc produire de résultat.
   "test_research_browser.mjs",

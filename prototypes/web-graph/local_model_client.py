@@ -31,7 +31,7 @@ class LocalModelClient:
             raise ValueError("Identifiant de modèle invalide")
         if not isinstance(timeout, (int, float)) or isinstance(timeout, bool):
             raise ValueError("Délai modèle invalide")
-        if timeout < 0.1 or timeout > 30.0:
+        if timeout < 0.1 or timeout > 120.0:
             raise ValueError("Délai modèle hors limites")
         if (not isinstance(max_response_bytes, int) or isinstance(max_response_bytes, bool)
                 or max_response_bytes < 1024

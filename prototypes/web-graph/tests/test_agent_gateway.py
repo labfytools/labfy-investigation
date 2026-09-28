@@ -34,12 +34,125 @@ class AgentGatewayTest(unittest.TestCase):
     def test_catalog_exposes_complete_backend_contract(self):
         catalog = self.gateway.catalog()
         self.assertEqual(catalog["contract"], AgentGateway.CONTRACT)
-        self.assertEqual(len(catalog["tools"]), 9)
+        self.assertEqual(len(catalog["tools"]), 16)
         required = {"tool_id", "tool_version", "capability_id", "capability_version",
                     "description", "input_schema", "output_contract", "action_class",
                     "network_contact", "authorization_requirement", "risk_class",
                     "cost_class", "availability", "unavailable_reason"}
         self.assertTrue(required <= set(catalog["tools"][0]))
+
+    def test_operational_tools_have_closed_risk_aware_contracts(self):
+        catalog = {
+            item["tool_id"]: item
+            for item in self.gateway.catalog()["tools"]
+        }
+        expected = {
+            "investigation.get_overview",
+            "investigation.find_correlations",
+            "tool.catalog",
+            "tool.docs.read",
+            "sandbox.exec",
+            "agent.propose",
+            "web.fetch",
+        }
+        self.assertTrue(expected <= set(catalog))
+
+        sandbox = catalog["sandbox.exec"]
+        self.assertEqual(sandbox["authorization_requirement"], "MISSION_SCOPE")
+        self.assertEqual(sandbox["risk_class"], "LOCAL_READ_ONLY")
+        self.assertEqual(sandbox["network_contact"], "NONE")
+        self.assertFalse(sandbox["input_schema"]["additionalProperties"])
+        self.assertEqual(
+            sandbox["input_schema"]["required"],
+            ["tool_id", "object_id", "arguments"],
+        )
+
+        web = catalog["web.fetch"]
+        self.assertEqual(web["authorization_requirement"], "MISSION_SCOPE")
+        self.assertEqual(web["risk_class"], "PASSIVE_PUBLIC")
+        self.assertEqual(web["network_contact"], "PRIVACY_TOR")
+        self.assertFalse(web["input_schema"]["additionalProperties"])
+
+    def test_operational_tool_inputs_are_strictly_validated(self):
+        invalid = [
+            self.envelope(
+                tool_id="tool.docs.read",
+                input={"tool_id": "BAD TOOL"},
+            ),
+            self.envelope(
+                tool_id="sandbox.exec",
+                input={
+                    "tool_id": "forensics.strings",
+                    "object_id": self.object_id,
+                    "arguments": [],
+                },
+            ),
+            self.envelope(
+                tool_id="sandbox.exec",
+                input={
+                    "tool_id": "forensics.strings",
+                    "object_id": "not-a-uuid",
+                    "arguments": ["artifact://evidence"],
+                },
+            ),
+            self.envelope(
+                tool_id="web.fetch",
+                input={
+                    "object_id": self.object_id,
+                    "url": "https://example.com/",
+                    "method": "POST",
+                },
+            ),
+            self.envelope(
+                tool_id="agent.propose",
+                input={
+                    "title": "SPECIMEN",
+                    "reason": "Motif",
+                    "object_refs": [{"object_id": self.object_id}],
+                    "suggested_capability": "bad capability",
+                    "risk_class": "LOCAL_READ_ONLY",
+                    "expected_value": "Valeur",
+                },
+            ),
+        ]
+        before = len(self.calls)
+        for value in invalid:
+            with self.assertRaises(AgentGatewayError):
+                self.gateway.call("a", value)
+        self.assertEqual(len(self.calls), before)
+
+    def test_research_catalog_matches_the_closed_backend_input_contract(self):
+        research = next(
+            item for item in self.gateway.catalog()["tools"]
+            if item["tool_id"] == "research.prepare"
+        )
+        schema = research["input_schema"]
+        self.assertEqual(schema["type"], "object")
+        self.assertEqual(
+            schema["required"], ["selection_ids", "question", "exclusions"]
+        )
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(schema["properties"]["selection_ids"], {
+            "type": "array", "minItems": 1, "maxItems": 8,
+            "items": {"type": "string"},
+        })
+        self.assertEqual(schema["properties"]["exclusions"], {
+            "type": "array", "maxItems": 8,
+            "items": {"type": "string"},
+        })
+
+    def test_research_rejects_non_string_or_unbounded_exclusions(self):
+        invalid_values = [[7], ["SPECIMEN"] * 9]
+        for exclusions in invalid_values:
+            with self.assertRaises(AgentGatewayError):
+                self.gateway.call("a", self.envelope(
+                    tool_id="research.prepare",
+                    input={
+                        "selection_ids": [self.object_id],
+                        "question": "Recherche SPECIMEN",
+                        "exclusions": exclusions,
+                    },
+                ))
 
     def test_call_ids_results_and_idempotence_are_distinct(self):
         value = self.envelope(); first = self.gateway.call("a", value)

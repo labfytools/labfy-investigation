@@ -190,7 +190,8 @@ def serve(args):
             library=library, instance_id=instance_id, config_id=config_id,
             automatic_session=args.automatic_session, agent_mode=args.agent_mode,
             agent_endpoint=args.agent_endpoint, agent_model=args.agent_model,
-            agent_timeout=args.agent_timeout)
+            agent_timeout=args.agent_timeout, agent_autostart=args.agent_autostart,
+            agent_config_path=args.agent_config_path)
     except OSError as error:
         _handshake(args.handshake_fd, {"ok": False,
                                       "error": f"Port indisponible : {error}"})
@@ -266,6 +267,10 @@ def start(args):
                    "--handshake-fd", str(write_fd)]
         command.append("--automatic-session")
         command.extend(("--agent-mode", args.agent_mode))
+        if args.agent_autostart:
+            command.append("--agent-autostart")
+        if args.agent_config_path is not None:
+            command.extend(("--agent-config-path", str(args.agent_config_path)))
         if args.agent_endpoint is not None:
             command.extend(("--agent-endpoint", args.agent_endpoint))
         if args.agent_model is not None:
@@ -363,6 +368,10 @@ def build_parser():
         command.add_argument("--agent-timeout", type=float,
                              default=float(os.environ.get(
                                  "LABFY_AGENT_MODEL_TIMEOUT_SECONDS", "10")))
+        command.add_argument("--agent-autostart", action="store_true",
+                             help="démarre le seul llama-server configuré dans XDG")
+        command.add_argument("--agent-config-path", type=Path,
+                             help="configuration agent explicite et non versionnée")
         if name == "start":
             command.add_argument("--open-browser", action="store_true",
                                  help="ouvre l'interface locale après vérification")

@@ -747,7 +747,27 @@ body.login .workbench {
 .agent-scroll { min-height: 0; overflow: auto; padding: .75rem; }
 .agent-status { display: grid; grid-template-columns: auto 1fr; gap: .15rem .45rem; align-items: center; padding: .5rem .6rem; margin-bottom: .7rem; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: .65rem; color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--crust)); }
 .agent-status small { grid-column: 2; color: var(--muted); }
-.agent-mission { margin: 0 0 .8rem; color: var(--muted); line-height: 1.45; }
+.agent-mission { display: grid; gap: .45rem; margin: 0 0 .8rem; padding: .6rem; border: 1px solid var(--border); border-radius: .6rem; color: var(--muted); line-height: 1.45; background: var(--crust); }
+.agent-mission h3, .agent-proposals h3 { margin: 0; color: var(--text); font-size: .92rem; }
+.agent-mission p, .agent-proposals p { margin: 0; font-size: .78rem; }
+.agent-mission label { display: grid; gap: .2rem; font-size: .76rem; }
+.agent-mission input, .agent-mission select { min-width: 0; width: 100%; }
+.agent-mission-facts { display: grid; grid-template-columns: 4.2rem minmax(0, 1fr); gap: .18rem .4rem; margin: 0; font-size: .76rem; }
+.agent-mission-facts dt { color: var(--subtext0); }
+.agent-mission-facts dd { margin: 0; overflow-wrap: anywhere; color: var(--text); }
+.agent-mission-actions, .agent-proposal-card > div { display: flex; flex-wrap: wrap; gap: .35rem; }
+.agent-mission-actions button, .agent-proposal-card button { padding: .3rem .45rem; font-size: .72rem; }
+.agent-systems { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .25rem; margin-bottom: .8rem; }
+.agent-systems span { display: grid; gap: .1rem; padding: .35rem; border: 1px solid var(--border); border-radius: .45rem; color: var(--muted); font-size: .65rem; }
+.agent-systems b { color: var(--text); overflow-wrap: anywhere; }
+.agent-proposals { margin-bottom: .8rem; }
+.agent-proposals > div { display: flex; align-items: center; justify-content: space-between; gap: .4rem; }
+.agent-proposals > div button { padding: .25rem .4rem; font-size: .7rem; }
+#agent-proposal-list { display: grid; gap: .45rem; margin: .45rem 0 0; padding: 0; list-style: none; }
+.agent-proposal-card { padding: .5rem; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: .5rem; background: var(--mantle); }
+.agent-proposal-card h4 { margin: 0; font-size: .82rem; }
+.agent-proposal-card p { margin: .25rem 0; overflow-wrap: anywhere; }
+.agent-proposal-card strong { align-self: center; color: var(--green); font-size: .72rem; }
 .agent-conversation { display: grid; gap: .55rem; margin: 0; padding: 0; list-style: none; }
 .agent-card { border: 1px solid var(--border); border-left: 3px solid var(--blue); border-radius: .65rem; padding: .6rem .7rem; background: color-mix(in srgb, var(--base) 88%, var(--surface0)); box-shadow: 0 .3rem .8rem rgb(0 0 0 / 12%); }
 .agent-card b { font-size: .68rem; letter-spacing: .09em; color: var(--muted); }

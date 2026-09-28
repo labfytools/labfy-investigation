@@ -1773,6 +1773,16 @@ static gboolean research_prepare_json(const char *root, const char *selection,
   if (!ok && error != NULL && *error == NULL)
     g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED,
                         "Révision de sélection périmée.");
+  /* CONTRACT: every selected identifier must resolve exactly against the core
+   * snapshot before a plan or seed can be constructed. WHY: continuing after
+   * rejection indexes an empty subject array and turns invalid input into a
+   * process crash instead of the explicit bridge error. */
+  if (!ok) {
+    g_free(authority);
+    g_ptr_array_unref(subjects);
+    g_strfreev(ids);
+    return FALSE;
+  }
   Manifest manifest = {0}; LocalJobStore *store = ok ? open_store(
       root, &manifest, error) : NULL;
   char *plan_id = derived_uuid(key, "research-plan");

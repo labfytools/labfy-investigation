@@ -101,6 +101,34 @@ class ResearchWebTest(unittest.TestCase):
         return self.request(server, "POST", path, value, cookie=cookie,
                             csrf=csrf, origin=server.origin)
 
+    def test_agent_bridge_preserves_namespaced_selection_and_cli_rejects_naked_uuid(self):
+        workspace, server = self.start_workspace("agent-selection-boundary")
+        graph = json.loads((workspace / "core-snapshot.json").read_text())
+        selection_id = graph["nodes"][0]["id"]
+        self.assertIn(":", selection_id)
+
+        prepared = server._agent_prepare_research({
+            "selection_ids": [selection_id],
+            "question": "Validation réseau SPECIMEN",
+            "exclusions": [],
+        }, "97000000-0000-4000-8000-000000000001")
+        self.assertEqual(prepared["input_revision"], graph["revision"])
+        self.assertEqual(prepared["state"], "PREPARED")
+
+        # CONTRACT: a naked persisted UUID is not a graph node identifier.
+        # WHY: invalid boundary input must be rejected, never crash the bridge.
+        naked_id = selection_id.split(":", 1)[1]
+        rejected = subprocess.run([
+            str(self.bridge), "research-prepare-json", "--workspace",
+            str(workspace), "--selection", naked_id, "--question",
+            "Validation réseau SPECIMEN", "--exclusions", "", "--revision",
+            str(graph["revision"]), "--key",
+            "97000000-0000-4000-8000-000000000002",
+        ], cwd=self.repository, text=True, capture_output=True, timeout=15,
+           check=False)
+        self.assertGreater(rejected.returncode, 0, rejected.stderr)
+        self.assertIn("Sélection absente du snapshot cœur", rejected.stderr)
+
     def test_two_waves_refusal_never_contacts_and_workspace_b_isolated(self):
         Provider.requests.clear()
         workspace_a, server_a = self.start_workspace("A")

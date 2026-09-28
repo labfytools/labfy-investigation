@@ -11,6 +11,12 @@ fournisseur public n'est configuré ou qualifié ; V20 et V21 ne sont pas modifi
 Le premier poste Web local pilotable J6 est documenté dans
 [docs/architecture/WEB_WORKSPACE_CONTROL.md](docs/architecture/WEB_WORKSPACE_CONTROL.md).
 
+Les fondations Qwen locales, limitées aux workspaces `SPECIMEN`, sont décrites
+dans [l'agent opérationnel](docs/architecture/OPERATIONAL_AGENT.md). Le smoke
+opérationnel réel unifié sur `SPECIMEN` a atteint `COMPLETED` avec supervision
+Qwen, sandbox offline et contact passif `PRIVACY_TOR` sans repli direct :
+`PASS_LOCAL_SPECIMEN`. Ce résultat est `CURRENT local`, non publié.
+
 Le premier lot J7 ajoute un index C recalculable et des rapprochements locaux
 explicables pour les e-mails, domaines et IP observés :
 [pivots locaux et corrélation](docs/architecture/LOCAL_PIVOTS_CORRELATION.md).
@@ -220,7 +226,8 @@ observations, finance, rapports et tâches. Le
 un fake borné qui relit les snapshots backend et prépare l’autorisation de
 recherche sans l’accorder. Le [runtime local configurable](docs/architecture/LOCAL_MODEL_AGENT_RUNTIME.md)
 ajoute un fournisseur OpenAI-compatible strictement loopback validé sur fake
-`SPECIMEN` ; Qwen réel et le governor AMD/RAM/swap restent `TARGET`.
+`SPECIMEN` ; Qwen réel et sa supervision sont `CURRENT local` après le smoke
+unifié. Le governor AMD/RAM/swap reste `TARGET`.
 
 La cible comprend :
 

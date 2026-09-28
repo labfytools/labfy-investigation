@@ -13,6 +13,13 @@ La [recherche OSINT assistée V1](architecture/OSINT_ASSISTED_RESEARCH.md) est
 JobStore V4 est additif à V3, les grants sont explicites et aucun fournisseur
 public n'est configuré ou qualifié. Elle ne modifie ni V20 ni V21.
 
+Les fondations locales de l'[agent opérationnel](architecture/OPERATIONAL_AGENT.md),
+de l'[exécution sandboxée](architecture/SANDBOX_TOOL_EXECUTION.md) et de
+l'[egress privacy](architecture/PRIVACY_EGRESS.md) restent strictement séparées
+de la Policy et du JobStore. Le chemin rootless live `PRIVACY_TOR` et la
+capability Internet passive sont `CURRENT local` après un smoke Qwen unifié
+`PASS_LOCAL_SPECIMEN`, sans repli direct.
+
 > **Statut :** direction canonique v0.1.0
 > **Dernière mise à jour :** 2026-09-27
 > **Portée :** architecture actuelle et cible Labfy V2

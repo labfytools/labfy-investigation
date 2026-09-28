@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import hmac
 import json
@@ -23,9 +24,24 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 from agent_gateway import AgentGateway, AgentGatewayError
+from agent_mission import AgentMission, AgentMissionError
+from agent_proposals import AgentProposalError, AgentProposalService
 from agent_runtime import AgentRuntime, AgentRuntimeError
 from local_model_client import LocalModelClient
+from local_model_supervisor import (
+    LocalModelSupervisor,
+    LocalModelSupervisorError,
+    load_xdg_config,
+)
 from report_bundle import publish as publish_report, verify as verify_report, ReportError
+from investigation_context import InvestigationContext, find_correlation_candidates
+from internet_research import InternetResearch
+from privacy_egress import EgressStatus, PodmanTorRuntime, PrivacyEgressSupervisor
+from sandbox_execution import ArtifactInput, SandboxExec, SandboxStatus
+from tool_registry import (
+    ExecutionProfile, NetworkRequirement, RiskClass, ToolDefinition,
+    ToolDocumentationBroker, ToolRegistry, ToolRegistryError,
+)
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
@@ -55,7 +71,8 @@ class WorkspaceServer(ThreadingHTTPServer):
                  session_ttl_seconds=SESSION_TTL_SECONDS,
                  research_fixture_authority=None, automatic_session=False,
                  agent_mode="deterministic-demo", agent_endpoint=None,
-                 agent_model=None, agent_timeout=10.0):
+                 agent_model=None, agent_timeout=10.0, agent_autostart=False,
+                 agent_config_path=None):
         if (not isinstance(session_ttl_seconds, int) or
                 isinstance(session_ttl_seconds, bool) or session_ttl_seconds <= 0):
             raise ValueError("Durée de session invalide")
@@ -99,6 +116,16 @@ class WorkspaceServer(ThreadingHTTPServer):
         self.active_uploads = 0
         self.reserved_upload_bytes = 0
         self.upload_mutexes = {}
+        self.agent_operation_lock = threading.RLock()
+        self.agent_missions = {}
+        self.agent_proposals = {}
+        self.agent_operation_replays = {}
+        self.agent_proposal_service = AgentProposalService(self._agent_ref_owned)
+        self.agent_tool_registry = self._build_agent_tool_registry()
+        self.agent_tool_docs = ToolDocumentationBroker()
+        self.agent_sandbox = SandboxExec(self.agent_tool_registry)
+        self.agent_privacy_egress = None
+        self.agent_internet_research = None
         # CONTRACT: cette autorité de laboratoire n'est ni une donnée UI ni un
         # réglage persistant. Le bridge C applique encore sa propre whitelist.
         self.research_fixture_authority = research_fixture_authority
@@ -106,25 +133,50 @@ class WorkspaceServer(ThreadingHTTPServer):
         # callbacks réutilisent ses lectures/commandes existantes ; le gateway
         # n'accède ni à SQLite, ni au shell, ni à un stockage parallèle.
         self.agent_gateway = AgentGateway({
+            "investigation.get_overview": self._agent_get_overview,
             "investigation.search": self._agent_search,
+            "investigation.find_correlations": self._agent_find_correlations,
             "graph.get_node": self._agent_get_node,
             "graph.get_neighbors": self._agent_get_neighbors,
             "evidence.get_summary": self._agent_evidence_summary,
             "evidence.read_excerpt": self._agent_evidence_excerpt,
             "provenance.trace": self._agent_provenance,
             "jobs.get": self._agent_get_job,
+            "tool.catalog": self._agent_tool_catalog,
+            "tool.docs.read": self._agent_tool_docs_read,
+            "sandbox.exec": self._agent_sandbox_exec,
+            "agent.propose": self._agent_propose,
+            "web.fetch": self._agent_web_fetch,
             "research.get_state": self._agent_research_state,
             "research.prepare": self._agent_prepare_research,
         })
-        self.agent_mode = agent_mode
-        self.agent_model = agent_model
         self.agent_runtime = None
         self.agent_runtime_reason = None
+        self.local_model_supervisor = None
+        # WHY: an automatic model is opt-in and uses only an XDG configuration
+        # supplied by the operator. No versioned source contains a model path.
+        if agent_autostart:
+            try:
+                config = load_xdg_config(agent_config_path)
+                self.local_model_supervisor = LocalModelSupervisor(config)
+                ready = self.local_model_supervisor.start()
+                agent_mode = "local-model"
+                agent_endpoint = ready["endpoint"]
+                agent_model = ready["model"]
+            except LocalModelSupervisorError as error:
+                agent_mode = "local-model"
+                self.agent_runtime_reason = str(error)
+        self.agent_mode = agent_mode
+        self.agent_model = agent_model
         if agent_mode == "local-model":
             try:
                 client = LocalModelClient(agent_endpoint, agent_model, timeout=agent_timeout)
                 self.agent_runtime = AgentRuntime(
-                    client, self._agent_runtime_gateway, self._agent_tool_ids())
+                    client,
+                    self._agent_runtime_gateway,
+                    self.agent_gateway.catalog()["tools"],
+                    context_provider=self._agent_investigation_context,
+                )
             except ValueError as error:
                 # CONTRACT: an invalid local endpoint never causes a fallback
                 # to another origin or to the deterministic model.
@@ -132,15 +184,498 @@ class WorkspaceServer(ThreadingHTTPServer):
         elif agent_mode != "deterministic-demo":
             raise ValueError("Mode agent invalide")
 
+    def agent_workspace_id(self):
+        """Return the opaque identity of the currently opened workspace."""
+        context = self.context()
+        if context is None:
+            raise AgentMissionError("Aucun workspace actif")
+        return self.active_workspace_id or context["investigation_id"]
+
+    def _agent_ref_owned(self, workspace_id, ref):
+        if workspace_id != self.agent_workspace_id():
+            return False
+        known = {
+            node.get("id") for node in self._agent_graph().get("nodes", [])
+            if isinstance(node, dict)
+        }
+        return ref["object_id"] in known
+
     @staticmethod
-    def _agent_tool_ids():
-        return [tool_id for tool_id, _title, _schema in AgentGateway._TOOLS]
+    def _agent_operation_digest(value):
+        return hashlib.sha256(json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+
+    def _agent_idempotent(self, workspace_id, operation, key, intent, callback):
+        try:
+            key = str(uuid.UUID(key))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise AgentMissionError("Clé d’idempotence invalide") from error
+        replay_key = (workspace_id, operation, key)
+        digest = self._agent_operation_digest(intent)
+        existing = self.agent_operation_replays.get(replay_key)
+        if existing is not None:
+            if existing[0] != digest:
+                raise AgentMissionError(
+                    "Clé d’idempotence déjà utilisée pour une autre intention"
+                )
+            return existing[1], True
+        response = callback()
+        self.agent_operation_replays[replay_key] = (digest, response)
+        return response, False
+
+    def agent_mission_current(self):
+        workspace_id = self.agent_workspace_id()
+        with self.agent_operation_lock:
+            entry = self.agent_missions.get(workspace_id)
+            if entry is None:
+                return {
+                    "contract": "labfy.agent_mission_state.v1",
+                    "workspace_id": workspace_id,
+                    "state": "INACTIVE",
+                    "mission": None,
+                    "elapsed_seconds": 0,
+                }
+            elapsed = max(0, int(time.monotonic() - entry["started_monotonic"]))
+            return {
+                "contract": "labfy.agent_mission_state.v1",
+                "workspace_id": workspace_id,
+                "state": entry["state"],
+                "mission": entry["mission"].snapshot(),
+                "elapsed_seconds": elapsed,
+            }
+
+    def start_agent_mission(self, workspace_id, specification, key, confirmed):
+        self._require_agent_workspace(workspace_id)
+        intent = {"specification": specification, "human_confirmed": confirmed}
+        with self.agent_operation_lock:
+            def start():
+                current = self.agent_missions.get(workspace_id)
+                if current is not None and current["state"] == "ACTIVE":
+                    raise AgentMissionError("Une mission est déjà active")
+                mission = AgentMission.start_human(
+                    workspace_id, specification, self._agent_ref_owned,
+                    lambda selected, safe: confirmed is True and selected == workspace_id,
+                )
+                self.agent_missions[workspace_id] = {
+                    "mission": mission,
+                    "state": "ACTIVE",
+                    "started_monotonic": time.monotonic(),
+                }
+                return self.agent_mission_current()
+
+            response, replayed = self._agent_idempotent(
+                workspace_id, "mission.start", key, intent, start
+            )
+            return {**response, "replayed": replayed}
+
+    def cancel_agent_mission(self, workspace_id, mission_id, key, confirmed):
+        self._require_agent_workspace(workspace_id)
+        intent = {"mission_id": mission_id, "human_confirmed": confirmed}
+        with self.agent_operation_lock:
+            def cancel():
+                entry = self._active_agent_mission(workspace_id, mission_id)
+                if confirmed is not True:
+                    raise AgentMissionError("Annulation humaine explicite requise")
+                entry["state"] = "CANCELLED"
+                return self.agent_mission_current()
+
+            response, replayed = self._agent_idempotent(
+                workspace_id, "mission.cancel", key, intent, cancel
+            )
+            return {**response, "replayed": replayed}
+
+    def rescope_agent_mission(self, workspace_id, mission_id, scoped_refs, pivots,
+                              key, confirmed):
+        self._require_agent_workspace(workspace_id)
+        intent = {"mission_id": mission_id, "scoped_refs": scoped_refs,
+                  "pivots": pivots, "human_confirmed": confirmed}
+        with self.agent_operation_lock:
+            def rescope():
+                entry = self._active_agent_mission(workspace_id, mission_id)
+                entry["mission"].rescope(
+                    scoped_refs, pivots,
+                    lambda current, proposal: confirmed is True,
+                )
+                return self.agent_mission_current()
+
+            response, replayed = self._agent_idempotent(
+                workspace_id, "mission.rescope", key, intent, rescope
+            )
+            return {**response, "replayed": replayed}
+
+    def _require_agent_workspace(self, workspace_id):
+        if workspace_id != self.agent_workspace_id():
+            raise PermissionError("Workspace agent différent du workspace actif")
+
+    def _active_agent_mission(self, workspace_id, mission_id):
+        entry = self.agent_missions.get(workspace_id)
+        if (entry is None or entry["state"] != "ACTIVE" or
+                entry["mission"].snapshot()["mission_id"] != mission_id):
+            raise AgentMissionError("Mission active inconnue")
+        return entry
+
+    def list_agent_proposals(self):
+        workspace_id = self.agent_workspace_id()
+        with self.agent_operation_lock:
+            values = list(self.agent_proposals.get(workspace_id, {}).values())
+            return {
+                "contract": "labfy.agent_proposal_list.v1",
+                "workspace_id": workspace_id,
+                "proposals": [json.loads(json.dumps(item)) for item in values],
+            }
+
+    def create_agent_proposal(self, workspace_id, mission_id, proposal, key):
+        self._require_agent_workspace(workspace_id)
+        intent = {"mission_id": mission_id, "proposal": proposal}
+        with self.agent_operation_lock:
+            def create():
+                self._active_agent_mission(workspace_id, mission_id)
+                safe = self.agent_proposal_service.validate(workspace_id, proposal)
+                proposal_id = str(uuid.uuid4())
+                record = {"proposal_id": proposal_id, "mission_id": mission_id,
+                          "proposal": safe, "decision": None}
+                self.agent_proposals.setdefault(workspace_id, {})[proposal_id] = record
+                return json.loads(json.dumps(record))
+
+            response, replayed = self._agent_idempotent(
+                workspace_id, "proposal.create", key, intent, create
+            )
+            return {"contract": "labfy.agent_proposal_record.v1",
+                    **response, "replayed": replayed}
+
+    def decide_agent_proposal(self, workspace_id, proposal_id, outcome, decision, key):
+        self._require_agent_workspace(workspace_id)
+        intent = {"proposal_id": proposal_id, "outcome": outcome,
+                  "decision": decision}
+        with self.agent_operation_lock:
+            def decide():
+                record = self.agent_proposals.get(workspace_id, {}).get(proposal_id)
+                if record is None:
+                    raise AgentProposalError("Proposition inconnue dans ce workspace")
+                if record["decision"] is not None:
+                    raise AgentProposalError("Proposition déjà décidée")
+                trace = self.agent_proposal_service.record_decision(
+                    workspace_id, record["proposal"],
+                    {**decision, "decision": outcome},
+                )
+                record["decision"] = trace
+                return json.loads(json.dumps(record))
+
+            response, replayed = self._agent_idempotent(
+                workspace_id, f"proposal.{outcome.lower()}", key, intent, decide
+            )
+            return {"contract": "labfy.agent_proposal_record.v1",
+                    **response, "replayed": replayed}
+
+    @staticmethod
+    def _build_agent_tool_registry():
+        definitions = (
+            ToolDefinition(
+                "forensics.strings",
+                "GNU strings",
+                "strings",
+                RiskClass.OFFLINE_READ_ONLY,
+                {"arguments": "argv", "input": "artifact"},
+                {"stdout": "text"},
+                ExecutionProfile(
+                    timeout_seconds=10.0,
+                    max_output_bytes=64 * 1024,
+                    network=NetworkRequirement.OFFLINE,
+                ),
+                ("--help",),
+                documentation_available=True,
+                policy_allowed=True,
+            ),
+            ToolDefinition(
+                "forensics.exiftool",
+                "ExifTool metadata reader",
+                "exiftool",
+                RiskClass.OFFLINE_READ_ONLY,
+                {"arguments": "argv", "input": "artifact"},
+                {"stdout": "text"},
+                ExecutionProfile(
+                    timeout_seconds=15.0,
+                    max_output_bytes=128 * 1024,
+                    network=NetworkRequirement.OFFLINE,
+                ),
+                ("--help",),
+                documentation_available=True,
+                policy_allowed=True,
+            ),
+        )
+        registry = ToolRegistry(definitions)
+        for definition in registry.list_tools():
+            registry.detect(definition.tool_id)
+        return registry
+
+    def _current_active_agent_mission(self):
+        workspace_id = self.agent_workspace_id()
+        entry = self.agent_missions.get(workspace_id)
+        if entry is None or entry["state"] != "ACTIVE":
+            raise AgentMissionError("Mission Agent active requise")
+        return workspace_id, entry
+
+    @staticmethod
+    def _agent_policy_admission(snapshot, attempt):
+        risk = attempt.get("risk_class")
+        network_contact = attempt.get("network_contact")
+        if risk == "LOCAL_READ_ONLY":
+            return network_contact is False and attempt.get("contacts") == 0
+        if risk == "PASSIVE_PUBLIC":
+            return (
+                network_contact is True
+                and snapshot.get("network_profile") == "PASSIVE_PUBLIC"
+                and attempt.get("contacts") == 1
+            )
+        return False
+
+    def _admit_agent_attempt(self, risk_class, object_refs, *, network_contact=False):
+        _workspace_id, entry = self._current_active_agent_mission()
+        return entry["mission"].admit_attempt(
+            {
+                "risk_class": risk_class,
+                "network_contact": network_contact,
+                "object_refs": object_refs,
+                "contacts": 1 if network_contact else 0,
+                "duration_seconds": 0,
+                "tool_calls": 1,
+            },
+            self._agent_policy_admission,
+        )
+
+    def _agent_get_overview(self, _arguments, _key):
+        return self._agent_investigation_context(self.agent_scope())
+
+    def _agent_find_correlations(self, _arguments, _key):
+        objects = []
+        for node in self._agent_graph().get("nodes", [])[:64]:
+            if not isinstance(node, dict) or node.get("group") != "evidence":
+                continue
+            object_id = node.get("id")
+            if not isinstance(object_id, str):
+                continue
+            naked_id = object_id.split(":", 1)[-1]
+            try:
+                preview = json.loads(self.bridge_call(
+                    ["evidence-preview-json", "--evidence", naked_id], timeout=15
+                ))
+            except (OSError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+                continue
+            digest = preview.get("sha256")
+            if not isinstance(digest, str):
+                continue
+            ref = {"object_id": object_id}
+            objects.append({
+                "object_ref": ref,
+                "attributes": [{
+                    "kind": "hash",
+                    "value": digest,
+                    "source_refs": [ref],
+                }],
+            })
+        result = find_correlation_candidates(objects)
+        refs = {}
+        for candidate in result.get("candidates", []):
+            for ref in candidate.get("object_refs", []):
+                refs[ref["object_id"]] = ref
+        return {**result, "object_refs": list(refs.values())[:32]}
+
+    def _agent_tool_catalog(self, _arguments, _key):
+        tools = []
+        for definition in self.agent_tool_registry.list_tools():
+            tools.append({
+                "tool_id": definition.tool_id,
+                "display_name": definition.display_name,
+                "binary": definition.binary,
+                "risk_class": definition.risk_class.value,
+                "network": definition.execution_profile.network.value,
+                "documentation_available": definition.documentation_available,
+                "execution_available": definition.execution_available,
+                "policy_allowed": definition.policy_allowed,
+                "detected_version": definition.detected_version,
+                "availability_reason": definition.availability_reason,
+            })
+        return {
+            "contract": "labfy.agent_tool_catalog.v1",
+            "tools": tools,
+            "object_refs": [],
+        }
+
+    def _agent_tool_docs_read(self, arguments, _key):
+        definition = self.agent_tool_registry.get(arguments["tool_id"])
+        if not definition.documentation_available:
+            raise ToolRegistryError("documentation indisponible")
+        executable = shutil.which(definition.binary)
+        if executable is None:
+            raise ToolRegistryError("outil indisponible")
+        completed = subprocess.run(
+            [executable, "--help"],
+            check=False,
+            capture_output=True,
+            timeout=min(definition.execution_profile.timeout_seconds, 5.0),
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "LANG": "C"},
+        )
+        content = (bytes(completed.stdout) + bytes(completed.stderr))[:64 * 1024]
+        if not content:
+            completed = subprocess.run(
+                [executable, "--version"],
+                check=False,
+                capture_output=True,
+                timeout=3.0,
+                env={"PATH": "/usr/bin:/bin", "LC_ALL": "C", "LANG": "C"},
+            )
+            content = (bytes(completed.stdout) + bytes(completed.stderr))[:64 * 1024]
+        if not content:
+            raise ToolRegistryError("documentation locale vide")
+        document_id = self.agent_tool_docs.store(
+            definition.tool_id, f"{definition.binary}:local-help", content
+        )
+        return {
+            "contract": "labfy.agent_tool_document.v1",
+            "tool_id": definition.tool_id,
+            "document_id": document_id,
+            "trust": "UNTRUSTED_DATA",
+            "content": content.decode("utf-8", "replace"),
+            "object_refs": [],
+        }
+
+    def _agent_preview_artifact(self, object_id):
+        node = self._agent_node(object_id)
+        if node.get("group") != "evidence":
+            raise ValueError("Le sandbox exige une preuve")
+        naked_id = object_id.split(":", 1)[-1]
+        preview = json.loads(self.bridge_call(
+            ["evidence-preview-json", "--evidence", naked_id], timeout=15
+        ))
+        if preview.get("integrity_valid") is not True:
+            raise ValueError("Intégrité de preuve invalide")
+        text = preview.get("text")
+        if isinstance(text, str):
+            content = text.encode("utf-8")
+        else:
+            image = preview.get("image_png_base64")
+            if not isinstance(image, str):
+                raise ValueError("Aperçu de preuve non matérialisable")
+            try:
+                content = base64.b64decode(image, validate=True)
+            except ValueError as error:
+                raise ValueError("Aperçu encodé invalide") from error
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise ValueError("Aperçu de preuve trop volumineux")
+        return content
+
+    def _agent_sandbox_exec(self, arguments, _key):
+        ref = {"object_id": arguments["object_id"]}
+        self._admit_agent_attempt("LOCAL_READ_ONLY", [ref])
+        content = self._agent_preview_artifact(arguments["object_id"])
+        result = self.agent_sandbox.execute(
+            arguments["tool_id"],
+            arguments["arguments"],
+            artifacts=[ArtifactInput("evidence", content)],
+        )
+        if result.status != SandboxStatus.SUCCESS:
+            raise ValueError(f"Sandbox refusé: {result.status.value}")
+        return {
+            "contract": "labfy.agent_sandbox_result.v1",
+            "status": result.status.value,
+            "stdout": result.stdout.decode("utf-8", "replace"),
+            "stderr": result.stderr.decode("utf-8", "replace"),
+            "provenance": dict(result.provenance),
+            "object_refs": [ref],
+        }
+
+    def _agent_propose(self, arguments, key):
+        workspace_id, entry = self._current_active_agent_mission()
+        refs = arguments["object_refs"]
+        self._admit_agent_attempt("LOCAL_READ_ONLY", refs)
+        mission_id = entry["mission"].snapshot()["mission_id"]
+        return self.create_agent_proposal(
+            workspace_id,
+            mission_id,
+            arguments,
+            key,
+        )
+
+    def _ensure_agent_privacy_egress(self):
+        with self.agent_operation_lock:
+            if (
+                self.agent_privacy_egress is not None
+                and self.agent_privacy_egress.is_available()
+            ):
+                return self.agent_internet_research
+            runtime = PodmanTorRuntime()
+            supervisor = PrivacyEgressSupervisor.start_owned_tor(
+                runtime, bootstrap_timeout=120.0
+            )
+            self.agent_privacy_egress = supervisor
+            self.agent_internet_research = InternetResearch(supervisor)
+            return self.agent_internet_research
+
+    def _agent_web_fetch(self, arguments, _key):
+        ref = {"object_id": arguments["object_id"]}
+        self._admit_agent_attempt(
+            "PASSIVE_PUBLIC", [ref], network_contact=True
+        )
+        research = self._ensure_agent_privacy_egress()
+        result = research.fetch(
+            arguments["url"],
+            method=arguments["method"],
+            max_body_bytes=64 * 1024,
+        )
+        if result.status != EgressStatus.SUCCESS:
+            raise ValueError(f"Recherche Internet refusée: {result.status.value}")
+        return {
+            "contract": "labfy.agent_web_fetch_result.v1",
+            "status": result.status.value,
+            "final_url": result.final_url,
+            "status_code": result.status_code,
+            "headers": dict(result.headers),
+            "content": result.body.decode("utf-8", "replace"),
+            "content_trust": "UNTRUSTED_DATA",
+            "provenance": dict(result.provenance),
+            "object_refs": [ref],
+        }
 
     def _agent_runtime_gateway(self, request):
         """Execute only through the existing capability/policy boundary."""
         scope = self.agent_scope()
         response = self.agent_gateway.call(scope, request)
         return self.agent_gateway.result(scope, response["result_id"])
+
+    def _agent_investigation_context(self, _scope):
+        """Return only the bounded projection allowed into a model turn."""
+        graph = self._agent_graph()
+        context = self.context() or {}
+        workspace_id = self.active_workspace_id or context.get("investigation_id", "EMPTY")
+        nodes = graph.get("nodes", [])
+        known = {item.get("id") for item in nodes if isinstance(item, dict)}
+
+        def owned(candidate_workspace, ref):
+            return candidate_workspace == workspace_id and ref["object_id"] in known
+
+        builder = InvestigationContext(lambda value: value == workspace_id, owned)
+        return builder.build(workspace_id, {
+            "workspace_id": workspace_id,
+            "title": context.get("title", "Enquête locale"),
+            "revision": graph.get("revision", 0),
+            "counts": {
+                "evidence": sum(
+                    1 for node in nodes
+                    if node.get("group") == "evidence"
+                    or node.get("object_kind") == "evidence"
+                ),
+                "objects": len(nodes),
+                "observations": sum(
+                    1 for node in nodes
+                    if node.get("group") == "observation"
+                    or node.get("object_kind") == "observation"
+                ),
+            },
+            "entity_types": sorted({str(node.get("type", "unknown")) for node in nodes}),
+            "current_graph_selection": [],
+            "recent_activity": [],
+        })
 
     def agent_runtime_status(self):
         if self.agent_mode != "local-model":
@@ -150,12 +685,15 @@ class WorkspaceServer(ThreadingHTTPServer):
                 "available": True, "provider": "deterministic-demo",
                 "endpoint_kind": "none", "model": None, "reason": None,
             }
+        supervisor = (self.local_model_supervisor.status()
+                      if self.local_model_supervisor is not None else None)
         return {
             "contract": "labfy.agent_runtime.status.v1",
             "mode": "LOCAL_MODEL", "configured": self.agent_runtime is not None,
             "available": self.agent_runtime is not None,
             "provider": "openai-compatible-local", "endpoint_kind": "loopback",
             "model": self.agent_model, "reason": self.agent_runtime_reason,
+            "supervisor": supervisor,
         }
 
     def resume_agent_runtime(self, turn_id):
@@ -398,10 +936,11 @@ class WorkspaceServer(ThreadingHTTPServer):
             raise ValueError("Révision du snapshot cœur invalide")
         output = self.bridge_call([
             "research-prepare-json", "--selection",
-            # CONTRACT: graph object_refs use the stable projection namespace;
-            # research contracts receive the underlying persisted UUID only.
-            ",".join(item.split(":", 1)[-1]
-                     for item in arguments["selection_ids"]), "--question",
+            # CONTRACT: the research boundary consumes the stable graph node
+            # identifiers catalogued as object_refs, including their namespace.
+            # WHY: stripping it produces an identifier absent from the core
+            # snapshot and makes Agent calls diverge from the human Web flow.
+            ",".join(arguments["selection_ids"]), "--question",
             arguments["question"], "--exclusions",
             ",".join(arguments["exclusions"]), "--revision", str(revision),
             "--key", key], timeout=15)
@@ -509,6 +1048,13 @@ class WorkspaceServer(ThreadingHTTPServer):
     def server_close(self):
         if self.agent_runtime is not None:
             self.agent_runtime.close()
+        if self.local_model_supervisor is not None:
+            # INVARIANT: the supervisor stops only the process it created.
+            self.local_model_supervisor.stop()
+        if self.agent_privacy_egress is not None:
+            self.agent_privacy_egress.close()
+            self.agent_privacy_egress = None
+            self.agent_internet_research = None
         with self.report_lock:
             threads = list(self.report_threads)
         for thread in threads:
@@ -647,6 +1193,34 @@ class Handler(BaseHTTPRequestHandler):
                 not isinstance(value["expected_generation"], int) or
                 isinstance(value["expected_generation"], bool)):
             raise TypeError("Demande d'ouverture de bibliothèque invalide")
+        return value
+
+    def _agent_operation_body(self, operation):
+        value = self._json_body()
+        shapes = {
+            "mission.start": {"workspace_id", "specification", "human_confirmed",
+                              "idempotency_key"},
+            "mission.cancel": {"workspace_id", "mission_id", "human_confirmed",
+                               "idempotency_key"},
+            "mission.rescope": {"workspace_id", "mission_id", "scoped_refs",
+                                "pivots", "human_confirmed", "idempotency_key"},
+            "proposal.create": {"workspace_id", "mission_id", "proposal",
+                                "idempotency_key"},
+            "proposal.decide": {"workspace_id", "decision_id", "reason",
+                                "decided_by", "decided_at", "idempotency_key"},
+        }
+        if not isinstance(value, dict) or set(value) != shapes[operation]:
+            raise TypeError("Schéma d’opération agent invalide")
+        for name in shapes[operation] & {
+                "workspace_id", "mission_id", "decision_id", "reason",
+                "decided_by", "decided_at", "idempotency_key"}:
+            item = value[name]
+            if (not isinstance(item, str) or not item or len(item) > 512 or
+                    "\x00" in item):
+                raise TypeError("Champ d’opération agent invalide")
+        if ("human_confirmed" in value and
+                not isinstance(value["human_confirmed"], bool)):
+            raise TypeError("Confirmation humaine invalide")
         return value
 
     def _plan_body(self):
@@ -893,6 +1467,18 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, self.server.agent_gateway.catalog())
         elif path == "/api/v1/agent-runtime/status":
             self._json(HTTPStatus.OK, self.server.agent_runtime_status())
+        elif path == "/api/v1/agent-mission/current":
+            try:
+                self._json(HTTPStatus.OK, self.server.agent_mission_current())
+            except (AgentMissionError, OSError, ValueError,
+                    json.JSONDecodeError) as error:
+                self._error(HTTPStatus.CONFLICT, "agent_mission_unavailable", str(error))
+        elif path == "/api/v1/agent-proposals":
+            try:
+                self._json(HTTPStatus.OK, self.server.list_agent_proposals())
+            except (AgentProposalError, OSError, ValueError,
+                    json.JSONDecodeError) as error:
+                self._error(HTTPStatus.CONFLICT, "agent_proposals_unavailable", str(error))
         elif path == "/api/v1/agent-runtime/events":
             try:
                 if self.server.agent_runtime is None:
@@ -1001,6 +1587,56 @@ class Handler(BaseHTTPRequestHandler):
                     self.server.agent_scope(), self._json_body())
                 self._json(HTTPStatus.OK if response["replayed"]
                            else HTTPStatus.CREATED, response)
+                return
+            if path == "/api/v1/agent-mission/start":
+                value = self._agent_operation_body("mission.start")
+                response = self.server.start_agent_mission(
+                    value["workspace_id"], value["specification"],
+                    value["idempotency_key"], value["human_confirmed"],
+                )
+                self._json(HTTPStatus.OK if response["replayed"]
+                           else HTTPStatus.CREATED, response)
+                return
+            if path == "/api/v1/agent-mission/cancel":
+                value = self._agent_operation_body("mission.cancel")
+                response = self.server.cancel_agent_mission(
+                    value["workspace_id"], value["mission_id"],
+                    value["idempotency_key"], value["human_confirmed"],
+                )
+                self._json(HTTPStatus.OK, response)
+                return
+            if path == "/api/v1/agent-mission/rescope":
+                value = self._agent_operation_body("mission.rescope")
+                response = self.server.rescope_agent_mission(
+                    value["workspace_id"], value["mission_id"],
+                    value["scoped_refs"], value["pivots"],
+                    value["idempotency_key"], value["human_confirmed"],
+                )
+                self._json(HTTPStatus.OK, response)
+                return
+            if path == "/api/v1/agent-proposals":
+                value = self._agent_operation_body("proposal.create")
+                response = self.server.create_agent_proposal(
+                    value["workspace_id"], value["mission_id"],
+                    value["proposal"], value["idempotency_key"],
+                )
+                self._json(HTTPStatus.OK if response["replayed"]
+                           else HTTPStatus.CREATED, response)
+                return
+            if (path.startswith("/api/v1/agent-proposals/") and
+                    path.endswith(("/approve", "/reject"))):
+                parts = path.split("/")
+                if len(parts) != 6:
+                    raise TypeError("Route de décision de proposition invalide")
+                value = self._agent_operation_body("proposal.decide")
+                outcome = "APPROVED" if parts[5] == "approve" else "REFUSED"
+                response = self.server.decide_agent_proposal(
+                    value["workspace_id"], parts[4], outcome,
+                    {name: value[name] for name in (
+                        "decision_id", "reason", "decided_by", "decided_at")},
+                    value["idempotency_key"],
+                )
+                self._json(HTTPStatus.OK, response)
                 return
             if path == "/api/v1/agent-runtime/turns":
                 if self.server.agent_runtime is None:
@@ -1253,6 +1889,10 @@ class Handler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
         except (AgentGatewayError, AgentRuntimeError) as error:
             self._error(error.status, error.code, str(error))
+        except PermissionError as error:
+            self._error(HTTPStatus.FORBIDDEN, "agent_workspace_rejected", str(error))
+        except (AgentMissionError, AgentProposalError) as error:
+            self._error(HTTPStatus.CONFLICT, "agent_operation_rejected", str(error))
         except OverflowError as error:
             self._error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "body_too_large", str(error))
         except (TypeError, json.JSONDecodeError) as error:
@@ -1555,12 +2195,18 @@ def main():
     parser.add_argument("--agent-model", default=os.environ.get("LABFY_AGENT_MODEL_ID"))
     parser.add_argument("--agent-timeout", type=float,
                         default=float(os.environ.get("LABFY_AGENT_MODEL_TIMEOUT_SECONDS", "10")))
+    parser.add_argument("--agent-autostart", action="store_true",
+                        help="démarre uniquement le llama-server configuré dans XDG")
+    parser.add_argument("--agent-config-path", type=Path,
+                        help="configuration agent XDG explicite, non versionnée")
     args = parser.parse_args()
     server = WorkspaceServer(("127.0.0.1", args.port), Handler,
                              workspace=args.workspace, bridge=args.bridge,
                              bootstrap="", agent_mode=args.agent_mode,
                              agent_endpoint=args.agent_endpoint, agent_model=args.agent_model,
-                             agent_timeout=args.agent_timeout)
+                             agent_timeout=args.agent_timeout,
+                             agent_autostart=args.agent_autostart,
+                             agent_config_path=args.agent_config_path)
     print(f"Labfy J6 : {server.origin}/", flush=True)
     try:
         server.serve_forever()
