@@ -6,6 +6,7 @@ import threading
 import unittest
 from http.client import HTTPConnection
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from workspace_server import Handler, WorkspaceServer
@@ -118,6 +119,69 @@ class WorkspaceServerTest(unittest.TestCase):
         time.sleep(0.04)
         conflict = dict(intent, evidence_id=self.manifest["image_id"])
         self.assertEqual(self.mutate("/api/v1/jobs", conflict)[0], 409)
+
+    def test_agent_tool_routes_reuse_security_and_backend_snapshot(self):
+        import time
+        self.assertEqual(self.request_raw(
+            "GET", "/api/v1/agent-tools/catalog")[0], 401)
+        status, _, body = self.request_raw(
+            "GET", "/api/v1/agent-tools/catalog", cookie=self.cookie)
+        self.assertEqual(status, 200, body)
+        catalog = json.loads(body)
+        self.assertEqual(catalog["contract"], "labfy.agent_tool_protocol.v1")
+        self.assertEqual(catalog["transport"], "HTTP_POLLING")
+        request = {"turn_id": "83000000-0000-4000-8000-000000000030",
+                   "tool_id": "investigation.search", "input": {"query": "SPECIMEN"},
+                   "context": {}, "object_refs": [],
+                   "idempotency_key": "83000000-0000-4000-8000-000000000031"}
+        self.assertEqual(self.request_raw(
+            "POST", "/api/v1/agent-tools/calls", request,
+            origin="http://evil.test", cookie=self.cookie, csrf=self.csrf)[0], 403)
+        time.sleep(0.04)
+        status, _, body = self.mutate("/api/v1/agent-tools/calls", request)
+        self.assertEqual(status, 201, body)
+        admitted = json.loads(body)
+        status, _, body = self.request_raw(
+            "GET", f'/api/v1/agent-tools/results/{admitted["result_id"]}',
+            cookie=self.cookie)
+        self.assertEqual(status, 200, body)
+        result = json.loads(body)
+        self.assertEqual(result["state"], "COMPLETED")
+        self.assertNotEqual(result["call_id"], result["result_id"])
+        self.assertTrue(result["object_refs"])
+        status, _, body = self.request_raw(
+            "GET", "/api/v1/agent-tools/events?cursor=0", cookie=self.cookie)
+        self.assertEqual(status, 200, body)
+        self.assertTrue(json.loads(body)["events"])
+        time.sleep(0.04)
+        status, _, body = self.mutate("/api/v1/agent-tools/turns", {
+            "objective": "Analyser la piste SPECIMEN sans auto-autorisation"})
+        self.assertEqual(status, 201, body)
+        turn = json.loads(body)
+        self.assertEqual(turn["state"], "AUTHORIZATION_REQUIRED")
+        self.assertTrue(turn["turn_id"])
+
+    def test_concurrent_posts_are_admitted_atomically(self):
+        barrier = threading.Barrier(2)
+
+        def synchronize_mutations(_handler):
+            barrier.wait(timeout=2)
+            return True
+
+        self.server.last_command = 0.0
+        statuses = []
+        with mock.patch.object(Handler, "_mutation_allowed",
+                               autospec=True,
+                               side_effect=synchronize_mutations):
+            threads = [threading.Thread(
+                target=lambda: statuses.append(self.mutate("/api/v1/unknown", {})))
+                       for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(3)
+                self.assertFalse(thread.is_alive())
+        self.assertEqual(sorted(status for status, _, _ in statuses), [404, 429])
 
     def test_plan_contract_rejects_stale_and_unknown_shapes(self):
         import time

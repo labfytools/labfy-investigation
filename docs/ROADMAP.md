@@ -35,8 +35,11 @@ construction sans démarrer la refonte fonctionnelle.
 tranche financière V21 indépendante.
 
 > **Interface CURRENT local :** la tranche Web finale a remplacé GTK par une
-> surface locale Agent | Graphe | Activité + drawer. Le raccord Qwen local,
-> tool calling et resource governor AMD/RAM/swap restent `TARGET`.
+> surface locale Agent | Graphe | Activité + drawer. Un gateway d’outils V1
+> `CURRENT de laboratoire` relit les snapshots backend et prépare une demande
+> d’autorisation recherche sans l’accorder. Un runtime OpenAI-compatible local
+> `CURRENT local` le pilote sur faux loopback, sans qualifier Qwen réel ; Qwen
+> réel et resource governor AMD/RAM/swap restent `TARGET`.
 
 **Livrables.** README, bannière et source éditable, index documentaire,
 architecture canonique, contrat du graphe, ADR Web/graph-first/polyglotte,

@@ -188,7 +188,9 @@ def serve(args):
         server = WorkspaceServer(("127.0.0.1", args.port), Handler,
             workspace=workspace, bridge=args.bridge, bootstrap="",
             library=library, instance_id=instance_id, config_id=config_id,
-            automatic_session=args.automatic_session)
+            automatic_session=args.automatic_session, agent_mode=args.agent_mode,
+            agent_endpoint=args.agent_endpoint, agent_model=args.agent_model,
+            agent_timeout=args.agent_timeout)
     except OSError as error:
         _handshake(args.handshake_fd, {"ok": False,
                                       "error": f"Port indisponible : {error}"})
@@ -263,6 +265,12 @@ def start(args):
                    "--port", str(args.port), "--bridge", str(args.bridge),
                    "--handshake-fd", str(write_fd)]
         command.append("--automatic-session")
+        command.extend(("--agent-mode", args.agent_mode))
+        if args.agent_endpoint is not None:
+            command.extend(("--agent-endpoint", args.agent_endpoint))
+        if args.agent_model is not None:
+            command.extend(("--agent-model", args.agent_model))
+        command.extend(("--agent-timeout", str(args.agent_timeout)))
         mode, path = _selection(args)
         command.extend((f"--{mode}", str(path)))
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
@@ -347,6 +355,14 @@ def build_parser():
         command.add_argument("--bridge", type=Path, default=repository / "tools/local-jobs")
         command.add_argument("--automatic-session", action="store_true",
                              help="établit une session locale sans code visible")
+        command.add_argument("--agent-mode", choices=("deterministic-demo", "local-model"),
+                             default=os.environ.get("LABFY_AGENT_MODE", "deterministic-demo"))
+        command.add_argument("--agent-endpoint",
+                             default=os.environ.get("LABFY_AGENT_MODEL_ENDPOINT"))
+        command.add_argument("--agent-model", default=os.environ.get("LABFY_AGENT_MODEL_ID"))
+        command.add_argument("--agent-timeout", type=float,
+                             default=float(os.environ.get(
+                                 "LABFY_AGENT_MODEL_TIMEOUT_SECONDS", "10")))
         if name == "start":
             command.add_argument("--open-browser", action="store_true",
                                  help="ouvre l'interface locale après vérification")

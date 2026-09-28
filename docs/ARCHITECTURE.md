@@ -232,8 +232,12 @@ Restent volontairement `UNDECIDED` :
 
 Le choix JavaScript natif + SVG + serveur Python stdlib + SSE est `CURRENT`
 uniquement pour le prototype J2. Le mode J3 cœur réutilise cette surface sans
-SSE et sans accès SQLite côté Python. Ces choix expérimentaux ne décident pas
-le serveur, le renderer ou le packaging de production.
+accès SQLite côté Python. Le protocole d’outils agent V1 emploie exclusivement
+un polling HTTP borné, sans SSE opérationnel. Le runtime de modèle local V1,
+également à polling borné et sans SQLite Python, est `CURRENT local` après
+validation fake loopback ; voir [AGENT_TOOL_PROTOCOL.md](architecture/AGENT_TOOL_PROTOCOL.md)
+et [LOCAL_MODEL_AGENT_RUNTIME.md](architecture/LOCAL_MODEL_AGENT_RUNTIME.md). Ces choix
+expérimentaux ne décident pas le serveur, le renderer ou le packaging de production.
 
 Le moteur graphique et la bibliothèque HTTP restent également `UNDECIDED`.
 

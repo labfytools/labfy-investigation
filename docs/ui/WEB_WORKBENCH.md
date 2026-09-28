@@ -108,3 +108,8 @@ Pour les validations, utiliser seulement une bibliothèque temporaire et des
 enquêtes `SPECIMEN`. Les commandes d'exploitation `start`, `status`, `stop` et
 `code`, les répertoires XDG privés et les plafonds de réception sont documentés
 dans [le contrat du poste Web](../architecture/WEB_WORKSPACE_CONTROL.md).
+
+Le panneau Agent indique explicitement le parcours déterministe, un modèle local
+configuré ou son indisponibilité. Les tours de modèle sont asynchrones, bornés
+et leurs cartes ne rendent jamais de HTML, de prompt complet ou de raisonnement
+privé. Le contrat de ce runtime est [LOCAL_MODEL_AGENT_RUNTIME.md](../architecture/LOCAL_MODEL_AGENT_RUNTIME.md).

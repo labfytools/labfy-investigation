@@ -33,6 +33,12 @@ export const scenarios = Object.freeze([
   // de harness isolée ; il démontre l'arrêt du polling et la reconnexion sans
   // rejouer une mutation dont l'admission n'est pas connue.
   "test_session_lifetime_browser.mjs",
+  // CONTRACT: le fake agent lit le backend et prépare seulement l'autorisation
+  // recherche ; son activité est obtenue par polling borné, jamais par SSE.
+  "test_agent_tool_protocol_browser.mjs",
+  // CONTRACT: le runtime modèle contacte seulement un fake OpenAI loopback et
+  // rend les événements du turn actif sans exposer les messages modèle.
+  "test_local_model_agent_browser.mjs",
   // CONTRACT: deux vagues de recherche SPECIMEN approuvées sont visibles ; une
   // branche refusée demeure hors transport et ne peut donc produire de résultat.
   "test_research_browser.mjs",

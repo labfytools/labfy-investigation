@@ -92,20 +92,36 @@
     </nav>
     <main class="workbench">
       <aside id="agent-panel" class="agent-panel" aria-label="Agent IA local">
-        <div class="panel-heading"><div><span class="eyebrow">Agent IA · préparation</span><h2>Mission</h2></div><button class="pane-toggle" data-pane="agent-panel" aria-expanded="true">Réduire</button></div>
-        <label class="agent-prompt"><span>Prompt à l’agent</span><textarea id="agent-prompt" maxlength="2000" placeholder="Décrivez l’intention d’enquête…" aria-describedby="agent-prompt-hint"></textarea><small id="agent-prompt-hint">Ctrl+Entrée pour préparer la demande · aucune action n’est lancée.</small><div class="agent-prompt-actions"><button type="button" id="agent-attachment" disabled title="Pièces jointes indisponibles dans cette tranche">Joindre</button><button type="button" id="agent-send">Préparer une demande</button></div></label>
+        <div class="panel-heading"><div><span class="eyebrow">Agent de démonstration déterministe</span><h2>Mission</h2></div><button class="pane-toggle" data-pane="agent-panel" aria-expanded="true">Réduire</button></div>
+        <label class="agent-prompt">
+          <span>Objectif utilisateur</span>
+          <textarea id="agent-prompt" maxlength="512" placeholder="Objectif d’enquête SPECIMEN…"
+            aria-describedby="agent-prompt-hint"></textarea>
+          <small id="agent-prompt-hint">Ctrl+Entrée pour démarrer. Le prompt reste affiché ; une recherche attend
+            toujours votre accord.</small>
+          <div class="agent-prompt-actions">
+            <button type="button" id="agent-attachment" disabled
+              title="Pièces jointes indisponibles dans cette tranche">Joindre</button>
+            <button type="button" id="agent-send" disabled>Démarrer l’agent</button>
+          </div>
+          <div class="agent-turn-actions" aria-label="Contrôles du tour agent">
+            <button type="button" id="agent-resume" disabled>Reprendre</button>
+            <button type="button" id="agent-cancel" disabled>Annuler</button>
+          </div>
+          <details>
+            <summary>Mode expert/debug</summary>
+            <select id="agent-tool" disabled><option>Catalogue indisponible</option></select>
+          </details>
+        </label>
         <div class="agent-scroll">
-          <div class="agent-status"><span aria-hidden="true">◌</span><span>IA locale non connectée</span><small>Surface prête pour un agent futur</small></div>
-          <p class="agent-mission">Cartographier les relations autour de <strong>example.test</strong> en respectant les autorisations explicites.</p>
-          <ol class="agent-conversation" aria-label="Conversation SPECIMEN">
-            <li class="agent-card user"><b>USER</b><p>Montre les pivots passifs disponibles.</p></li>
-            <li class="agent-card agent"><b>AGENT</b><p>Je prépare un plan explicable. Aucune action réseau ne part sans capability et autorisation.</p></li>
-            <li class="agent-card plan"><b>PLAN</b><p>1. Lire les observations · 2. Proposer les capabilities · 3. Attendre l’accord.</p></li>
-            <li class="agent-card hypothesis"><b>HYPOTHESIS</b><p>Le domaine et l’adresse contact peuvent partager une provenance, sans confirmer une identité.</p></li>
-            <li class="agent-card authorization"><b>AUTHORIZATION</b><p><strong>rdap.lookup_domain</strong></p><dl><dt>Cible</dt><dd>example.test</dd><dt>Provider</dt><dd>SPECIMEN loopback</dd><dt>Données sortantes</dt><dd>Nom de domaine</dd><dt>Action</dt><dd>Lookup passif</dd><dt>Exposition</dt><dd>Passive</dd><dt>Budget</dt><dd>1 requête</dd><dt>Raison</dt><dd>Vérifier une provenance déclarée</dd></dl><button type="button">Examiner l’autorisation</button></li>
-            <li class="agent-card result"><b>RESULT</b><p>7 observations reçues ; aucune relation n’est promue automatiquement.</p></li>
-            <li class="agent-card warning"><b>WARNING</b><p>Les hypothèses restent distinctes des observations et des décisions humaines.</p></li>
-          </ol>
+          <div class="agent-status">
+            <span aria-hidden="true">◌</span>
+            <span id="agent-status">Chargement du catalogue local…</span>
+            <small id="agent-runtime-detail">Gateway mémoire · aucun modèle, shell ou auto-autorisation</small>
+          </div>
+          <p class="agent-mission">Les cartes viennent des événements backend. Les lectures reflètent les
+            projections validées ; une recherche préparée attend votre décision dans Recherches.</p>
+          <ol class="agent-conversation" aria-label="Conversation agent" aria-live="polite"></ol>
         </div>
       </aside>
       <div id="agent-resizer" class="pane-resizer pane-resizer-vertical" role="separator" aria-label="Redimensionner le panneau Agent" aria-orientation="vertical" tabindex="0"></div>
@@ -172,11 +188,7 @@
           <button class="pane-toggle" data-pane="inspector" aria-expanded="true">Réduire</button>
         </div>
         <div class="activity-controls"><label>Filtrer <select id="activity-filter"><option value="">Tous les événements</option><option>PLAN</option><option>POLICY</option><option>TOOL</option><option>JOB</option><option>NETWORK</option><option>RESULT</option><option>ERROR</option><option>RESOURCE</option><option>AGENT</option></select></label><button id="activity-expert-toggle" type="button" aria-pressed="false">Mode expert</button></div>
-        <section class="activity-stream" aria-label="Timeline technique SPECIMEN">
-          <details class="activity-entry" data-activity-type="TOOL"><summary><time>15:42:12</time><b>TOOL</b><span>rdap.lookup_domain<br/><code>target = example.test</code></span></summary><pre>provider: specimen-loopback\nlatence: 34 ms\nsecret: [non affiché]</pre></details>
-          <details class="activity-entry policy" data-activity-type="POLICY"><summary><time>15:42:12</time><b>POLICY</b><span>Autorisé · budget restant 18/20</span></summary><pre>risk_class: PASSIVE\nauthorization: accord explicite</pre></details>
-          <details class="activity-entry result" data-activity-type="RESULT"><summary><time>15:42:13</time><b>RESULT</b><span>1 artefact · 7 observations</span></summary><pre>provenance: tool-result/specimen\nstdout: borné</pre></details>
-        </section>
+        <section class="activity-stream" aria-label="Timeline des outils agent"></section>
         <details class="system-card"><summary>Système · ressources réelles</summary><dl><dt>CPU</dt><dd id="system-cpu">Disponible via backend</dd><dt>RAM</dt><dd id="system-ram">Disponible via backend</dd><dt>Jobs actifs</dt><dd id="system-jobs">Lecture JobStore</dd><dt>Instance Web</dt><dd id="system-instance">Loopback</dd><dt>Providers</dt><dd id="system-providers">Selon capabilities</dd></dl><p class="future-slots">Prévu : modèle · quantification · GPU AMD · KV cache · réserve RAM · swap · scratch IA.</p></details>
         <div class="tablist" role="tablist">
           <button role="tab" data-panel="details-panel" aria-selected="true">

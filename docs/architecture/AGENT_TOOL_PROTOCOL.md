@@ -1,0 +1,69 @@
+# Protocole d’outils agent V1
+
+Statut : **CURRENT local de laboratoire** pour le poste Web local. Il ne livre
+ni modèle local, ni autonomie générale, ni processus d’outil supplémentaire.
+
+## Frontière
+
+`WorkspaceServer` possède un `AgentGateway` Python éphémère et un agent de
+démonstration déterministe, distinct de tout futur LLM. Le gateway ne lit pas
+SQLite, ne lance ni shell ni processus et ne possède aucun stockage durable.
+Il délègue exclusivement aux projections et commandes métier existantes.
+
+Le catalogue backend inclut `investigation.search`, `graph.get_node`,
+`graph.get_neighbors`, `evidence.get_summary`, `evidence.read_excerpt`,
+`provenance.trace`, `jobs.get`, `research.get_state` et `research.prepare`.
+Chaque outil expose `tool_id`, versions d’outil/capability, description,
+schéma d’entrée, contrat de sortie, classes d’action/risque/coût, contact réseau,
+besoin d’autorisation et disponibilité réelle. L’interface ne déduit jamais ces
+attributs elle-même.
+
+Les snapshots et le flux de recherche existants restent les sources de vérité.
+Le résultat mémoire du gateway est seulement une réponse de transport, jamais
+une projection métier parallèle.
+
+## HTTP, turns et sécurité
+
+Les routes sont `GET /api/v1/agent-tools/catalog`,
+`POST /api/v1/agent-tools/turns`, `POST /api/v1/agent-tools/calls`,
+`POST /api/v1/agent-tools/turns/{turn_id}/resume`,
+`GET /api/v1/agent-tools/results/{result_id}` et
+`GET /api/v1/agent-tools/events?cursor={sequence}`.
+
+Elles exigent le `Host` exact et la session locale ; les mutations exigent aussi
+Origin, CSRF et le garde-fou de fréquence. Les résultats/événements sont isolés
+par instance et workspace. Chaque call transporte `turn_id`, `call_id`,
+`tool_id`, `input`, `context`, `object_refs` et `idempotency_key` ; `call_id`
+et `result_id` sont deux UUID distincts. Un rejeu identique est idempotent,
+une même clé avec une intention différente répond `409`.
+
+## Résultats, événements et autorisation
+
+Les résultats structurés utilisent `COMPLETED`, `FAILED`, `DENIED`,
+`AUTHORIZATION_REQUIRED`, `UNAVAILABLE` et, pour un futur contrat annulable,
+`CANCELLED`. Ils contiennent `object_refs`, `artifacts`, `observations`,
+`provenance_refs` et un diagnostic borné plutôt qu’un gros contenu copié.
+
+Le polling HTTP publie `agent.turn.started`, `agent.plan.updated`,
+`agent.tool.requested`, `agent.tool.started`, `agent.tool.completed`,
+`agent.authorization.required`, `agent.turn.completed` et `agent.error`.
+Chaque événement porte séquence, horodatage, turn, call éventuel, références et
+payload borné. L’UI rend les contenus non fiables avec `textContent` et peut
+mettre en évidence des objets existants sans créer de nœud autoritatif.
+
+L’agent déterministe livré réalise réellement :
+`USER → AGENT → PLAN → TOOL_REQUEST → TOOL_RESULT → AUTHORIZATION_REQUIRED → RESULT`.
+Il lit progressivement l’enquête puis appelle `research.prepare`. Cette étape
+ne crée ni grant, ni campagne, ni contact réseau. Après la décision humaine
+persistée et la campagne admise par le flux existant, l’UI demande la reprise du
+même turn ; le gateway relit l’état puis publie le bilan. L’agent ne possède
+aucune voie d’auto-autorisation.
+
+Une instance conserve au plus 64 appels/résultats de 256 Kio et 128 événements,
+avec éviction FIFO ; toute cette mémoire disparaît à l’arrêt. Il n’existe pas de
+SSE opérationnel pour ce protocole.
+
+Le [runtime modèle local V1](LOCAL_MODEL_AGENT_RUNTIME.md) s’ajoute au-dessus
+du gateway sans modifier ses neuf outils ni sa policy. Il est `CURRENT local`
+après validation fake OpenAI-compatible ; Qwen réel, resource governor
+AMD/RAM/swap et stockage durable des conversations restent `TARGET`.

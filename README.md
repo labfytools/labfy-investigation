@@ -215,8 +215,12 @@ effectuées par des adapters, sous contrôle des politiques applicables.
 Le Web est l’interface fonctionnelle unique, avec le graphe comme espace de
 travail central. Sa coque organise **Agent | Graphe | Activité**, complétée par
 un drawer transversal de détails, provenance, timeline, recherches,
-observations, finance, rapports et tâches. Qwen local, tool calling et le
-governor AMD/RAM/swap restent `TARGET`.
+observations, finance, rapports et tâches. Le
+[protocole d’outils agent V1](docs/architecture/AGENT_TOOL_PROTOCOL.md) fournit
+un fake borné qui relit les snapshots backend et prépare l’autorisation de
+recherche sans l’accorder. Le [runtime local configurable](docs/architecture/LOCAL_MODEL_AGENT_RUNTIME.md)
+ajoute un fournisseur OpenAI-compatible strictement loopback validé sur fake
+`SPECIMEN` ; Qwen réel et le governor AMD/RAM/swap restent `TARGET`.
 
 La cible comprend :
 

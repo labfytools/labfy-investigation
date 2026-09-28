@@ -752,9 +752,33 @@ body.login .workbench {
 .agent-card { border: 1px solid var(--border); border-left: 3px solid var(--blue); border-radius: .65rem; padding: .6rem .7rem; background: color-mix(in srgb, var(--base) 88%, var(--surface0)); box-shadow: 0 .3rem .8rem rgb(0 0 0 / 12%); }
 .agent-card b { font-size: .68rem; letter-spacing: .09em; color: var(--muted); }
 .agent-card p { margin: .3rem 0 0; line-height: 1.4; }
-.agent-card.agent { border-left-color: var(--blue); }.agent-card.plan { border-left-color: var(--accent); }.agent-card.hypothesis { border-left-color: var(--yellow); }.agent-card.authorization { border-left-color: #cba6f7; }.agent-card.result { border-left-color: var(--green); }.agent-card.warning { border-left-color: var(--red); }
+.agent-card.agent,
+.agent-card.model { border-left-color: var(--blue); }
+.agent-card.plan { border-left-color: var(--accent); }
+.agent-card.tool_request { border-left-color: var(--yellow); }
+.agent-card.tool_result { border-left-color: var(--green); }
+.agent-card.authorization_required { border-left-color: #cba6f7; }
+.agent-card.result { border-left-color: var(--green); }
+.agent-card.warning,
+.agent-card.error { border-left-color: var(--red); }
 .agent-card.authorization dl { display: grid; grid-template-columns: minmax(5.5rem, auto) 1fr; gap: .2rem .5rem; margin: .55rem 0; font-size: .78rem; }.agent-card.authorization dt { color: var(--muted); }.agent-card.authorization dd { margin: 0; overflow-wrap: anywhere; }
-.agent-prompt { z-index: 1; display: grid; gap: .4rem; margin: .5rem .75rem .35rem; padding: .55rem; background: var(--mantle); border: 1px solid var(--border); border-radius: .65rem; }.agent-prompt textarea { min-height: 5.5rem; max-height: 9rem; resize: vertical; }.agent-prompt small { color: var(--muted); }.agent-prompt-actions { display: flex; justify-content: space-between; gap: .4rem; }.pane-toggle { padding: .28rem .48rem; font-size: .78rem; }
+.agent-prompt {
+  z-index: 1;
+  display: grid;
+  gap: .4rem;
+  margin: .5rem .75rem .35rem;
+  padding: .55rem;
+  background: var(--mantle);
+  border: 1px solid var(--border);
+  border-radius: .65rem;
+}
+.agent-prompt textarea { min-height: 5.5rem; max-height: 9rem; resize: vertical; }
+.agent-prompt small { color: var(--muted); }
+.agent-prompt-actions,
+.agent-turn-actions { display: flex; justify-content: space-between; gap: .4rem; }
+.agent-turn-actions { justify-content: end; }
+.agent-turn-actions button { padding: .3rem .55rem; }
+.pane-toggle { padding: .28rem .48rem; font-size: .78rem; }
 .graph-toolbar { position: absolute; z-index: 4; left: .65rem; bottom: 2.35rem; display: flex; align-items: center; gap: .3rem; padding: .3rem; border: 1px solid var(--border); border-radius: .65rem; background: rgb(17 17 27 / 88%); box-shadow: 0 .5rem 1.5rem rgb(0 0 0 / 22%); }.graph-toolbar button { background: var(--surface0); }.graph-toolbar span { min-width: 3.6rem; color: var(--muted); font-size: .75rem; text-align: center; }
 .activity-controls { display: flex; align-items: center; justify-content: space-between; gap: .45rem; margin: 0 0 .55rem; font-size: .78rem; }.activity-controls label { display: flex; align-items: center; gap: .3rem; min-width: 0; }.activity-controls select { min-width: 0; max-width: 10.6rem; padding: .28rem; }.activity-controls button { padding: .3rem .42rem; white-space: nowrap; }
 .activity-stream { display: grid; gap: .35rem; margin-bottom: .75rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border); }.activity-entry { padding: .42rem; border: 1px solid transparent; border-radius: .48rem; background: var(--crust); font-size: .78rem; }.activity-entry summary { display: grid; grid-template-columns: 4.4rem 4.2rem minmax(0, 1fr); gap: .3rem; cursor: pointer; list-style: none; }.activity-entry summary::-webkit-details-marker { display: none; }.activity-entry time { color: var(--muted); }.activity-entry b { color: var(--blue); font-size: .7rem; }.activity-entry.policy b { color: var(--yellow); }.activity-entry.result b { color: var(--green); }.activity-entry code { color: var(--muted); overflow-wrap: anywhere; }.activity-entry pre { display: none; margin: .5rem 0 0; padding: .45rem; overflow: auto; color: var(--muted); background: var(--mantle); border-radius: .35rem; white-space: pre-wrap; }.expert-mode .activity-entry[open] { border-color: var(--surface1); }.expert-mode .activity-entry[open] pre { display: block; }

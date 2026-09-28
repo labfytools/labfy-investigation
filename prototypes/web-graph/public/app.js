@@ -141,8 +141,16 @@ let libraryGeneration = null;
 let pendingCreateIntent = null;
 let workspaceContext = null;
 let workspaceAbortController = null;
+let workspaceReadTail = Promise.resolve();
 const refreshTimers = new Set();
 let sessionExpired = false;
+let agentEventCursor = 0;
+let agentCalling = false;
+let agentEventsRefreshing = false;
+let agentEventTimer = null;
+let activeAgentTurnId = null;
+let agentMode = "DEMO";
+let agentTurnState = null;
 
 function invalidateWorkspaceContext() {
   workspaceAbortController?.abort();
@@ -152,6 +160,8 @@ function invalidateWorkspaceContext() {
   eventSource = null;
   for (const timer of refreshTimers) clearInterval(timer);
   refreshTimers.clear();
+  if (agentEventTimer !== null) clearInterval(agentEventTimer);
+  agentEventTimer = null;
   evidenceOpenSequence += 1;
   previewSequence += 1;
   openedEvidenceId = null;
@@ -159,6 +169,12 @@ function invalidateWorkspaceContext() {
   graphRefreshing = false;
   correlationsRefreshing = false;
   researchValue = null;
+  agentEventCursor = 0;
+  agentEventsRefreshing = false;
+  activeAgentTurnId = null;
+  agentTurnState = null;
+  document.querySelector(".agent-conversation")?.replaceChildren();
+  document.querySelector(".activity-stream")?.replaceChildren();
 }
 
 function beginWorkspaceContext(workspaceId, generation) {
@@ -205,9 +221,27 @@ async function workspaceFetch(path, options = {}) {
   const context = workspaceContext;
   const controller = workspaceAbortController;
   if (!context || !controller) throw new DOMException("Contexte fermé", "AbortError");
-  const response = await fetch(path, { ...options, signal: controller.signal });
-  if (await detectExpiredSession(response))
-    throw new DOMException("Session expirée", "AbortError");
+  const isRead = !options.method || options.method === "GET";
+  let releaseRead = null;
+  if (isRead) {
+    const previousRead = workspaceReadTail;
+    workspaceReadTail = new Promise((resolve) => { releaseRead = resolve; });
+    await previousRead;
+    // INVARIANT: les sondages périodiques n'émettent pas plusieurs requêtes
+    // après l'expiration. Le premier 401 invalide le contexte ; les lectures
+    // déjà mises en file s'arrêtent donc avant de toucher le réseau.
+    if (context !== workspaceContext || controller !== workspaceAbortController ||
+        sessionExpired)
+      throw new DOMException("Contexte remplacé", "AbortError");
+  }
+  let response;
+  try {
+    response = await fetch(path, { ...options, signal: controller.signal });
+    if (await detectExpiredSession(response))
+      throw new DOMException("Session expirée", "AbortError");
+  } finally {
+    releaseRead?.();
+  }
   // INVARIANT: une réponse appartient au couple espace/génération qui l'a
   // demandée ; elle ne peut jamais repeupler l'espace ouvert ensuite.
   if (context !== workspaceContext) throw new DOMException("Contexte remplacé", "AbortError");
@@ -290,6 +324,315 @@ async function postCommand(path, value = {}) {
   const result = await workspaceJson(response);
   if (!response.ok) throw new Error(result.message ?? "Commande refusée");
   return result;
+}
+
+function appendAgentCard(kind, message) {
+  const card = document.createElement("li");
+  card.className = `agent-card ${kind.toLowerCase()}`;
+  const label = document.createElement("b");
+  label.textContent = kind;
+  const text = document.createElement("p");
+  text.textContent = message;
+  card.append(label, text);
+  document.querySelector(".agent-conversation").append(card);
+}
+
+function shortAgentReason(reason) {
+  const value = typeof reason === "string" ? reason.trim() : "configuration absente";
+  return value.slice(0, 120) || "configuration absente";
+}
+
+function setAgentControls() {
+  const running = ["QUEUED", "RUNNING", "WAITING_MODEL", "WAITING_TOOL"].includes(
+    agentTurnState,
+  );
+  byId("agent-cancel").disabled = agentMode !== "LOCAL" || !activeAgentTurnId || !running;
+  byId("agent-resume").disabled = agentMode !== "LOCAL" || !activeAgentTurnId ||
+    !["PAUSED", "INTERRUPTED", "AUTHORIZATION_REQUIRED"].includes(agentTurnState);
+}
+
+async function loadAgentRuntime() {
+  const response = await workspaceFetch("/api/v1/agent-runtime/status", {
+    cache: "no-store",
+  });
+  if (response.status === 404) return false;
+  const value = await workspaceJson(response);
+  if (!response.ok) throw new Error(value.message ?? "Statut du modèle local indisponible");
+  if (value.contract !== "labfy.agent_runtime.status.v1") {
+    throw new Error("Contrat de statut du modèle local invalide");
+  }
+  if (value.mode === "DETERMINISTIC_DEMO") return false;
+  agentMode = "LOCAL";
+  if (value.mode === "LOCAL_MODEL" && value.available === true) {
+    byId("agent-status").textContent = `Agent local · ${value.model ?? "modèle configuré"}`;
+    byId("agent-send").disabled = false;
+  } else {
+    byId("agent-status").textContent =
+      `Modèle local indisponible · ${shortAgentReason(value.reason)}`;
+    byId("agent-send").disabled = true;
+  }
+  byId("agent-runtime-detail").textContent =
+    "Runtime local borné · aucune autorisation implicite";
+  return true;
+}
+
+async function loadAgentCatalog() {
+  if (!operationalMode) return;
+  try {
+    if (await loadAgentRuntime()) return;
+  } catch (error) {
+    if (error.name === "AbortError") throw error;
+    byId("agent-status").textContent =
+      `Modèle local indisponible · ${shortAgentReason(error.message)}`;
+    byId("agent-send").disabled = true;
+    return;
+  }
+  agentMode = "DEMO";
+  const response = await workspaceFetch("/api/v1/agent-tools/catalog", {
+    cache: "no-store",
+  });
+  const value = await workspaceJson(response);
+  if (!response.ok || value.contract !== "labfy.agent_tool_protocol.v1" ||
+      value.transport !== "HTTP_POLLING" || !Array.isArray(value.tools))
+    throw new Error(value.message ?? "Catalogue agent indisponible");
+  const select = byId("agent-tool");
+  select.replaceChildren();
+  for (const tool of value.tools) {
+    const option = document.createElement("option");
+    option.value = tool.tool_id;
+    option.textContent = tool.title;
+    select.append(option);
+  }
+  select.disabled = value.tools.length === 0;
+  byId("agent-send").disabled = value.tools.length === 0;
+  byId("agent-status").textContent =
+    "Agent de démonstration déterministe";
+  byId("agent-runtime-detail").textContent =
+    "Gateway mémoire · aucun modèle, shell ou auto-autorisation";
+}
+
+function agentEventKind(event) {
+  const aliases = {
+    "agent.turn.started": "USER",
+    "agent.plan.updated": "PLAN",
+    "agent.authorization.required": "AUTHORIZATION_REQUIRED",
+    "agent.tool.completed": "TOOL_RESULT",
+    "agent.turn.completed": "RESULT",
+    "agent.runtime.queued": "USER",
+    "agent.runtime.running": "MODEL",
+    "agent.runtime.tool_requested": "TOOL_REQUEST",
+    "agent.runtime.tool_completed": "TOOL_RESULT",
+    "agent.runtime.authorization_required": "AUTHORIZATION_REQUIRED",
+    "agent.runtime.resumed": "AGENT",
+    "agent.runtime.completed": "RESULT",
+    "agent.runtime.failed": "ERROR",
+    "agent.runtime.cancelled": "WARNING",
+    "agent.runtime.model_unavailable": "ERROR",
+    "agent.runtime.model_protocol_error": "ERROR",
+    "agent.runtime.budget_exhausted": "WARNING",
+  };
+  if (aliases[event.kind]) return aliases[event.kind];
+  return String(event.kind ?? event.type ?? "").split(".").at(-1).toUpperCase();
+}
+
+function agentEventMessage(kind, event) {
+  const payload = event.payload ?? event.data ?? {};
+  if (kind === "USER") return payload.objective ?? payload.message ?? "Objectif reçu";
+  if (kind === "AGENT") return payload.message ?? payload.summary ?? "Réponse de l’agent";
+  if (kind === "PLAN") {
+    if (Array.isArray(payload.steps)) return payload.steps.join(" → ");
+    return payload.summary ?? "Plan mis à jour";
+  }
+  if (kind === "MODEL") {
+    const round = payload.round ?? "—";
+    const duration = payload.duration_ms ?? "—";
+    const input = payload.input_bytes ?? "—";
+    const output = payload.output_bytes ?? "—";
+    return `Tour ${round} · ${duration} ms · entrée ${input} octets · ` +
+      `sortie ${output} octets · ${payload.status ?? event.state ?? "terminé"}`;
+  }
+  if (kind === "TOOL_REQUEST") {
+    return `${payload.tool_id ?? "outil"} · ${payload.status ?? "demandé"}`;
+  }
+  if (kind === "TOOL_RESULT") {
+    return `${payload.tool_id ?? "outil"} · ${payload.status ?? payload.state ?? "terminé"}`;
+  }
+  if (kind === "AUTHORIZATION_REQUIRED") {
+    return payload.message ?? "Décision humaine requise ; l’agent ne peut pas l’accorder.";
+  }
+  if (kind === "RESULT") return payload.summary ?? payload.message ?? "Tour terminé";
+  if (kind === "WARNING") return payload.message ?? "Avertissement du runtime";
+  if (kind === "ERROR") return payload.message ?? "Erreur du runtime";
+  return null;
+}
+
+function routeAgentObjectRefs(event) {
+  const references = event.object_refs ?? event.payload?.object_refs ?? [];
+  const reference = references.find(({ object_id: objectId }) =>
+    snapshot.nodes.some((node) => node.id === objectId));
+  if (reference) selectNode(reference.object_id);
+}
+
+function appendAgentActivity(event, kind) {
+  const stream = document.querySelector(".activity-stream");
+  const details = document.createElement("details");
+  details.className = `activity-entry ${kind === "RESULT" ? "result" : ""}`;
+  const activityTypes = {
+    USER: "AGENT", AGENT: "AGENT", PLAN: "AGENT", MODEL: "MODEL",
+    TOOL_REQUEST: "TOOL", TOOL_RESULT: "TOOL",
+    AUTHORIZATION_REQUIRED: "POLICY", RESULT: "RESULT",
+    WARNING: "ERROR", ERROR: "ERROR",
+  };
+  details.dataset.activityType = activityTypes[kind] ?? "AGENT";
+  const summary = document.createElement("summary");
+  const time = document.createElement("time");
+  time.textContent = String(event.timestamp ?? "").slice(11, 19) || "—";
+  const label = document.createElement("b");
+  label.textContent = kind;
+  const description = document.createElement("span");
+  const message = agentEventMessage(kind, event) ?? "Événement runtime";
+  description.textContent = kind === "MODEL" || !event.kind
+    ? message : `${event.kind} · ${message}`;
+  summary.append(time, label, description);
+  details.append(summary);
+  if (kind === "MODEL") {
+    stream.append(details);
+    return;
+  }
+  const detail = document.createElement("pre");
+  detail.textContent = `sequence: ${event.sequence ?? "—"}\nturn: ${event.turn_id ?? "—"}`;
+  details.append(detail);
+  stream.append(details);
+}
+
+function renderAgentEvent(event) {
+  if (agentMode === "LOCAL" && event.turn_id !== activeAgentTurnId) return;
+  const kind = agentEventKind(event);
+  const supported = new Set([
+    "USER", "AGENT", "PLAN", "MODEL", "TOOL_REQUEST", "TOOL_RESULT",
+    "AUTHORIZATION_REQUIRED", "RESULT", "WARNING", "ERROR",
+  ]);
+  if (!supported.has(kind)) return;
+  const message = agentEventMessage(kind, event);
+  if (message !== null) appendAgentCard(kind, message);
+  appendAgentActivity(event, kind);
+  routeAgentObjectRefs(event);
+}
+
+async function refreshAgentTurn() {
+  if (agentMode !== "LOCAL" || !activeAgentTurnId) return null;
+  const response = await workspaceFetch(
+    `/api/v1/agent-runtime/turns/${encodeURIComponent(activeAgentTurnId)}`,
+    { cache: "no-store" },
+  );
+  const value = await workspaceJson(response);
+  if (!response.ok) throw new Error(value.message ?? "État du tour indisponible");
+  agentTurnState = value.state ?? value.status ?? agentTurnState;
+  setAgentControls();
+  const terminal = [
+    "COMPLETED", "CANCELLED", "FAILED", "MODEL_UNAVAILABLE",
+    "MODEL_PROTOCOL_ERROR", "BUDGET_EXHAUSTED",
+  ];
+  value.terminal = terminal.includes(agentTurnState);
+  return value;
+}
+
+async function refreshAgentEvents() {
+  if (!operationalMode || !workspaceReady || agentEventsRefreshing) return;
+  agentEventsRefreshing = true;
+  try {
+    const query = agentMode === "LOCAL"
+      ? `/api/v1/agent-runtime/events?cursor=${agentEventCursor}`
+      : `/api/v1/agent-tools/events?cursor=${agentEventCursor}`;
+    if (agentMode === "LOCAL" && !activeAgentTurnId) return;
+    const response = await workspaceFetch(query, { cache: "no-store" });
+    const value = await workspaceJson(response);
+    if (!response.ok || !Array.isArray(value.events)) return;
+    agentEventCursor = value.cursor ?? agentEventCursor;
+    const turn = await refreshAgentTurn();
+    for (const event of value.events) {
+      const payload = { ...(event.payload ?? {}) };
+      const kind = agentEventKind(event);
+      if (kind === "USER" && turn?.objective) payload.objective = turn.objective;
+      if (kind === "RESULT" && turn?.final) payload.summary = turn.final;
+      if (["WARNING", "ERROR"].includes(kind) && turn?.diagnostic) {
+        payload.message = turn.diagnostic;
+      }
+      renderAgentEvent({ ...event, payload });
+    }
+    if (turn?.terminal && value.events.some((event) =>
+      event.turn_id === activeAgentTurnId && [
+        "agent.runtime.completed", "agent.runtime.cancelled", "agent.runtime.failed",
+        "agent.runtime.model_unavailable", "agent.runtime.model_protocol_error",
+        "agent.runtime.budget_exhausted",
+      ].includes(event.kind)) && agentEventTimer !== null) {
+      clearInterval(agentEventTimer);
+      agentEventTimer = null;
+    }
+    byId("activity-filter").dispatchEvent(new Event("change"));
+  } finally {
+    agentEventsRefreshing = false;
+  }
+}
+
+function pollAgentEvents() {
+  void refreshAgentEvents().catch((error) => {
+    if (error.name === "AbortError") return;
+    if (agentEventTimer !== null) clearInterval(agentEventTimer);
+    agentEventTimer = null;
+  });
+}
+
+function startAgentEventPolling() {
+  if (agentEventTimer !== null) return;
+  pollAgentEvents();
+  agentEventTimer = setInterval(pollAgentEvents, 1200);
+}
+
+async function callAgentTool() {
+  if (agentCalling) return;
+  const objective = byId("agent-prompt").value.trim();
+  if (!objective) throw new Error("L’objectif est obligatoire.");
+  agentCalling = true;
+  byId("agent-send").disabled = true;
+  try {
+    const path = agentMode === "LOCAL"
+      ? "/api/v1/agent-runtime/turns" : "/api/v1/agent-tools/turns";
+    const body = agentMode === "LOCAL"
+      ? { objective, idempotency_key: crypto.randomUUID() } : { objective };
+    const admitted = await postCommand(path, body);
+    activeAgentTurnId = admitted.turn_id;
+    agentTurnState = admitted.state ?? "QUEUED";
+    agentEventCursor = 0;
+    document.querySelector(".agent-conversation").replaceChildren();
+    document.querySelector(".activity-stream").replaceChildren();
+    setAgentControls();
+    startAgentEventPolling();
+    if (agentMode === "DEMO") {
+      if (Array.isArray(admitted.research_plan?.actions)) {
+        researchValue = admitted.research_plan;
+        renderResearch();
+      } else {
+        await refreshResearch();
+      }
+      byId("research-note").textContent =
+        "Plan préparé par le flux existant ; décision humaine requise.";
+      await refreshOperationalGraph();
+    }
+    await refreshAgentEvents();
+  } finally {
+    agentCalling = false;
+    byId("agent-send").disabled = agentMode === "DEMO" && byId("agent-tool").disabled;
+  }
+}
+
+async function controlAgentTurn(action) {
+  if (!activeAgentTurnId || agentMode !== "LOCAL") return;
+  const path = `/api/v1/agent-runtime/turns/${encodeURIComponent(activeAgentTurnId)}/${action}`;
+  const value = await postCommand(path, {});
+  agentTurnState = value.state ?? agentTurnState;
+  setAgentControls();
+  await refreshAgentEvents();
 }
 
 async function evidenceJson(path) {
@@ -864,6 +1207,15 @@ async function launchResearch() {
     action_ids: actionIds,
     idempotency_key: crypto.randomUUID(),
   });
+  // CONTRACT: seul le flux C existant persiste grant et campagne. Le turn ne
+  // reprend qu'après ce succès ; l'agent ne possède aucune voie d'autorisation.
+  if (activeAgentTurnId) {
+    const namespace = agentMode === "LOCAL" ? "agent-runtime" : "agent-tools";
+    await postCommand(
+      `/api/v1/${namespace}/turns/${encodeURIComponent(activeAgentTurnId)}/resume`, {},
+    );
+    await refreshAgentEvents();
+  }
   byId("research-note").textContent =
     "Campagne terminée ; résultats sourcés et actions non contactées affichés.";
   renderResearch();
@@ -1002,18 +1354,33 @@ function render({ focusDomNodeId = null } = {}) {
 
 function renderObjectList() {
   const list = byId("object-list");
-  list.replaceChildren();
+  // INVARIANT: un rafraîchissement de projection ne doit pas détacher un
+  // bouton qui représente toujours le même objet. Les actualisations
+  // opérationnelles sont périodiques ; préserver cette identité DOM évite
+  // d'interrompre une activation utilisateur entre son ciblage et son clic.
+  const existing = new Map(
+    [...list.children].map((item) => [item.dataset.objectId, item]),
+  );
+  const next = [];
   projection.nodes.forEach((node, index) => {
-    const item = document.createElement("li");
-    const button = document.createElement("button");
+    let item = existing.get(node.id);
+    if (!item) {
+      item = document.createElement("li");
+      item.dataset.objectId = node.id;
+      const button = document.createElement("button");
+      button.addEventListener("click", () => selectNode(button.dataset.objectId));
+      button.addEventListener("focus", () => {
+        keyboardIndex = Number(button.dataset.keyboardIndex);
+      });
+      item.append(button);
+    }
+    const button = item.firstElementChild;
     button.textContent = `${node.type} — ${node.label}`;
-    button.addEventListener("click", () => selectNode(node.id));
-    button.addEventListener("focus", () => {
-      keyboardIndex = index;
-    });
-    item.append(button);
-    list.append(item);
+    button.dataset.objectId = node.id;
+    button.dataset.keyboardIndex = String(index);
+    next.push(item);
   });
+  list.replaceChildren(...next);
 }
 
 function renderSelection() {
@@ -1956,9 +2323,10 @@ async function activateWorkspace(opened) {
     renderReportSelection();
     byId("connection").textContent = `Ouverte · génération ${opened.generation}`;
     await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner(),
-      refreshResearch()]);
+      refreshResearch(), loadAgentCatalog()]);
     for (const [callback, delay] of [[refreshJobs, 500],
-      [refreshOperationalGraph, 700], [refreshCorrelations, 900], [refreshPlanner, 1100]])
+      [refreshOperationalGraph, 700], [refreshCorrelations, 900],
+      [refreshPlanner, 1100]])
       refreshTimers.add(setInterval(callback, delay));
     svg.focus();
   } catch (error) {
@@ -2008,9 +2376,10 @@ async function activateLegacyWorkspace(session) {
     if (!coreMode) connectEvents();
     if (operationalMode) {
       await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner(),
-        refreshResearch()]);
+        refreshResearch(), loadAgentCatalog()]);
       for (const [callback, delay] of [[refreshJobs, 500],
-        [refreshOperationalGraph, 700], [refreshCorrelations, 900], [refreshPlanner, 1100]])
+        [refreshOperationalGraph, 700], [refreshCorrelations, 900],
+        [refreshPlanner, 1100]])
         refreshTimers.add(setInterval(callback, delay));
     } else {
       byId("queue-controls").hidden = true;
@@ -2063,18 +2432,17 @@ function configureApplication() {
   const drawerCollapsed = localStorage.getItem("labfy-pane:drawer") === "collapsed";
   if (drawerCollapsed && !byId("work-panel").classList.contains("collapsed"))
     byId("work-panel-toggle").click();
-  const submitAgentPrompt = () => {
-    const prompt = byId("agent-prompt").value.trim();
-    if (!prompt) { byId("agent-prompt").focus(); return; }
-    const card = document.createElement("li");
-    card.className = "agent-card user";
-    const label = document.createElement("b"); label.textContent = "USER";
-    const text = document.createElement("p"); text.textContent = prompt;
-    card.append(label, text);
-    document.querySelector(".agent-conversation").append(card);
-    byId("agent-prompt").value = "";
-  };
+  const submitAgentPrompt = () => void callAgentTool().catch((error) => {
+    if (error.name !== "AbortError") {
+      appendAgentCard("ERROR", error.message);
+      byId("agent-status").textContent = error.message;
+    }
+  });
   byId("agent-send").addEventListener("click", submitAgentPrompt);
+  byId("agent-resume").addEventListener("click", () =>
+    void controlAgentTurn("resume").catch((error) => appendAgentCard("ERROR", error.message)));
+  byId("agent-cancel").addEventListener("click", () =>
+    void controlAgentTurn("cancel").catch((error) => appendAgentCard("ERROR", error.message)));
   byId("agent-prompt").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();

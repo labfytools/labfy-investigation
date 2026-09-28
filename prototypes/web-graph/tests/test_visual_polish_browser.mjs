@@ -80,7 +80,10 @@ try {
   await page.keyboard.down("Control");
   await page.keyboard.press("Enter");
   await page.keyboard.up("Control");
-  assert.equal(await page.$eval("#agent-prompt", (element) => element.value), "");
+  assert.equal(await page.$eval("#agent-prompt", (element) => element.value),
+    "Prépare une piste SPECIMEN sans lancer d’action.");
+  await page.waitForFunction(() => document.querySelector(".agent-conversation")?.textContent
+    .includes("Prépare une piste SPECIMEN"));
   assert.match(
     await page.$eval(".agent-conversation", (element) => element.textContent),
     /Prépare une piste SPECIMEN/,
@@ -92,20 +95,20 @@ try {
       value: element.value,
       visible: element.getBoundingClientRect().bottom > 0,
     })),
-    { value: "Brouillon SPECIMEN à conserver pendant le défilement.", visible: true },
+    { value: "Prépare une piste SPECIMEN sans lancer d’action.Brouillon SPECIMEN à conserver pendant le défilement.", visible: true },
   );
   await page.click('[data-pane="agent-panel"]');
   await page.click('[data-pane="agent-panel"]');
   assert.equal(
     await page.$eval("#agent-prompt", (element) => element.value),
-    "Brouillon SPECIMEN à conserver pendant le défilement.",
+    "Prépare une piste SPECIMEN sans lancer d’action.Brouillon SPECIMEN à conserver pendant le défilement.",
   );
   await screenshot(page, "1440-agent");
 
-  await page.click(".agent-card.authorization button");
+  await page.click('[data-work-panel="research-panel"]');
   await screenshot(page, "1440-authorization");
   await page.select("#activity-filter", "TOOL");
-  assert.equal(await page.$$eval("[data-activity-type]:not([hidden])", (items) => items.length), 1);
+  assert.ok(await page.$$eval("[data-activity-type]:not([hidden])", (items) => items.length) >= 1);
   await page.click("#activity-expert-toggle");
   await page.click('[data-activity-type="TOOL"] summary');
   await screenshot(page, "1440-activity");

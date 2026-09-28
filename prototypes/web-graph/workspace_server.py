@@ -22,6 +22,9 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+from agent_gateway import AgentGateway, AgentGatewayError
+from agent_runtime import AgentRuntime, AgentRuntimeError
+from local_model_client import LocalModelClient
 from report_bundle import publish as publish_report, verify as verify_report, ReportError
 
 ROOT = Path(__file__).resolve().parent
@@ -50,7 +53,9 @@ class WorkspaceServer(ThreadingHTTPServer):
     def __init__(self, address, handler, *, workspace: Path, bridge: Path,
                  bootstrap: str = "", library=None, instance_id=None, config_id=None,
                  session_ttl_seconds=SESSION_TTL_SECONDS,
-                 research_fixture_authority=None, automatic_session=False):
+                 research_fixture_authority=None, automatic_session=False,
+                 agent_mode="deterministic-demo", agent_endpoint=None,
+                 agent_model=None, agent_timeout=10.0):
         if (not isinstance(session_ttl_seconds, int) or
                 isinstance(session_ttl_seconds, bool) or session_ttl_seconds <= 0):
             raise ValueError("Durée de session invalide")
@@ -84,6 +89,7 @@ class WorkspaceServer(ThreadingHTTPServer):
         self.worker_supervisor = None
         self.worker_supervisor_stop = threading.Event()
         self.lock = threading.Lock()
+        self.command_rate_lock = threading.Lock()
         self.last_command = 0.0
         self.report_tasks = {}
         self.report_lock = threading.Lock()
@@ -96,6 +102,83 @@ class WorkspaceServer(ThreadingHTTPServer):
         # CONTRACT: cette autorité de laboratoire n'est ni une donnée UI ni un
         # réglage persistant. Le bridge C applique encore sa propre whitelist.
         self.research_fixture_authority = research_fixture_authority
+        # CONTRACT: WorkspaceServer possède l'unique gateway éphémère. Les
+        # callbacks réutilisent ses lectures/commandes existantes ; le gateway
+        # n'accède ni à SQLite, ni au shell, ni à un stockage parallèle.
+        self.agent_gateway = AgentGateway({
+            "investigation.search": self._agent_search,
+            "graph.get_node": self._agent_get_node,
+            "graph.get_neighbors": self._agent_get_neighbors,
+            "evidence.get_summary": self._agent_evidence_summary,
+            "evidence.read_excerpt": self._agent_evidence_excerpt,
+            "provenance.trace": self._agent_provenance,
+            "jobs.get": self._agent_get_job,
+            "research.get_state": self._agent_research_state,
+            "research.prepare": self._agent_prepare_research,
+        })
+        self.agent_mode = agent_mode
+        self.agent_model = agent_model
+        self.agent_runtime = None
+        self.agent_runtime_reason = None
+        if agent_mode == "local-model":
+            try:
+                client = LocalModelClient(agent_endpoint, agent_model, timeout=agent_timeout)
+                self.agent_runtime = AgentRuntime(
+                    client, self._agent_runtime_gateway, self._agent_tool_ids())
+            except ValueError as error:
+                # CONTRACT: an invalid local endpoint never causes a fallback
+                # to another origin or to the deterministic model.
+                self.agent_runtime_reason = str(error)
+        elif agent_mode != "deterministic-demo":
+            raise ValueError("Mode agent invalide")
+
+    @staticmethod
+    def _agent_tool_ids():
+        return [tool_id for tool_id, _title, _schema in AgentGateway._TOOLS]
+
+    def _agent_runtime_gateway(self, request):
+        """Execute only through the existing capability/policy boundary."""
+        scope = self.agent_scope()
+        response = self.agent_gateway.call(scope, request)
+        return self.agent_gateway.result(scope, response["result_id"])
+
+    def agent_runtime_status(self):
+        if self.agent_mode != "local-model":
+            return {
+                "contract": "labfy.agent_runtime.status.v1",
+                "mode": "DETERMINISTIC_DEMO", "configured": False,
+                "available": True, "provider": "deterministic-demo",
+                "endpoint_kind": "none", "model": None, "reason": None,
+            }
+        return {
+            "contract": "labfy.agent_runtime.status.v1",
+            "mode": "LOCAL_MODEL", "configured": self.agent_runtime is not None,
+            "available": self.agent_runtime is not None,
+            "provider": "openai-compatible-local", "endpoint_kind": "loopback",
+            "model": self.agent_model, "reason": self.agent_runtime_reason,
+        }
+
+    def resume_agent_runtime(self, turn_id):
+        if self.agent_runtime is None:
+            raise AgentRuntimeError("Modèle local indisponible", status=503)
+
+        def authorization_callback(_pending_call):
+            # INVARIANT: only a persisted grant in the active workspace can
+            # resume the paused model; a model phrase or an HTTP retry cannot.
+            snapshot = json.loads(self.bridge_call(["research-snapshot-json"], timeout=15))
+            grants = snapshot.get("grants")
+            if not isinstance(grants, list) or not any(
+                    isinstance(item, dict) and item.get("grant_id") and
+                    item.get("revoked_at") is None for item in grants):
+                raise ValueError("Aucun grant de recherche actif dans cet espace")
+            return self._agent_runtime_gateway({
+                "turn_id": turn_id, "tool_id": "research.get_state", "input": {},
+                "context": {"source": "labfy.agent_runtime.resume.v1"},
+                "object_refs": [], "idempotency_key": str(uuid.uuid4()),
+            })
+
+        return self.agent_runtime.resume_turn(self.agent_scope(), turn_id,
+                                              authorization_callback)
 
     def library_snapshot(self):
         if self.library is None:
@@ -163,6 +246,170 @@ class WorkspaceServer(ThreadingHTTPServer):
                 not isinstance(value.get("investigation_id"), str)):
             raise ValueError("Manifeste d’espace invalide")
         return value
+
+    def agent_scope(self):
+        context = self.context()
+        identity = context.get("investigation_id") if context else "EMPTY"
+        return f"{self.config_id}:{self.active_workspace_id or identity}"
+
+    def _agent_read_export(self, name, contracts):
+        path = self.workspace / name
+        if path.stat().st_size > MAX_EXPORT:
+            raise ValueError("export trop volumineux")
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if value.get("contract") not in contracts:
+            raise ValueError("contrat d’export inattendu")
+        return value
+
+    def _agent_read_graph(self, arguments, _key):
+        # INVARIANT: la réponse est la projection backend courante ; le fake
+        # agent ne fabrique ni n'enrichit aucun nœud.
+        return self._agent_read_export("core-snapshot.json", {
+            "labfy.web_graph.snapshot.v2", "labfy.web_graph.snapshot.v3"})
+
+    def _agent_read_jobs(self, arguments, _key):
+        return self._agent_read_export("jobs-snapshot.json", {
+            "labfy.local_jobs.snapshot.v1"})
+
+    def _agent_graph(self):
+        return self._agent_read_graph({}, "agent-read")
+
+    @staticmethod
+    def _agent_ref(node):
+        return {"object_id": node["id"]}
+
+    def _agent_node(self, object_id):
+        value = next((node for node in self._agent_graph().get("nodes", [])
+                      if node.get("id") == object_id), None)
+        if value is None:
+            raise ValueError("Objet absent de l'espace actif")
+        return value
+
+    def _agent_search(self, arguments, _key):
+        # CONTRACT: recherche locale dans la projection validée, jamais dans
+        # SQLite ni dans une instruction contenue dans l'objectif utilisateur.
+        query = arguments["query"].casefold()
+        nodes = self._agent_graph().get("nodes", [])
+        matched = [
+            node for node in nodes
+            if query in json.dumps(node, ensure_ascii=False).casefold()
+        ]
+        if not matched:
+            matched = nodes[:1]
+        return {
+            "matches": [
+                {
+                    "object_id": node["id"],
+                    "label": node.get("label", node["id"]),
+                }
+                for node in matched[:8]
+            ],
+            "object_refs": [self._agent_ref(node) for node in matched[:8]],
+        }
+
+    def _agent_get_node(self, arguments, _key):
+        node = self._agent_node(arguments["object_id"])
+        return {
+            "node": node,
+            "object_refs": [self._agent_ref(node)],
+        }
+
+    def _agent_get_neighbors(self, arguments, _key):
+        graph = self._agent_graph()
+        object_id = arguments["object_id"]
+        node_ids = {node.get("id") for node in graph.get("nodes", [])}
+        if object_id not in node_ids:
+            raise ValueError("Objet absent de l'espace actif")
+        edges = [
+            edge for edge in graph.get("edges", [])
+            if edge.get("source") == object_id or edge.get("target") == object_id
+        ]
+        neighbor_ids = {
+            edge.get("target") if edge.get("source") == object_id
+            else edge.get("source")
+            for edge in edges
+        }
+        refs = [
+            {"object_id": item}
+            for item in neighbor_ids
+            if item in node_ids
+        ]
+        return {
+            "edges": edges[:32],
+            "object_refs": refs[:32],
+        }
+
+    def _agent_evidence_summary(self, arguments, _key):
+        node = self._agent_node(arguments["object_id"])
+        return {
+            "summary": {
+                key: node[key]
+                for key in ("id", "label", "type")
+                if key in node
+            },
+            "object_refs": [self._agent_ref(node)],
+        }
+
+    def _agent_evidence_excerpt(self, arguments, _key):
+        node = self._agent_node(arguments["object_id"])
+        # INVARIANT: les exports ne transportent pas d'original de preuve ;
+        # l'extrait est donc une description bornée de la projection.
+        excerpt = json.dumps(
+            {
+                key: node.get(key)
+                for key in ("label", "type", "state")
+            },
+            ensure_ascii=False,
+        )[:512]
+        return {
+            "excerpt": excerpt,
+            "object_refs": [self._agent_ref(node)],
+        }
+
+    def _agent_provenance(self, arguments, _key):
+        neighbors = self._agent_get_neighbors(arguments, _key)
+        return {
+            "object_refs": [{"object_id": arguments["object_id"]}],
+            "provenance_refs": neighbors["object_refs"],
+        }
+
+    def _agent_get_job(self, arguments, _key):
+        jobs = self._agent_read_jobs({}, _key).get("jobs", [])
+        job = next(
+            (item for item in jobs if item.get("id") == arguments["job_id"]),
+            None,
+        )
+        if job is None:
+            raise ValueError("Job absent de l'espace actif")
+        return {
+            "job": job,
+            "object_refs": [],
+        }
+
+    def _agent_research_state(self, _arguments, _key):
+        output = self.bridge_call(["research-snapshot-json"], timeout=15)
+        return json.loads(output)
+
+    def _agent_prepare_research(self, arguments, key):
+        graph = self._agent_read_graph({}, key)
+        revision = graph.get("revision")
+        if (not isinstance(revision, int) or isinstance(revision, bool) or
+                revision < 0):
+            raise ValueError("Révision du snapshot cœur invalide")
+        output = self.bridge_call([
+            "research-prepare-json", "--selection",
+            # CONTRACT: graph object_refs use the stable projection namespace;
+            # research contracts receive the underlying persisted UUID only.
+            ",".join(item.split(":", 1)[-1]
+                     for item in arguments["selection_ids"]), "--question",
+            arguments["question"], "--exclusions",
+            ",".join(arguments["exclusions"]), "--revision", str(revision),
+            "--key", key], timeout=15)
+        # WHY: the Agent UI reads the same research projection as the human
+        # flow; publishing before the authorization card is rendered prevents
+        # a stale empty panel from becoming a second, misleading state.
+        self.bridge_call(["export"], timeout=15)
+        return json.loads(output)
 
     def bridge_call(self, arguments, timeout=8):
         command = [str(self.bridge), arguments[0], "--workspace",
@@ -260,6 +507,8 @@ class WorkspaceServer(ThreadingHTTPServer):
         return report_id
 
     def server_close(self):
+        if self.agent_runtime is not None:
+            self.agent_runtime.close()
         with self.report_lock:
             threads = list(self.report_threads)
         for thread in threads:
@@ -640,6 +889,61 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, json.JSONDecodeError,
                     subprocess.TimeoutExpired) as error:
                 self._error(HTTPStatus.CONFLICT, "research_unavailable", str(error))
+        elif path == "/api/v1/agent-tools/catalog":
+            self._json(HTTPStatus.OK, self.server.agent_gateway.catalog())
+        elif path == "/api/v1/agent-runtime/status":
+            self._json(HTTPStatus.OK, self.server.agent_runtime_status())
+        elif path == "/api/v1/agent-runtime/events":
+            try:
+                if self.server.agent_runtime is None:
+                    raise AgentRuntimeError("Modèle local indisponible", status=503)
+                query = parse_qs(parsed.query, strict_parsing=True) if parsed.query else {}
+                if set(query) != {"cursor"} or len(query["cursor"]) != 1:
+                    raise AgentRuntimeError("Paramètre d’événements inattendu")
+                raw_cursor = query["cursor"][0]
+                if not raw_cursor.isascii() or not raw_cursor.isdecimal():
+                    raise AgentRuntimeError("Curseur runtime invalide")
+                self._json(HTTPStatus.OK, self.server.agent_runtime.events(
+                    self.server.agent_scope(), int(raw_cursor)))
+            except AgentRuntimeError as error:
+                self._error(error.status, error.code, str(error))
+        elif path.startswith("/api/v1/agent-runtime/turns/"):
+            parts = path.split("/")
+            if len(parts) != 6:
+                self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
+                return
+            try:
+                if self.server.agent_runtime is None:
+                    raise AgentRuntimeError("Modèle local indisponible", status=503)
+                self._json(HTTPStatus.OK, self.server.agent_runtime.status(
+                    self.server.agent_scope(), parts[5]))
+            except AgentRuntimeError as error:
+                self._error(error.status, error.code, str(error))
+        elif path == "/api/v1/agent-tools/events":
+            try:
+                query = parse_qs(parsed.query, strict_parsing=True) if parsed.query else {}
+                if set(query) - {"cursor"} or any(len(items) != 1
+                                                   for items in query.values()):
+                    raise AgentGatewayError("Paramètre d’événements inattendu")
+                raw_cursor = query.get("cursor", ["0"])[0]
+                if not raw_cursor.isascii() or not raw_cursor.isdecimal():
+                    raise AgentGatewayError("Curseur d’événements invalide")
+                self._json(HTTPStatus.OK, self.server.agent_gateway.events(
+                    self.server.agent_scope(), int(raw_cursor)))
+            except AgentGatewayError as error:
+                self._error(error.status, error.code, str(error))
+            except (OSError, ValueError, json.JSONDecodeError) as error:
+                self._error(HTTPStatus.CONFLICT, "agent_tool_unavailable", str(error))
+        elif path.startswith("/api/v1/agent-tools/results/"):
+            parts = path.split("/")
+            if len(parts) != 6:
+                self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
+                return
+            try:
+                self._json(HTTPStatus.OK, self.server.agent_gateway.result(
+                    self.server.agent_scope(), parts[5]))
+            except AgentGatewayError as error:
+                self._error(error.status, error.code, str(error))
         elif path.startswith("/api/v1/reports/"):
             parts=path.split("/")
             report_id=parts[4] if len(parts)>4 else ""
@@ -684,13 +988,62 @@ class Handler(BaseHTTPRequestHandler):
                         "Session, Origin ou preuve CSRF invalide")
             return
         now = time.monotonic()
-        if (not path.startswith("/api/v1/uploads") and
-                now - self.server.last_command < 0.03):
-            self._error(HTTPStatus.TOO_MANY_REQUESTS, "rate_limited",
-                        "Commandes trop rapprochées")
-            return
-        self.server.last_command = now
+        with self.server.command_rate_lock:
+            if (not path.startswith("/api/v1/uploads") and
+                    now - self.server.last_command < 0.03):
+                self._error(HTTPStatus.TOO_MANY_REQUESTS, "rate_limited",
+                            "Commandes trop rapprochées")
+                return
+            self.server.last_command = now
         try:
+            if path == "/api/v1/agent-tools/calls":
+                response = self.server.agent_gateway.call(
+                    self.server.agent_scope(), self._json_body())
+                self._json(HTTPStatus.OK if response["replayed"]
+                           else HTTPStatus.CREATED, response)
+                return
+            if path == "/api/v1/agent-runtime/turns":
+                if self.server.agent_runtime is None:
+                    raise AgentRuntimeError("Modèle local indisponible", status=503)
+                response = self.server.agent_runtime.start_turn(
+                    self.server.agent_scope(), self._json_body())
+                self._json(HTTPStatus.OK if response.get("replayed") else HTTPStatus.ACCEPTED,
+                           response)
+                return
+            if (path.startswith("/api/v1/agent-runtime/turns/") and
+                    path.endswith("/resume")):
+                parts = path.split("/")
+                if len(parts) != 7:
+                    raise ValueError("Route de reprise runtime invalide")
+                self._body(set())
+                self._json(HTTPStatus.ACCEPTED,
+                           self.server.resume_agent_runtime(parts[5]))
+                return
+            if (path.startswith("/api/v1/agent-runtime/turns/") and
+                    path.endswith("/cancel")):
+                parts = path.split("/")
+                if len(parts) != 7:
+                    raise ValueError("Route d’annulation runtime invalide")
+                if self.server.agent_runtime is None:
+                    raise AgentRuntimeError("Modèle local indisponible", status=503)
+                self._body(set())
+                self._json(HTTPStatus.OK, self.server.agent_runtime.cancel_turn(
+                    self.server.agent_scope(), parts[5]))
+                return
+            if path == "/api/v1/agent-tools/turns":
+                response = self.server.agent_gateway.start_turn(
+                    self.server.agent_scope(), self._json_body())
+                self._json(HTTPStatus.CREATED, response)
+                return
+            if (path.startswith("/api/v1/agent-tools/turns/") and
+                    path.endswith("/resume")):
+                parts = path.split("/")
+                if len(parts) != 7:
+                    raise ValueError("Route de reprise invalide")
+                response = self.server.agent_gateway.resume_turn(
+                    self.server.agent_scope(), parts[5])
+                self._json(HTTPStatus.OK, response)
+                return
             if path == "/api/v1/library/workspaces":
                 value = self._body({"title", "idempotency_key"})
                 response = self.server.create_library_workspace(
@@ -898,11 +1251,13 @@ class Handler(BaseHTTPRequestHandler):
                                            "accepted": True})
                 return
             self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
+        except (AgentGatewayError, AgentRuntimeError) as error:
+            self._error(error.status, error.code, str(error))
         except OverflowError as error:
             self._error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "body_too_large", str(error))
         except (TypeError, json.JSONDecodeError) as error:
             self._error(HTTPStatus.BAD_REQUEST, "invalid_request", str(error))
-        except (ValueError, subprocess.TimeoutExpired) as error:
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
             self._error(HTTPStatus.CONFLICT, "command_rejected", str(error))
 
     def do_PUT(self):
@@ -1194,10 +1549,18 @@ def main():
             raise argparse.ArgumentTypeError("port hors limites")
         return parsed
     parser.add_argument("--port", type=port, default=8081)
+    parser.add_argument("--agent-mode", choices=("deterministic-demo", "local-model"),
+                        default=os.environ.get("LABFY_AGENT_MODE", "deterministic-demo"))
+    parser.add_argument("--agent-endpoint", default=os.environ.get("LABFY_AGENT_MODEL_ENDPOINT"))
+    parser.add_argument("--agent-model", default=os.environ.get("LABFY_AGENT_MODEL_ID"))
+    parser.add_argument("--agent-timeout", type=float,
+                        default=float(os.environ.get("LABFY_AGENT_MODEL_TIMEOUT_SECONDS", "10")))
     args = parser.parse_args()
     server = WorkspaceServer(("127.0.0.1", args.port), Handler,
                              workspace=args.workspace, bridge=args.bridge,
-                             bootstrap="")
+                             bootstrap="", agent_mode=args.agent_mode,
+                             agent_endpoint=args.agent_endpoint, agent_model=args.agent_model,
+                             agent_timeout=args.agent_timeout)
     print(f"Labfy J6 : {server.origin}/", flush=True)
     try:
         server.serve_forever()
