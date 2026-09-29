@@ -116,6 +116,16 @@ privé. Le contrat de ce runtime est [LOCAL_MODEL_AGENT_RUNTIME.md](../architect
 
 ## Déploiement personnel `invest.labfy`
 
+La section Toolbox présente les demandes d'outil, la santé de la génération
+en quarantaine et les décisions humaines « Provisionner » (A) et « Activer »
+(B). Les applications contextuelles viennent du manifeste backend selon le
+type du nœud sélectionné ; leur exécution utilise la capability backend.
+La section Changement de code affiche la justification, les portes humaines
+« Préparer » (C1) et « Appliquer » (C2), les tests, le diff en texte brut et
+l'aperçu `SPECIMEN`. Un refus est une décision explicite. Le modèle ne peut pas
+déclencher ces approbations via le prompt Agent. Voir le
+[contrat de self integration](../architecture/QWEN_SELF_INTEGRATION.md).
+
 Les templates [systemd](../../packaging/systemd/labfy-investigation-web.service)
 et [nginx](../../packaging/nginx/invest.labfy.conf) prévoient un poste publié uniquement
 sur la boucle locale. Le wrapper [labfy-investigation-web](../../scripts/labfy-investigation-web)

@@ -31,6 +31,11 @@ class AgentRuntime:
         "COMPLETED", "FAILED", "CANCELLED", "MODEL_UNAVAILABLE",
         "MODEL_PROTOCOL_ERROR", "BUDGET_EXHAUSTED",
     }
+    WAITING_STATES = {
+        "AUTHORIZATION_REQUIRED", "TOOL_PROVISIONING_REQUIRED",
+        "TOOL_INTEGRATION_REQUIRED", "CODE_CHANGE_APPROVAL_REQUIRED",
+        "CODE_CHANGE_APPLY_REQUIRED",
+    }
 
     def __init__(self, model_client, gateway_executor, tool_catalog, *, max_queue=8,
                  max_turns=32, max_model_calls=8, max_tool_calls=8,
@@ -173,12 +178,12 @@ class AgentRuntime:
 
     def resume_turn(self, scope, turn_id, authorization_callback):
         if not callable(authorization_callback):
-            raise AgentRuntimeError("Callback d'autorisation requis")
+            raise AgentRuntimeError("Callback de décision externe requis")
         with self._lock:
             turn = self._get_turn(scope, turn_id)
-            if turn["state"] != "AUTHORIZATION_REQUIRED":
+            if turn["state"] not in self.WAITING_STATES:
                 raise AgentRuntimeError(
-                    "Turn sans autorisation en attente",
+                    "Turn sans décision externe en attente",
                     code="agent_runtime_not_waiting", status=409,
                 )
             pending = copy.deepcopy(turn["pending_call"])
@@ -189,7 +194,8 @@ class AgentRuntime:
         except Exception as error:
             self._fail(scope, turn_id, "FAILED", str(error))
             return self.status(scope, turn_id)
-        if result.get("state") not in {"COMPLETED", "FAILED"}:
+        resumed_state = result.get("state") or result.get("runtime_state")
+        if resumed_state not in {"COMPLETED", "FAILED", *self.WAITING_STATES}:
             self._fail(scope, turn_id, "FAILED", "Résultat de reprise invalide")
             return self.status(scope, turn_id)
         with self._lock:
@@ -197,17 +203,23 @@ class AgentRuntime:
             if turn["cancel_requested"]:
                 self._set_state(turn, "CANCELLED", "Annulation demandée")
                 return self._snapshot(turn)
-            self._append_tool_result(
-                turn,
-                pending["request"]["tool_id"],
-                result,
-                wrapped,
-            )
-            turn["pending_call"] = None
-            turn["state"] = "QUEUED"
-            self._event(turn, "agent.runtime.resumed", {})
-            if not self._enqueue(turn):
-                self._set_state(turn, "FAILED", "File runtime pleine pendant la reprise")
+            if resumed_state in self.WAITING_STATES:
+                turn["pending_call"] = {
+                    "request": pending["request"], "result": copy.deepcopy(result)}
+                turn["state"] = resumed_state
+                self._event(turn, "agent.runtime.external_decision_required",
+                            {"tool_id": pending["request"]["tool_id"],
+                             "waiting_state": resumed_state})
+            else:
+                normalized = copy.deepcopy(result)
+                normalized["state"] = resumed_state
+                self._append_tool_result(
+                    turn, pending["request"]["tool_id"], normalized, wrapped)
+                turn["pending_call"] = None
+                turn["state"] = "QUEUED"
+                self._event(turn, "agent.runtime.resumed", {})
+                if not self._enqueue(turn):
+                    self._set_state(turn, "FAILED", "File runtime pleine pendant la reprise")
             return self._snapshot(turn)
 
     def cancel_turn(self, scope, turn_id):
@@ -216,7 +228,7 @@ class AgentRuntime:
             if turn["state"] in self.TERMINAL_STATES:
                 return self._snapshot(turn)
             turn["cancel_requested"] = True
-            if turn["state"] in {"QUEUED", "AUTHORIZATION_REQUIRED"}:
+            if turn["state"] == "QUEUED" or turn["state"] in self.WAITING_STATES:
                 self._set_state(turn, "CANCELLED", "Annulation demandée")
             return self._snapshot(turn)
 
@@ -344,11 +356,11 @@ class AgentRuntime:
             turn = self._get_turn(scope, turn_id)
             if turn["cancel_requested"]:
                 self._set_state(turn, "CANCELLED", "Annulation demandée")
-            elif state == "AUTHORIZATION_REQUIRED":
+            elif state in self.WAITING_STATES:
                 turn["pending_call"] = {"request": request, "result": copy.deepcopy(result)}
-                turn["state"] = "AUTHORIZATION_REQUIRED"
-                self._event(turn, "agent.runtime.authorization_required",
-                            {"tool_id": action["tool_id"]})
+                turn["state"] = state
+                self._event(turn, "agent.runtime.external_decision_required",
+                            {"tool_id": action["tool_id"], "waiting_state": state})
             elif state in {"COMPLETED", "FAILED"}:
                 self._append_tool_result(turn, action["tool_id"], result, wrapped)
                 turn["last_failed_tool_intent"] = (

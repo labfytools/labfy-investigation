@@ -82,3 +82,14 @@ chaînes). Les identifiants de graphe restent namespacés (`evidence:<uuid>`) à
 la frontière de recherche, qui les résout exactement contre le snapshot ; un
 UUID nu est refusé explicitement. Cette règle aligne l’agent sur le flux Web
 humain et ne transforme jamais une référence en droit.
+
+## Outils provisionnés et changement de code — CURRENT local
+
+Le catalogue optionnel ajoute `tool.provision.search`, `tool.provision.propose`,
+`tool.docs.read`, `tool.integration.propose`, `capability.execute` et
+`code.change.propose`. Les pauses A/B/C1/C2 du runtime attendent des décisions
+humaines persistées par routes HTTP sécurisées. Le modèle ne reçoit aucun
+outil d'approbation. La capability dynamique reste soumise au scope, à la
+mission, à la Policy et au budget au moment de son exécution. Voir les contrats
+de [provisionnement](TOOL_PROVISIONING.md), de [manifeste](CAPABILITY_MANIFESTS.md)
+et de [développement isolé](QWEN_SELF_INTEGRATION.md).

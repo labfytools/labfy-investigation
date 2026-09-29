@@ -79,6 +79,10 @@ class LocalModelClient:
             "messages": messages,
             "temperature": 0,
             "stream": False,
+            # WHY: llama.cpp's JSON grammar prevents a single stray closing
+            # brace from turning a valid tool decision into a protocol failure.
+            # The backend still validates the exact action/tool schema.
+            "response_format": {"type": "json_object"},
         }
         try:
             request_body = json.dumps(

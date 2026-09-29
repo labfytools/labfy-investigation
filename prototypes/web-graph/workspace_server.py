@@ -18,6 +18,7 @@ import subprocess
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,6 +28,8 @@ from agent_gateway import AgentGateway, AgentGatewayError
 from agent_mission import AgentMission, AgentMissionError
 from agent_proposals import AgentProposalError, AgentProposalService
 from agent_runtime import AgentRuntime, AgentRuntimeError
+from code_change import CodeChangeError, CodeChangeService
+from developer_agent import DeveloperAgent, DeveloperAgentError
 from local_model_client import LocalModelClient
 from local_model_supervisor import (
     LocalModelSupervisor,
@@ -42,6 +45,8 @@ from tool_registry import (
     ExecutionProfile, NetworkRequirement, RiskClass, ToolDefinition,
     ToolDocumentationBroker, ToolRegistry, ToolRegistryError,
 )
+from tool_provisioning import ProvisioningError, ToolProvisioningService
+from tool_integration_examples import example_for as integration_example_for
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
@@ -72,7 +77,8 @@ class WorkspaceServer(ThreadingHTTPServer):
                  research_fixture_authority=None, automatic_session=False,
                  agent_mode="deterministic-demo", agent_endpoint=None,
                  agent_model=None, agent_timeout=10.0, agent_autostart=False,
-                 agent_config_path=None, public_local_origin=None):
+                 agent_config_path=None, public_local_origin=None,
+                 tool_provisioning=None, code_changes=None, developer_agent=None):
         if (not isinstance(session_ttl_seconds, int) or
                 isinstance(session_ttl_seconds, bool) or session_ttl_seconds <= 0):
             raise ValueError("Durée de session invalide")
@@ -128,6 +134,22 @@ class WorkspaceServer(ThreadingHTTPServer):
         self.agent_missions = {}
         self.agent_proposals = {}
         self.agent_operation_replays = {}
+        # CONTRACT: les magasins rootless sont ouverts uniquement sur demande.
+        # Le démarrage lazy du service ne lit aucune enquête de la library.
+        self._tool_provisioning = tool_provisioning
+        self._code_changes = code_changes
+        self.tooling_enabled = (agent_mode == "local-model" or agent_autostart or
+                                tool_provisioning is not None or code_changes is not None or
+                                developer_agent is not None)
+        self.tooling_lock = threading.RLock()
+        self.tooling_threads = set()
+        self.code_change_turns = {}
+        self.developer_agent = developer_agent
+        self.developer_agent_client = None
+        if self._tool_provisioning is not None:
+            # INVARIANT: even an injected store uses the WorkspaceServer's
+            # current mission/policy authority for every capability execution.
+            self._tool_provisioning.policy_check = self._dynamic_capability_policy
         self.agent_proposal_service = AgentProposalService(self._agent_ref_owned)
         self.agent_tool_registry = self._build_agent_tool_registry()
         self.agent_tool_docs = ToolDocumentationBroker()
@@ -157,7 +179,16 @@ class WorkspaceServer(ThreadingHTTPServer):
             "web.fetch": self._agent_web_fetch,
             "research.get_state": self._agent_research_state,
             "research.prepare": self._agent_prepare_research,
-        })
+            "tool.provision.search": self._agent_tool_provision_search,
+            "tool.provision.propose": self._agent_tool_provision_propose,
+            "tool.provision.get": self._agent_tool_provision_get,
+            "tool.integration.propose": self._agent_tool_integration_propose,
+            "capability.execute": self._agent_capability_execute,
+            "code.change.propose": self._agent_code_change_propose,
+            "code.change.get": self._agent_code_change_get,
+        }, capability_catalog_provider=lambda: (
+            self._tool_provisioning.capability_catalog()
+            if self._tool_provisioning is not None else ()))
         self.agent_runtime = None
         self.agent_runtime_reason = None
         self.local_model_supervisor = None
@@ -179,10 +210,12 @@ class WorkspaceServer(ThreadingHTTPServer):
         if agent_mode == "local-model":
             try:
                 client = LocalModelClient(agent_endpoint, agent_model, timeout=agent_timeout)
+                self.developer_agent_client = client
                 self.agent_runtime = AgentRuntime(
                     client,
                     self._agent_runtime_gateway,
                     self.agent_gateway.catalog()["tools"],
+                    max_model_calls=16, max_tool_calls=16,
                     context_provider=self._agent_investigation_context,
                 )
             except ValueError as error:
@@ -191,6 +224,278 @@ class WorkspaceServer(ThreadingHTTPServer):
                 self.agent_runtime_reason = str(error)
         elif agent_mode != "deterministic-demo":
             raise ValueError("Mode agent invalide")
+
+    @property
+    def tool_provisioning(self):
+        with self.tooling_lock:
+            if self._tool_provisioning is None:
+                self._tool_provisioning = ToolProvisioningService(
+                    policy_check=self._dynamic_capability_policy)
+            return self._tool_provisioning
+
+    @property
+    def code_changes(self):
+        with self.tooling_lock:
+            if self._code_changes is None:
+                state_home = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+                self._code_changes = CodeChangeService(
+                    ROOT.parents[1], state_home / "labfy-investigation")
+            return self._code_changes
+
+    def _start_tooling_task(self, name, callback):
+        """Run one bounded blocking build/model/test operation off the HTTP thread."""
+        with self.tooling_lock:
+            if self.tooling_threads:
+                raise ValueError("Une opération toolbox/développement est déjà en cours")
+
+            def run():
+                try:
+                    callback()
+                finally:
+                    with self.tooling_lock:
+                        self.tooling_threads.discard(threading.current_thread())
+
+            thread = threading.Thread(target=run, name=name, daemon=False)
+            self.tooling_threads.add(thread)
+            thread.start()
+
+    def _resume_after_tooling(self, turn_id):
+        if self.agent_runtime is None:
+            return
+        try:
+            self.resume_agent_runtime(turn_id)
+        except (AgentRuntimeError, ProvisioningError, CodeChangeError,
+                AgentMissionError, ValueError):
+            # CONTRACT: an operator may cancel the turn while a bounded build
+            # or developer test is running. Cancellation never reopens it.
+            pass
+
+    def _ensure_developer_agent(self):
+        with self.tooling_lock:
+            if self.developer_agent is None:
+                if self.developer_agent_client is None:
+                    raise ValueError("Modèle développeur local indisponible")
+                self.developer_agent = DeveloperAgent(
+                    self.developer_agent_client, self.code_changes)
+            return self.developer_agent
+
+    def _tooling_call_mission(self, call_context):
+        workspace_id, entry = self._current_active_agent_mission()
+        if call_context.get("scope") != self.agent_scope():
+            raise AgentMissionError("Scope d'appel Agent incohérent")
+        return workspace_id, entry["mission"].snapshot()["mission_id"]
+
+    def _admit_tooling_request(self):
+        # CONTRACT: a toolbox or code proposal is still scoped to one object
+        # chosen by the human mission. AgentMission rejects empty ref sets.
+        _workspace_id, entry = self._current_active_agent_mission()
+        refs = entry["mission"].snapshot()["scoped_refs"]
+        if not refs:
+            raise AgentMissionError("Objet de mission requis")
+        return self._admit_agent_attempt("LOCAL_READ_ONLY", [refs[0]])
+
+    def _agent_tool_provision_search(self, arguments, _key, _call_context):
+        return {"packages": list(self.tool_provisioning.search(
+            arguments["query"], arguments["limit"]))}
+
+    def _agent_tool_provision_propose(self, arguments, key, call_context):
+        workspace_id, mission_id = self._tooling_call_mission(call_context)
+        self._admit_tooling_request()
+        return self.tool_provisioning.propose(
+            arguments["package"], workspace_id=workspace_id, mission_id=mission_id,
+            turn_id=call_context["turn_id"], idempotency_key=key)
+
+    def _agent_tool_provision_get(self, arguments, _key, _call_context):
+        request = self.tool_provisioning.get(arguments["request_id"])
+        if request.get("workspace_id") != self.agent_workspace_id():
+            raise PermissionError("Demande d'un autre workspace")
+        if request["state"] in {"QUARANTINED", "WAITING_INTEGRATION_APPROVAL", "ACTIVE"}:
+            return {**request,
+                    "documentation_tool_id": "debian." + request["package"]["package"],
+                    "declarative_example_id": ("jq.username.v1"
+                        if integration_example_for(request) is not None else None),
+                    "code_change_example_id": "specimen.username.ui.v1"}
+        return request
+
+    def _agent_tool_integration_propose(self, arguments, key, call_context):
+        workspace_id, mission_id = self._tooling_call_mission(call_context)
+        request = self.tool_provisioning.get(arguments["request_id"])
+        if request.get("workspace_id") != workspace_id or request.get("mission_id") != mission_id:
+            raise PermissionError("Intégration hors mission")
+        self._admit_tooling_request()
+        proposal = arguments["proposal"]
+        if proposal == {"example_id": "jq.username.v1"}:
+            proposal = integration_example_for(request)
+            if proposal is None:
+                raise ValueError("Exemple déclaratif indisponible")
+        return self.tool_provisioning.propose_integration(
+            arguments["request_id"], proposal, idempotency_key=key)
+
+    def _dynamic_node(self, object_id):
+        matches = [node for node in self._agent_graph().get("nodes", [])
+                   if isinstance(node, dict) and
+                   object_id in {node.get("id"), node.get("object_id")}]
+        if len(matches) != 1:
+            raise ValueError("Objet dynamique absent ou ambigu")
+        return matches[0]
+
+    def _dynamic_capability_policy(self, capability, context):
+        try:
+            workspace_id, entry = self._current_active_agent_mission()
+            if context["workspace_id"] != workspace_id or context["mission_id"] != \
+                    entry["mission"].snapshot()["mission_id"]:
+                return False
+            node = self._dynamic_node(context["object_id"])
+            if node.get("object_kind") != context["object_type"]:
+                return False
+            if capability["capability_id"] not in {
+                    item["capability_id"] for item in self.tool_provisioning.capability_catalog(
+                        context["object_type"])}:
+                return False
+            self._admit_agent_attempt("LOCAL_READ_ONLY", [{"object_id": node["id"]}])
+            return True
+        except (AgentMissionError, ProvisioningError, OSError, ValueError):
+            return False
+
+    def execute_dynamic_capability(self, capability_id, parameters, object_id, turn_id, key):
+        workspace_id, entry = self._current_active_agent_mission()
+        node = self._dynamic_node(object_id)
+        matches = [item for item in self.tool_provisioning.capability_catalog()
+                   if item["capability_id"] == capability_id]
+        if len(matches) != 1:
+            raise ValueError("Capability dynamique inactive")
+        manifest = matches[0]
+        object_type = node.get("object_kind")
+        if object_type not in manifest["applicable_object_types"]:
+            raise ValueError("Capability inapplicable à l'objet")
+        parameter = manifest["input_binding"]["object_value_parameter"]
+        value = node.get("label")
+        if not isinstance(value, str) or not value or len(value) > 4096:
+            raise ValueError("Valeur de l'objet indisponible")
+        if parameter in parameters and parameters[parameter] != value:
+            raise ValueError("La valeur de l'objet doit venir du backend")
+        bound = {**parameters, parameter: value}
+        return self.tool_provisioning.execute(capability_id, bound,
+            mission_context={"workspace_id": workspace_id,
+                             "mission_id": entry["mission"].snapshot()["mission_id"],
+                             "turn_id": turn_id, "object_type": object_type,
+                             "object_id": node["id"]},
+            idempotency_key=key)
+
+    def _agent_capability_execute(self, arguments, key, call_context):
+        self._tooling_call_mission(call_context)
+        node = self._dynamic_node(arguments["object_id"])
+        if arguments["object_type"] != node.get("object_kind"):
+            raise ValueError("Type d'objet incompatible")
+        return self.execute_dynamic_capability(arguments["capability_id"],
+            arguments["parameters"], node["id"], call_context["turn_id"], key)
+
+    def _agent_code_change_propose(self, arguments, key, call_context):
+        workspace_id, _mission_id = self._tooling_call_mission(call_context)
+        self._admit_tooling_request()
+        example = arguments.get("example_id") == "specimen.username.ui.v1"
+        request_id = (arguments.get("request_id") if example else
+                      arguments["integration_proposal"].get("request_id"))
+        if not isinstance(request_id, str):
+            raise ValueError("Intégration technique source requise")
+        request = self.tool_provisioning.get(request_id)
+        if request.get("workspace_id") != workspace_id:
+            raise PermissionError("Intégration d'un autre workspace")
+        docs = dict(self.tool_provisioning.documents(request_id))
+        if example:
+            path = "prototypes/web-graph/public/app.js"
+            context = {
+                "contract": "labfy.developer_context.v1",
+                "change_id": str(uuid.uuid5(uuid.NAMESPACE_URL,
+                                             request_id + ":specimen.username.ui.v1")),
+                "purpose": ("Dans le worktree SPECIMEN, modifier renderActions dans "
+                            "public/app.js : pour la capability focus-neighborhood sur "
+                            "un nœud username, afficher Explorer ce pseudo à la place "
+                            "de capability.intent. La ligne exacte à trouver est "
+                            "button.textContent = capability.intent; . Remplacer cette ligne "
+                            "par button.textContent = capability.id === "
+                            "\"focus-neighborhood\" && node.object_kind === \"username\" "
+                            "? \"Explorer ce pseudo\" : capability.intent; . Préserver "
+                            "tous les autres objets et identifiants de capability."),
+                "tool_docs": {"package": request["package"]["package"],
+                              "help_excerpt": docs.get("help", "")[:500]},
+                "integration_proposal": {"request_id": request_id,
+                                         "kind": "declarative_insufficient"},
+                "architecture_refs": ["docs/architecture/WEB_WORKSPACE_CONTROL.md"],
+                "expected_files": [path],
+                "required_tests": ["NODE_CHECK", "NODE_TEST", "FIREFOX_TARGETED",
+                                   "FIREFOX_FULL", "DIFF_CHECK"],
+                "affected_areas": ["Web graph action labels"],
+                "risk": "LOW",
+                "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            }
+        else:
+            context = {**arguments, "contract": "labfy.developer_context.v1"}
+            context.pop("why_declarative_insufficient", None)
+            context["tool_docs"] = docs
+        result = self._ensure_developer_agent().propose(context, idempotency_key=key)
+        if result.get("change_id"):
+            self.code_change_turns[result["change_id"]] = call_context["turn_id"]
+        return ({**result, "runtime_state": "CODE_CHANGE_APPROVAL_REQUIRED"}
+                if result.get("state") == "WAITING_DEV_APPROVAL" else result)
+
+    def _agent_code_change_get(self, arguments, _key, _call_context):
+        return self._code_change_model_summary(
+            self.code_changes.get(arguments["change_id"]))
+
+    @staticmethod
+    def _code_change_model_summary(record):
+        # CONTRACT: Qwen receives durable references and bounded test states,
+        # never the captured Firefox/build logs or a copy of the source diff.
+        return {
+            "contract": "labfy.code_change_model_summary.v1",
+            "change_id": record["change_id"], "state": record["state"],
+            "base_sha": record.get("base_sha"),
+            "patch_digest": record.get("patch_digest"),
+            "expected_files": record.get("expected_files", []),
+            "tests": [{"recipe_id": item["recipe_id"],
+                       "passed": item["passed"], "returncode": item["returncode"]}
+                      for item in record.get("tests", [])],
+            "post_apply_tests": [{"recipe_id": item["recipe_id"],
+                                  "passed": item["passed"],
+                                  "returncode": item["returncode"]}
+                                 for item in record.get("post_apply_tests", [])],
+            "preview": record.get("preview", {}),
+        }
+
+    def dynamic_capability_manifests(self):
+        """Project active manifests onto verified backend graph object references."""
+        workspace_id = self.agent_workspace_id()
+        graph = self._agent_graph()
+        manifests = self.tool_provisioning.capability_catalog()
+        catalog = [{"id": item["capability_id"], "intent": item["intent"],
+                    "network_contact": item["network_contact"],
+                    "experimental": True}
+                   for item in manifests]
+        applications = []
+        for node in graph.get("nodes", []):
+            if not isinstance(node, dict) or not isinstance(node.get("label"), str):
+                continue
+            for item in manifests:
+                if node.get("object_kind") not in item["applicable_object_types"]:
+                    continue
+                applications.append({
+                    "node_id": node["id"],
+                    "object_ref": {"investigation_id": workspace_id,
+                                   "object_kind": node["object_kind"],
+                                   "object_id": node["object_id"]},
+                    "capability_id": item["capability_id"],
+                    "available": item["availability"] == "AVAILABLE",
+                    "reason": item["reason"],
+                    "dynamic": True,
+                })
+                if len(applications) >= 256:
+                    break
+            if len(applications) >= 256:
+                break
+        return {"contract": "labfy.capability_manifest_list.v1",
+                "catalog": catalog, "applications": applications,
+                "catalog_revision": self.tool_provisioning.store.read_state()["catalog_revision"]}
 
     def agent_workspace_id(self):
         """Return the opaque identity of the currently opened workspace."""
@@ -504,6 +809,21 @@ class WorkspaceServer(ThreadingHTTPServer):
                 "detected_version": definition.detected_version,
                 "availability_reason": definition.availability_reason,
             })
+        if self._tool_provisioning is not None:
+            for request in self._tool_provisioning.list_requests():
+                if request.get("workspace_id") != self.agent_workspace_id() or \
+                        request["state"] not in {"QUARANTINED", "WAITING_INTEGRATION_APPROVAL",
+                                                 "ACTIVE"}:
+                    continue
+                package = request["package"]["package"]
+                tools.append({"tool_id": f"debian.{package}",
+                              "display_name": package, "binary": None,
+                              "risk_class": "OFFLINE_READ_ONLY", "network": "OFFLINE",
+                              "documentation_available": True,
+                              "execution_available": request["state"] == "ACTIVE",
+                              "policy_allowed": request["state"] == "ACTIVE",
+                              "detected_version": request["package"]["version"],
+                              "availability_reason": request["state"]})
         return {
             "contract": "labfy.agent_tool_catalog.v1",
             "tools": tools,
@@ -511,6 +831,24 @@ class WorkspaceServer(ThreadingHTTPServer):
         }
 
     def _agent_tool_docs_read(self, arguments, _key):
+        requested = arguments["tool_id"]
+        if requested.startswith("debian.") and self._tool_provisioning is not None:
+            package = requested.removeprefix("debian.")
+            matches = [item for item in self._tool_provisioning.list_requests()
+                       if item.get("workspace_id") == self.agent_workspace_id() and
+                       item["package"]["package"] == package and
+                       item["state"] in {"QUARANTINED", "WAITING_INTEGRATION_APPROVAL", "ACTIVE"}]
+            if len(matches) != 1:
+                raise ToolRegistryError("documentation toolbox indisponible")
+            docs = self._tool_provisioning.documents(matches[0]["request_id"])
+            content = str(docs.get("help", "UNTRUSTED_DATA\n"))[:1500]
+            return {"contract": "labfy.agent_tool_document.v1",
+                    "tool_id": requested, "document_id": matches[0]["request_id"],
+                    "trust": "UNTRUSTED_DATA", "content": content,
+                    "request_id": matches[0]["request_id"],
+                    "declarative_examples": [{"example_id": "jq.username.v1",
+                                               "capability_id": "data.jq.username"}],
+                    "object_refs": []}
         definition = self.agent_tool_registry.get(arguments["tool_id"])
         if not definition.documentation_available:
             raise ToolRegistryError("documentation indisponible")
@@ -708,7 +1046,48 @@ class WorkspaceServer(ThreadingHTTPServer):
         if self.agent_runtime is None:
             raise AgentRuntimeError("Modèle local indisponible", status=503)
 
+        current = self.agent_runtime.status(self.agent_scope(), turn_id)
+        pending = current.get("pending_call")
+        if not isinstance(pending, dict):
+            raise AgentRuntimeError("Aucune décision externe en attente", status=409)
+        pending_tool = pending["request"]["tool_id"]
+        original = pending["result"].get("output", {})
+        request_id = original.get("request_id")
+        change_id = original.get("change_id")
+        if pending_tool in {"tool.provision.propose", "tool.integration.propose"}:
+            record = self.tool_provisioning.get(request_id)
+            if (record.get("workspace_id") != self.agent_workspace_id() or
+                    record.get("turn_id") != turn_id):
+                raise AgentRuntimeError("Décision d'un autre turn refusée", status=403)
+            acceptable = ({"QUARANTINED", "PROVISION_REJECTED", "FAILED"}
+                          if pending_tool == "tool.provision.propose"
+                          else {"ACTIVE", "INTEGRATION_REJECTED"})
+            if record["state"] not in acceptable:
+                raise AgentRuntimeError("Décision toolbox encore en attente", status=409)
+        elif pending_tool == "code.change.propose":
+            record = self.code_changes.get(change_id)
+            if record["state"] not in {"WAITING_APPLY_APPROVAL", "DEV_REJECTED",
+                                       "APPLIED_LOCAL", "APPLY_REJECTED", "FAILED"}:
+                raise AgentRuntimeError("Décision développeur encore en attente", status=409)
+
         def authorization_callback(_pending_call):
+            if pending_tool in {"tool.provision.propose", "tool.integration.propose"}:
+                value = self.tool_provisioning.get(request_id)
+                # WHY: Gate A libère Qwen pour proposer le manifest en
+                # quarantaine ; Gate B libère l'exécution de la capability.
+                return {"contract": "labfy.agent_external_decision.v1",
+                        "state": "COMPLETED", "output": {
+                            **value,
+                            "declarative_example": integration_example_for(value),
+                            "documentation_tool_id": "debian." + value["package"]["package"],
+                        }}
+            if pending_tool == "code.change.propose":
+                value = self.code_changes.get(change_id)
+                return {"contract": "labfy.agent_external_decision.v1",
+                        "state": ("CODE_CHANGE_APPLY_REQUIRED"
+                                  if value["state"] == "WAITING_APPLY_APPROVAL"
+                                  else "COMPLETED"),
+                        "output": self._code_change_model_summary(value)}
             # INVARIANT: only a persisted grant in the active workspace can
             # resume the paused model; a model phrase or an HTTP retry cannot.
             snapshot = json.loads(self.bridge_call(["research-snapshot-json"], timeout=15))
@@ -1054,6 +1433,10 @@ class WorkspaceServer(ThreadingHTTPServer):
         return report_id
 
     def server_close(self):
+        with self.tooling_lock:
+            tooling_threads = list(self.tooling_threads)
+        for thread in tooling_threads:
+            thread.join(timeout=300)
         if self.agent_runtime is not None:
             self.agent_runtime.close()
         if self.local_model_supervisor is not None:
@@ -1201,6 +1584,21 @@ class Handler(BaseHTTPRequestHandler):
             raise TypeError("Tous les champs JSON doivent être textuels")
         if any(len(item) == 0 or len(item) > 512 for item in value.values()):
             raise TypeError("Champ JSON vide ou trop long")
+        return value
+
+    def _human_decision_body(self):
+        value = self._json_body()
+        expected = {"decision_id", "idempotency_key", "actor",
+                    "human_confirmed", "reason"}
+        if not isinstance(value, dict) or set(value) != expected:
+            raise TypeError("Champs de décision inattendus")
+        for name in ("decision_id", "idempotency_key"):
+            if not isinstance(value[name], str):
+                raise TypeError("Identifiant de décision invalide")
+            uuid.UUID(value[name])
+        if (value["actor"] != "human" or value["human_confirmed"] is not True or
+                not isinstance(value["reason"], str) or len(value["reason"]) > 500):
+            raise PermissionError("Décision humaine authentifiée requise")
         return value
 
     def _library_open_body(self):
@@ -1485,6 +1883,53 @@ class Handler(BaseHTTPRequestHandler):
                 self._error(HTTPStatus.CONFLICT, "research_unavailable", str(error))
         elif path == "/api/v1/agent-tools/catalog":
             self._json(HTTPStatus.OK, self.server.agent_gateway.catalog())
+        elif path == "/api/v1/tool-provisioning":
+            if not self.server.tooling_enabled:
+                self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
+                return
+            try:
+                workspace_id = self.server.agent_workspace_id()
+                service = self.server.tool_provisioning
+                requests = [item for item in service.list_requests()
+                            if item.get("workspace_id") == workspace_id]
+                self._json(HTTPStatus.OK, {
+                    "contract": "labfy.tool_provisioning_list.v1",
+                    "requests": requests,
+                    "catalog_revision": service.store.read_state()["catalog_revision"],
+                })
+            except (AgentMissionError, ProvisioningError, OSError, ValueError) as error:
+                self._error(HTTPStatus.CONFLICT, "tool_provisioning_unavailable", str(error))
+        elif path == "/api/v1/capability-manifests":
+            if not self.server.tooling_enabled:
+                self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
+                return
+            try:
+                self._json(HTTPStatus.OK, self.server.dynamic_capability_manifests())
+            except (AgentMissionError, ProvisioningError, OSError, ValueError) as error:
+                self._error(HTTPStatus.CONFLICT, "capability_catalog_unavailable", str(error))
+        elif path == "/api/v1/code-changes":
+            if not self.server.tooling_enabled:
+                self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
+                return
+            try:
+                self._json(HTTPStatus.OK, {"contract": "labfy.code_change_list.v1",
+                    "changes": self.server.code_changes.list_changes()})
+            except (CodeChangeError, OSError, ValueError) as error:
+                self._error(HTTPStatus.CONFLICT, "code_changes_unavailable", str(error))
+        elif path.startswith("/api/v1/code-changes/") and path.endswith("/diff"):
+            if not self.server.tooling_enabled:
+                self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
+                return
+            parts = path.split("/")
+            if len(parts) != 6:
+                self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
+                return
+            try:
+                difference = self.server.code_changes.get_diff(parts[4])
+                self._json(HTTPStatus.OK, {"contract": "labfy.code_change_diff.v1",
+                    **difference})
+            except (CodeChangeError, OSError, ValueError) as error:
+                self._error(HTTPStatus.CONFLICT, "code_change_diff_unavailable", str(error))
         elif path == "/api/v1/agent-runtime/status":
             self._json(HTTPStatus.OK, self.server.agent_runtime_status())
         elif path == "/api/v1/agent-mission/current":
@@ -1602,6 +2047,91 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.server.last_command = now
         try:
+            if path == "/api/v1/capabilities/execute":
+                if not self.server.tooling_enabled:
+                    raise ValueError("Toolbox indisponible")
+                value = self._body({"capability_id", "object_id", "idempotency_key"})
+                response = self.server.execute_dynamic_capability(
+                    value["capability_id"], {}, value["object_id"],
+                    str(uuid.uuid4()), value["idempotency_key"])
+                self._json(HTTPStatus.OK, response)
+                return
+            if (path.startswith("/api/v1/tool-provisioning/") or
+                    path.startswith("/api/v1/tool-integrations/")):
+                if not self.server.tooling_enabled:
+                    raise ValueError("Toolbox indisponible")
+                parts = path.split("/")
+                if len(parts) != 6:
+                    raise TypeError("Route de décision toolbox invalide")
+                value = self._human_decision_body()
+                service = self.server.tool_provisioning
+                record = service.get(parts[4])
+                if record.get("workspace_id") != self.server.agent_workspace_id():
+                    raise PermissionError("Demande d'un autre workspace")
+                common = {"decision_id": value["decision_id"], "actor": "human",
+                          "human_confirmed": True}
+                action = parts[5]
+                if parts[3] == "tool-provisioning" and action in {"approve", "approve-provision"}:
+                    response = service.approve_provision(parts[4], **common)
+                    def finish_build():
+                        service.build(parts[4])
+                        self.server._resume_after_tooling(record["turn_id"])
+                    self.server._start_tooling_task("labfy-toolbox-build",
+                        finish_build)
+                elif parts[3] == "tool-provisioning" and action in {"reject", "reject-provision"}:
+                    response = service.reject_provision(parts[4], reason=value["reason"], **common)
+                    self.server._resume_after_tooling(record["turn_id"])
+                elif parts[3] == "tool-integrations" and action == "approve-integration":
+                    response = service.approve_integration(parts[4], **common)
+                    response = service.activate(parts[4])
+                    self.server._resume_after_tooling(record["turn_id"])
+                elif parts[3] == "tool-integrations" and action == "reject-integration":
+                    response = service.reject_integration(parts[4], reason=value["reason"], **common)
+                    self.server._resume_after_tooling(record["turn_id"])
+                else:
+                    raise TypeError("Action toolbox inconnue")
+                self._json(HTTPStatus.ACCEPTED, response)
+                return
+            if path.startswith("/api/v1/code-changes/"):
+                if not self.server.tooling_enabled:
+                    raise ValueError("Developer Agent indisponible")
+                parts = path.split("/")
+                if len(parts) != 6:
+                    raise TypeError("Route de décision de code invalide")
+                value = self._human_decision_body()
+                service = self.server.code_changes
+                common = {"actor": "human", "decision_id": value["decision_id"],
+                          "idempotency_key": value["idempotency_key"]}
+                if parts[5] == "approve-prepare":
+                    agent = self.server._ensure_developer_agent()
+                    response = service.approve_prepare(parts[4], **common)
+                    def finish_development():
+                        agent.continue_development(parts[4])
+                        self.server._resume_after_tooling(
+                            self.server.code_change_turns.get(parts[4], ""))
+                    self.server._start_tooling_task("labfy-developer-agent",
+                        finish_development)
+                elif parts[5] == "reject-prepare":
+                    response = service.reject_prepare(parts[4], reason=value["reason"], **common)
+                    self.server._resume_after_tooling(
+                        self.server.code_change_turns.get(parts[4], ""))
+                elif parts[5] == "approve-apply":
+                    def finish_apply():
+                        service.approve_apply(parts[4], **common)
+                        self.server._resume_after_tooling(
+                            self.server.code_change_turns.get(parts[4], ""))
+                    self.server._start_tooling_task("labfy-code-apply",
+                        finish_apply)
+                    response = {"contract": "labfy.code_change_apply_task.v1",
+                                "change_id": parts[4], "state": "ACCEPTED"}
+                elif parts[5] == "reject-apply":
+                    response = service.reject_apply(parts[4], reason=value["reason"], **common)
+                    self.server._resume_after_tooling(
+                        self.server.code_change_turns.get(parts[4], ""))
+                else:
+                    raise TypeError("Action de code inconnue")
+                self._json(HTTPStatus.ACCEPTED, response)
+                return
             if path == "/api/v1/agent-tools/calls":
                 response = self.server.agent_gateway.call(
                     self.server.agent_scope(), self._json_body())
@@ -1909,6 +2439,8 @@ class Handler(BaseHTTPRequestHandler):
             self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
         except (AgentGatewayError, AgentRuntimeError) as error:
             self._error(error.status, error.code, str(error))
+        except (ProvisioningError, CodeChangeError, DeveloperAgentError) as error:
+            self._error(HTTPStatus.CONFLICT, getattr(error, "code", "tooling_rejected"), str(error))
         except PermissionError as error:
             self._error(HTTPStatus.FORBIDDEN, "agent_workspace_rejected", str(error))
         except (AgentMissionError, AgentProposalError) as error:

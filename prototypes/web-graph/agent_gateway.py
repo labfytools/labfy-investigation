@@ -51,12 +51,41 @@ class AgentGateway:
         ("research.prepare", "Préparer une recherche", "research"),
     )
 
-    def __init__(self, executors):
+    _PROVISIONING_TOOLS = (
+        ("tool.provision.search", "Rechercher un package Debian officiel", "package_search"),
+        ("tool.provision.propose", "Proposer le provisionnement d'un outil", "package_propose"),
+        ("tool.provision.get", "Lire une demande de provisionnement", "request_id"),
+        ("tool.integration.propose", "Proposer une intégration déclarative", "integration"),
+        ("capability.execute", "Exécuter une capability dynamique admise", "capability"),
+    )
+
+    _CODE_CHANGE_TOOLS = (
+        ("code.change.propose", "Proposer une modification contrôlée de Labfy", "code_change"),
+        ("code.change.get", "Lire une proposition de modification", "change_id"),
+    )
+
+    WAITING_STATES = {
+        "AUTHORIZATION_REQUIRED", "TOOL_PROVISIONING_REQUIRED",
+        "TOOL_INTEGRATION_REQUIRED", "CODE_CHANGE_APPROVAL_REQUIRED",
+        "CODE_CHANGE_APPLY_REQUIRED",
+    }
+
+    def __init__(self, executors, capability_catalog_provider=None):
         expected_tools = {tool_id for tool_id, _, _ in self._TOOLS}
-        if set(executors) != expected_tools:
+        provisioning_tools = {tool_id for tool_id, _, _ in self._PROVISIONING_TOOLS}
+        code_change_tools = {tool_id for tool_id, _, _ in self._CODE_CHANGE_TOOLS}
+        supplied = set(executors)
+        extras = supplied - expected_tools
+        partial_provisioning = bool(extras & provisioning_tools) and not provisioning_tools <= extras
+        partial_code_change = bool(extras & code_change_tools) and not code_change_tools <= extras
+        if (not expected_tools <= supplied or extras - provisioning_tools - code_change_tools
+                or partial_provisioning or partial_code_change):
             raise ValueError("Exécuteurs du gateway incomplets")
+        if capability_catalog_provider is not None and not callable(capability_catalog_provider):
+            raise ValueError("Fournisseur de capabilities dynamiques invalide")
 
         self._executors = dict(executors)
+        self._capability_catalog_provider = capability_catalog_provider
         self._calls = OrderedDict()
         self._results = OrderedDict()
         self._turns = OrderedDict()
@@ -66,22 +95,38 @@ class AgentGateway:
 
     def catalog(self):
         tools = []
-        for tool_id, description, schema_kind in self._TOOLS:
+        optional = self._PROVISIONING_TOOLS + self._CODE_CHANGE_TOOLS
+        definitions = self._TOOLS + tuple(item for item in optional if item[0] in self._executors)
+        for tool_id, description, schema_kind in definitions:
             tools.append(self._catalog_tool(tool_id, description, schema_kind))
+        capabilities = []
+        if self._capability_catalog_provider is not None:
+            capabilities = copy.deepcopy(list(self._capability_catalog_provider()))
+            encoded = json.dumps(capabilities, ensure_ascii=False).encode("utf-8")
+            if len(encoded) > self.MAX_RESULT_BYTES:
+                raise AgentGatewayError("Catalogue dynamique trop volumineux", status=413)
+        revision = max((item.get("catalog_revision", 0) for item in capabilities), default=0)
         return {
             "contract": self.CONTRACT,
             "version": 1,
             "transport": "HTTP_POLLING",
             "tools": tools,
+            "dynamic_capabilities": capabilities,
+            "catalog_revision": revision,
         }
 
     def _catalog_tool(self, tool_id, description, schema_kind):
         authorization_required = tool_id == "research.prepare"
-        mission_required = tool_id in {"sandbox.exec", "agent.propose", "web.fetch"}
+        mission_required = tool_id in {
+            "sandbox.exec", "agent.propose", "web.fetch", "tool.provision.propose",
+            "tool.integration.propose", "capability.execute",
+            "code.change.propose",
+        }
         network_contact = "PRIVACY_TOR" if tool_id == "web.fetch" else "NONE"
         if tool_id == "web.fetch":
             risk_class = "PASSIVE_PUBLIC"
-        elif tool_id in {"sandbox.exec", "agent.propose"}:
+        elif tool_id in {"sandbox.exec", "agent.propose", "tool.provision.propose",
+                         "tool.integration.propose", "capability.execute"}:
             risk_class = "LOCAL_READ_ONLY"
         else:
             risk_class = "MODERATE" if authorization_required else "LOW"
@@ -178,6 +223,48 @@ class AgentGateway:
                     "items": {"type": "string"},
                 },
             }
+        if schema_kind == "package_search":
+            return {
+                "query": {"type": "string", "maxLength": 100},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 25},
+            }
+        if schema_kind == "package_propose":
+            return {"package": {"type": "string", "maxLength": 100}}
+        if schema_kind == "request_id":
+            return {"request_id": {"type": "string", "format": "uuid"}}
+        if schema_kind == "integration":
+            return {
+                "request_id": {"type": "string", "format": "uuid"},
+                "proposal": {"type": "object", "description":
+                    "Manifest complet validé ou exemple backend {example_id:'jq.username.v1'}"},
+            }
+        if schema_kind == "capability":
+            return {
+                "capability_id": {"type": "string", "maxLength": 80},
+                "parameters": {"type": "object"},
+                "object_id": {"type": "string", "maxLength": 96},
+                "object_type": {"type": "string"},
+            }
+        if schema_kind == "change_id":
+            return {"change_id": {"type": "string", "format": "uuid"}}
+        if schema_kind == "code_change":
+            return {
+                "example_id": {"type": "string", "description":
+                    "Exemple technique backend specimen.username.ui.v1"},
+                "request_id": {"type": "string", "format": "uuid"},
+                "contract": {"type": "string", "const": "labfy.code_change_proposal.v1"},
+                "change_id": {"type": "string", "format": "uuid"},
+                "purpose": {"type": "string", "maxLength": 1024},
+                "why_declarative_insufficient": {"type": "string", "maxLength": 1024},
+                "tool_docs": {"type": "object"},
+                "integration_proposal": {"type": "object"},
+                "architecture_refs": {"type": "array", "maxItems": 16},
+                "expected_files": {"type": "array", "maxItems": 25},
+                "required_tests": {"type": "array", "maxItems": 16},
+                "affected_areas": {"type": "array", "maxItems": 8},
+                "risk": {"type": "string"},
+                "created_at": {"type": "string"},
+            }
         return {}
 
     @staticmethod
@@ -201,6 +288,20 @@ class AgentGateway:
             return ["object_id", "url", "method"]
         if schema_kind == "research":
             return ["selection_ids", "question", "exclusions"]
+        if schema_kind == "package_search":
+            return ["query", "limit"]
+        if schema_kind == "package_propose":
+            return ["package"]
+        if schema_kind == "request_id":
+            return ["request_id"]
+        if schema_kind == "integration":
+            return ["request_id", "proposal"]
+        if schema_kind == "capability":
+            return ["capability_id", "parameters", "object_id", "object_type"]
+        if schema_kind == "change_id":
+            return ["change_id"]
+        if schema_kind == "code_change":
+            return []
         return []
 
     def start_turn(self, scope, value):
@@ -422,12 +523,24 @@ class AgentGateway:
             )
 
         try:
-            output = self._executors[tool_id](copy.deepcopy(arguments), key)
-            state = (
-                "AUTHORIZATION_REQUIRED"
-                if tool_id == "research.prepare"
-                else "COMPLETED"
-            )
+            if tool_id in {item[0] for item in self._PROVISIONING_TOOLS + self._CODE_CHANGE_TOOLS}:
+                # CONTRACT: le turn et le scope proviennent du gateway validé,
+                # jamais d'un champ que le modèle pourrait fabriquer.
+                call_context = {
+                    "scope": copy.deepcopy(scope),
+                    "turn_id": turn_id,
+                    "call_id": call_id,
+                    "object_refs": copy.deepcopy(object_refs),
+                }
+                output = self._executors[tool_id](
+                    copy.deepcopy(arguments), key, call_context)
+            else:
+                output = self._executors[tool_id](copy.deepcopy(arguments), key)
+            runtime_state = output.get("runtime_state")
+            if runtime_state in self.WAITING_STATES:
+                state = runtime_state
+            else:
+                state = "AUTHORIZATION_REQUIRED" if tool_id == "research.prepare" else "COMPLETED"
             result_refs = object_refs or output.get("object_refs", [])
             result = {
                 "contract": "labfy.agent_tool_result.v1",
@@ -588,6 +701,20 @@ class AgentGateway:
             self._validate_web_fetch_input(arguments)
         elif tool_id == "research.prepare":
             self._validate_research_input(arguments)
+        elif tool_id == "tool.provision.search":
+            self._validate_package_search(arguments)
+        elif tool_id == "tool.provision.propose":
+            self._validate_package_propose(arguments)
+        elif tool_id == "tool.provision.get":
+            self._validate_request_id(arguments)
+        elif tool_id == "tool.integration.propose":
+            self._validate_integration(arguments)
+        elif tool_id == "capability.execute":
+            self._validate_capability_execute(arguments)
+        elif tool_id == "code.change.propose":
+            self._validate_code_change(arguments)
+        elif tool_id == "code.change.get":
+            self._validate_change_id(arguments)
 
     def _validate_refs(self, refs):
         for ref in refs:
@@ -718,6 +845,114 @@ class AgentGateway:
             raise AgentGatewayError("Question de recherche invalide")
         if any(not isinstance(item, str) for item in arguments["exclusions"]):
             raise AgentGatewayError("Exclusions de recherche invalides")
+
+    @staticmethod
+    def _validate_package_search(arguments):
+        if set(arguments) != {"query", "limit"} or not re.fullmatch(
+                r"[a-z0-9][a-z0-9+.-]{0,99}", str(arguments.get("query", ""))):
+            raise AgentGatewayError("Recherche de package invalide")
+        limit = arguments.get("limit")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 25:
+            raise AgentGatewayError("Limite de recherche invalide")
+
+    @staticmethod
+    def _validate_package_propose(arguments):
+        if set(arguments) != {"package"} or not re.fullmatch(
+                r"[a-z0-9][a-z0-9+.-]{0,99}", str(arguments.get("package", ""))):
+            raise AgentGatewayError("Package proposé invalide")
+
+    def _validate_request_id(self, arguments):
+        if set(arguments) != {"request_id"}:
+            raise AgentGatewayError("Demande de provisionnement invalide")
+        self._uuid(arguments.get("request_id"), "request_id invalide")
+
+    def _validate_integration(self, arguments):
+        if set(arguments) != {"request_id", "proposal"} or not isinstance(
+                arguments.get("proposal"), dict):
+            raise AgentGatewayError("Proposition d'intégration invalide")
+        self._uuid(arguments.get("request_id"), "request_id invalide")
+        proposal = arguments["proposal"]
+        if set(proposal) == {"example_id"}:
+            if proposal["example_id"] != "jq.username.v1":
+                raise AgentGatewayError("Exemple d'intégration inconnu")
+            return
+        if set(proposal) != {"contract", "proposal_id", "request_id", "risk", "adapter"}:
+            raise AgentGatewayError("Contrat d'intégration invalide")
+        if proposal.get("contract") != "labfy.tool_integration_proposal.v1" \
+                or proposal.get("request_id") != arguments["request_id"] \
+                or not isinstance(proposal.get("adapter"), dict):
+            raise AgentGatewayError("Contrat d'intégration invalide")
+        self._uuid(proposal.get("proposal_id"), "proposal_id invalide")
+
+    def _validate_capability_execute(self, arguments):
+        if set(arguments) != {"capability_id", "parameters", "object_id", "object_type"}:
+            raise AgentGatewayError("Exécution de capability invalide")
+        capability_id = arguments.get("capability_id")
+        if not isinstance(capability_id, str) or not re.fullmatch(
+                r"[a-z][a-z0-9_.-]{2,79}", capability_id):
+            raise AgentGatewayError("capability_id invalide")
+        if not isinstance(arguments.get("parameters"), dict):
+            raise AgentGatewayError("Paramètres de capability invalides")
+        self._object_ref(arguments.get("object_id"), "Objet capability invalide")
+        if arguments.get("object_type") not in {
+                "username", "domain", "email", "image", "file", "hash"}:
+            raise AgentGatewayError("Type d'objet capability invalide")
+
+    def _validate_change_id(self, arguments):
+        if set(arguments) != {"change_id"}:
+            raise AgentGatewayError("Proposition code change invalide")
+        self._uuid(arguments.get("change_id"), "change_id invalide")
+
+    def _validate_code_change(self, arguments):
+        if set(arguments) == {"example_id", "request_id"}:
+            if arguments["example_id"] != "specimen.username.ui.v1":
+                raise AgentGatewayError("Exemple de changement inconnu")
+            self._uuid(arguments["request_id"], "request_id invalide")
+            return
+        expected = {
+            "contract", "change_id", "purpose", "why_declarative_insufficient",
+            "tool_docs", "integration_proposal", "architecture_refs", "expected_files",
+            "required_tests", "affected_areas", "risk", "created_at",
+        }
+        if set(arguments) != expected or arguments.get(
+                "contract") != "labfy.code_change_proposal.v1":
+            raise AgentGatewayError("Contrat code change invalide")
+        self._uuid(arguments.get("change_id"), "change_id invalide")
+        for field in ("purpose", "why_declarative_insufficient"):
+            value = arguments.get(field)
+            if not isinstance(value, str) or not value.strip() or len(value) > 1024 \
+                    or "\x00" in value:
+                raise AgentGatewayError("Justification code change invalide")
+        if not isinstance(arguments.get("tool_docs"), dict) or len(arguments["tool_docs"]) > 16:
+            raise AgentGatewayError("Documentation code change invalide")
+        if not isinstance(arguments.get("integration_proposal"), dict):
+            raise AgentGatewayError("Intégration source code change invalide")
+        self._bounded_string_list(arguments, "architecture_refs", 16, 256)
+        self._bounded_string_list(arguments, "expected_files", 25, 256)
+        for path in arguments["expected_files"]:
+            if path.startswith(("/", "~", ".git/")) or ".." in path.split("/"):
+                raise AgentGatewayError("Chemin code change refusé")
+        self._bounded_string_list(arguments, "required_tests", 16, 64)
+        if any(test not in {
+                "PY_COMPILE", "PYTHON_TARGETED", "PYTHON_FULL", "NODE_TEST", "NODE_CHECK",
+                "C_BUILD", "C_TEST", "SOURCE_SIZE", "FIREFOX_TARGETED", "FIREFOX_FULL",
+                "DIFF_CHECK"} for test in arguments["required_tests"]):
+            raise AgentGatewayError("Recette de test code change refusée")
+        self._bounded_string_list(arguments, "affected_areas", 8, 64)
+        if arguments.get("risk") not in {"LOW", "MODERATE", "HIGH"}:
+            raise AgentGatewayError("Risque code change invalide")
+        created_at = arguments.get("created_at")
+        if not isinstance(created_at, str) or not re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", created_at):
+            raise AgentGatewayError("Date code change invalide")
+
+    @staticmethod
+    def _bounded_string_list(arguments, name, maximum, max_length):
+        values = arguments.get(name)
+        if not isinstance(values, list) or not values or len(values) > maximum or any(
+                not isinstance(value, str) or not value or len(value) > max_length or "\x00" in value
+                for value in values):
+            raise AgentGatewayError(f"{name} code change invalide")
 
     @staticmethod
     def _uuid(value, message):

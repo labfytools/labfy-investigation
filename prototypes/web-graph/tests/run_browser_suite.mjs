@@ -48,6 +48,8 @@ export const scenarios = Object.freeze([
   // CONTRACT: deux vagues de recherche SPECIMEN approuvées sont visibles ; une
   // branche refusée demeure hors transport et ne peut donc produire de résultat.
   "test_research_browser.mjs",
+  "test_tool_provisioning_browser.mjs",
+  "test_qwen_self_integration_browser.mjs",
 ]);
 
 const tests_directory = fileURLToPath(new URL(".", import.meta.url));

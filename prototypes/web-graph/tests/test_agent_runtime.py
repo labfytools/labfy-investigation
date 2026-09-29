@@ -189,6 +189,40 @@ class AgentRuntimeTest(unittest.TestCase):
         self.assertEqual(callbacks[0]["request"]["turn_id"], started["turn_id"])
         self.assertEqual(len(self.model.messages), 2)
 
+    def test_tool_provision_and_integration_pauses_are_strict_and_chained(self):
+        calls = []
+
+        def executor(request):
+            calls.append(request)
+            return {"state": "TOOL_PROVISIONING_REQUIRED",
+                    "output": {"request_id": "SPECIMEN-request"}}
+
+        runtime = self.make_runtime([
+            action("tool_call", tool_id="tool.provision.propose", arguments={"package": "jq"}),
+            action("final", text="Capability SPECIMEN disponible"),
+        ], executor=executor, tool_catalog={"tool.provision.propose"})
+        started = self.start(runtime, key="provisioning")
+        first = runtime.wait_for_state(
+            "scope-a", started["turn_id"], "TOOL_PROVISIONING_REQUIRED")
+        self.assertEqual(first["state"], "TOOL_PROVISIONING_REQUIRED")
+        self.assertEqual(len(self.model.messages), 1)
+
+        second = runtime.resume_turn(
+            "scope-a", started["turn_id"],
+            lambda _pending: {"state": "TOOL_INTEGRATION_REQUIRED",
+                              "output": {"request_id": "SPECIMEN-request"}},
+        )
+        self.assertEqual(second["state"], "TOOL_INTEGRATION_REQUIRED")
+        self.assertEqual(len(self.model.messages), 1)
+
+        runtime.resume_turn(
+            "scope-a", started["turn_id"],
+            lambda _pending: {"state": "COMPLETED", "output": {"activated": True}},
+        )
+        completed = runtime.wait_for_state("scope-a", started["turn_id"], "COMPLETED")
+        self.assertEqual(completed["final"], "Capability SPECIMEN disponible")
+        self.assertEqual(len(self.model.messages), 2)
+
     def test_invalid_model_response_is_repaired_once_then_fails_protocol(self):
         runtime = self.make_runtime(["not JSON", "still not JSON"])
         started = self.start(runtime)

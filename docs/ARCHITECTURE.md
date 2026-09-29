@@ -20,6 +20,14 @@ de la Policy et du JobStore. Le chemin rootless live `PRIVACY_TOR` et la
 capability Internet passive sont `CURRENT local` après un smoke Qwen unifié
 `PASS_LOCAL_SPECIMEN`, sans repli direct.
 
+Le [provisionnement contrôlé](architecture/TOOL_PROVISIONING.md), les
+[générations rootless](architecture/TOOLBOX_GENERATIONS.md), les
+[manifestes de capability](architecture/CAPABILITY_MANIFESTS.md) et la
+[self integration](architecture/QWEN_SELF_INTEGRATION.md) sont `CURRENT local`
+sur `SPECIMEN`. Les décisions humaines A/B/C1/C2 restent hors du langage
+modèle. L'Agent Gateway orchestre ; Policy et services réévaluent chaque
+exécution. Le worktree de développement est séparé de la toolbox d'exécution.
+
 > **Statut :** direction canonique v0.1.0
 > **Dernière mise à jour :** 2026-09-27
 > **Portée :** architecture actuelle et cible Labfy V2

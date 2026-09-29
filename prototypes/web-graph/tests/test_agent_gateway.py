@@ -200,6 +200,103 @@ class AgentGatewayTest(unittest.TestCase):
         with self.assertRaises(AgentGatewayError):
             self.gateway.result("b", first["result_id"])
 
+    def test_provisioning_tools_are_atomic_dynamic_and_receive_backend_context(self):
+        baseline = {tool_id: (lambda _arguments, _key: {})
+                    for tool_id, _, _ in AgentGateway._TOOLS}
+        calls = []
+
+        def provisioning(arguments, key, context):
+            calls.append((arguments, key, context))
+            return {"request_id": str(uuid.uuid4()),
+                    "runtime_state": "TOOL_PROVISIONING_REQUIRED"}
+
+        baseline.update({tool_id: provisioning
+                         for tool_id, _, _ in AgentGateway._PROVISIONING_TOOLS})
+        dynamic = [{"capability_id": "data.json.filter", "catalog_revision": 7}]
+        gateway = AgentGateway(baseline, capability_catalog_provider=lambda: dynamic)
+        catalog = gateway.catalog()
+        self.assertEqual(len(catalog["tools"]), 21)
+        self.assertEqual(catalog["catalog_revision"], 7)
+        self.assertEqual(catalog["dynamic_capabilities"], dynamic)
+        turn_id = str(uuid.uuid4())
+        value = self.envelope(
+            turn_id=turn_id, tool_id="tool.provision.propose", input={"package": "jq"})
+        response = gateway.call("workspace-scope", value)
+        self.assertEqual(response["state"], "TOOL_PROVISIONING_REQUIRED")
+        arguments, key, context = calls[0]
+        self.assertEqual(arguments, {"package": "jq"})
+        self.assertEqual(key, value["idempotency_key"])
+        self.assertEqual(context["turn_id"], turn_id)
+        self.assertEqual(context["scope"], "workspace-scope")
+        self.assertNotIn("turn_id", arguments)
+
+    def test_provisioning_inputs_are_closed_and_no_approval_tool_exists(self):
+        baseline = {tool_id: (lambda _arguments, _key: {})
+                    for tool_id, _, _ in AgentGateway._TOOLS}
+        baseline.update({tool_id: (lambda _arguments, _key, _context: {})
+                         for tool_id, _, _ in AgentGateway._PROVISIONING_TOOLS})
+        gateway = AgentGateway(baseline)
+        tool_ids = {item["tool_id"] for item in gateway.catalog()["tools"]}
+        self.assertNotIn("tool.provision.approve", tool_ids)
+        invalid = (
+            self.envelope(tool_id="tool.provision.search", input={"query": "jq;id", "limit": 5}),
+            self.envelope(tool_id="tool.provision.propose",
+                          input={"package": "jq", "turn_id": str(uuid.uuid4())}),
+            self.envelope(tool_id="capability.execute", input={
+                "capability_id": "data.json.filter", "parameters": {},
+                "object_id": self.object_id, "object_type": "unknown"}),
+        )
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(AgentGatewayError):
+                gateway.call("a", value)
+
+    def test_code_change_tools_are_atomic_bounded_and_pause_for_c1(self):
+        baseline = {tool_id: (lambda _arguments, _key: {})
+                    for tool_id, _, _ in AgentGateway._TOOLS}
+        calls = []
+
+        def code_change(arguments, key, context):
+            calls.append((arguments, key, context))
+            return {"runtime_state": "CODE_CHANGE_APPROVAL_REQUIRED",
+                    "change_id": arguments["change_id"]}
+
+        baseline.update({tool_id: code_change
+                         for tool_id, _, _ in AgentGateway._CODE_CHANGE_TOOLS})
+        gateway = AgentGateway(baseline)
+        change_id = str(uuid.uuid4())
+        proposal = {
+            "contract": "labfy.code_change_proposal.v1",
+            "change_id": change_id,
+            "purpose": "Ajouter un panneau SPECIMEN",
+            "why_declarative_insufficient": "Une visualisation spécialisée est nécessaire.",
+            "tool_docs": {"document_id": "SPECIMEN-doc"},
+            "integration_proposal": {"proposal_id": "SPECIMEN-proposal"},
+            "architecture_refs": ["docs/ARCHITECTURE.md"],
+            "expected_files": ["prototypes/web-graph/public/app.js"],
+            "required_tests": ["NODE_CHECK", "FIREFOX_TARGETED"],
+            "affected_areas": ["UI", "TESTS"],
+            "risk": "MODERATE",
+            "created_at": "2026-09-28T12:00:00Z",
+        }
+        turn_id = str(uuid.uuid4())
+        response = gateway.call("scope-a", self.envelope(
+            turn_id=turn_id, tool_id="code.change.propose", input=proposal))
+        self.assertEqual(response["state"], "CODE_CHANGE_APPROVAL_REQUIRED")
+        self.assertEqual(calls[0][2]["turn_id"], turn_id)
+        self.assertNotIn("code.change.approve", {
+            item["tool_id"] for item in gateway.catalog()["tools"]})
+
+        hostile = dict(proposal, expected_files=["../AGENTS.md"])
+        with self.assertRaises(AgentGatewayError):
+            gateway.call("scope-a", self.envelope(
+                tool_id="code.change.propose", input=hostile))
+
+        partial = {tool_id: (lambda _arguments, _key: {})
+                   for tool_id, _, _ in AgentGateway._TOOLS}
+        partial["code.change.get"] = code_change
+        with self.assertRaises(ValueError):
+            AgentGateway(partial)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,6 +34,14 @@ charge sa liste, puis ouvre une enquête par deux actions explicites. Labfy
 démarre le Qwen local configuré dans XDG pour le prompt Agent existant. Les étapes
 d’installation et de retrait sont dans le [guide du poste Web](docs/ui/WEB_WORKBENCH.md).
 
+Le provisionnement contrôlé d'outils et les modifications de Labfy préparées
+par Qwen sont `CURRENT local` sur `SPECIMEN`. Les portes humaines A/B encadrent
+la [toolbox rootless](docs/architecture/TOOL_PROVISIONING.md) et ses
+[capabilities dynamiques](docs/architecture/CAPABILITY_MANIFESTS.md). Les portes
+C1/C2 encadrent le [worktree de développement isolé](docs/architecture/QWEN_SELF_INTEGRATION.md),
+ses tests, son diff et son aperçu avant application. Qwen ne peut ni approuver
+ses propositions, ni installer sur l'hôte, ni écrire directement dans `main`.
+
 Le parcours local expérimental d’import et de revue est détaillé dans
 [le contrat d’espace local](docs/architecture/LOCAL_WORKSPACE_IMPORT.md) :
 l’aperçu EML/PNG/JPEG provient du cœur C après contrôle d’intégrité ; les

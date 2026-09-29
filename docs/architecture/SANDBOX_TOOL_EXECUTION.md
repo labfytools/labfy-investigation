@@ -15,6 +15,11 @@ sous `/input`. Les sorties déclarées restent sous `/output` avec une provenanc
 bornée. NUL, chemins hôte, `~`, traversées, outil inconnu et sortie non déclarée
 sont refusés.
 
+La [toolbox Podman rootless](TOOLBOX_GENERATIONS.md) est une frontière
+supplémentaire pour les outils provisionnés après Gate A/B. Elle ne remplace
+pas le contrat `sandbox.exec` des outils déjà enregistrés : son adapter
+déclaratif, son image immuable et l'exécution offline sont distincts.
+
 L'exécution exige Bubblewrap rootless avec réseau isolé, environnement nettoyé,
 répertoires système en lecture seule, `/proc` isolé, `/dev` minimal, timeout et
 limite combinée de sortie. L'absence ou l'échec de `bwrap` retourne

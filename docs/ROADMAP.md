@@ -7,8 +7,15 @@
 > Les fondations locales Qwen, sandbox et documentation outils, l'egress Tor
 > rootless et la recherche Internet passive ont été qualifiés ensemble sur
 > `SPECIMEN` par le smoke Qwen réel `PASS_LOCAL_SPECIMEN` : `CURRENT local`.
-> L'exécution intrusive reste `LAB-ONLY TARGET`; Tool Auto-Provisioning,
-> Resource Governor et Persistent Agent Memory restent `TARGET`.
+> L'exécution intrusive reste `LAB-ONLY TARGET`; Resource Governor et
+> Persistent Agent Memory restent `TARGET`.
+
+> Le provisionnement contrôlé d'outils, les générations Podman rootless,
+> les manifests dynamiques et la self integration Qwen avec portes humaines
+> A/B/C1/C2 sont `CURRENT local` sur `SPECIMEN`. La publication Git, la
+> gestion de ressources globale et toute cible réelle restent hors de cette
+> validation. Voir [Tool Provisioning](architecture/TOOL_PROVISIONING.md)
+> et [Qwen Self Integration](architecture/QWEN_SELF_INTEGRATION.md).
 
 > Déploiement personnel `invest.labfy` : `CURRENT local` sur cette machine
 > après validation `SPECIMEN` du proxy nginx, de la résolution hostname,

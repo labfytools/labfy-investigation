@@ -189,6 +189,8 @@ function invalidateWorkspaceContext() {
   document.querySelector(".agent-conversation")?.replaceChildren();
   document.querySelector(".activity-stream")?.replaceChildren();
   byId("agent-proposal-list")?.replaceChildren();
+  byId("agent-toolbox-list")?.replaceChildren();
+  byId("agent-code-changes-list")?.replaceChildren();
 }
 
 function beginWorkspaceContext(workspaceId, generation) {
@@ -268,6 +270,25 @@ async function workspaceJson(response) {
   if (response._labfyWorkspaceContext !== workspaceContext)
     throw new DOMException("Contexte remplacé", "AbortError");
   return value;
+}
+
+async function withDynamicCapabilities(value) {
+  if (!operationalMode) return value;
+  const response = await workspaceFetch("/api/v1/capability-manifests", {
+    cache: "no-store",
+  });
+  if (response.status === 404) return value;
+  const dynamic = await workspaceJson(response);
+  if (!response.ok || dynamic.contract !== "labfy.capability_manifest_list.v1" ||
+      !Array.isArray(dynamic.catalog) || !Array.isArray(dynamic.applications))
+    throw new Error(dynamic.message ?? "Manifests de capabilities invalides");
+  // CONTRACT: le backend fournit les applications liées à des object_refs
+  // vérifiés. Le navigateur affiche ces données sans inférer des permissions.
+  return { ...value,
+    capability_catalog: [...value.capability_catalog, ...dynamic.catalog],
+    capabilities: [...value.capabilities, ...dynamic.applications.map(
+      (application) => ({ ...application, dynamic: true }))],
+  };
 }
 
 async function responseJson(response, fallback) {
@@ -540,6 +561,169 @@ async function refreshAgentProposals() {
   renderAgentProposals(value.proposals);
 }
 
+function reviewButton(label, callback) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", () => void callback().catch((error) => {
+    button.disabled = false;
+    const card = button.closest("li");
+    const status = card?.querySelector("[role='status']");
+    if (status) status.textContent = error.message;
+  }));
+  return button;
+}
+
+async function decideToolbox(requestId, action) {
+  const path = action === "approve-provision" || action === "reject-provision"
+    ? `/api/v1/tool-provisioning/${encodeURIComponent(requestId)}/${action}`
+    : `/api/v1/tool-integrations/${encodeURIComponent(requestId)}/${action}`;
+  await postCommand(path, { decision_id: newUuid(), idempotency_key: newUuid(),
+    actor: "human", human_confirmed: true,
+    reason: action.startsWith("reject") ? "Refus explicite de l’opérateur." : "" });
+  await refreshToolbox();
+  if (action === "approve-integration") await refreshOperationalGraph();
+}
+
+async function refreshToolbox() {
+  const response = await workspaceFetch("/api/v1/tool-provisioning", { cache: "no-store" });
+  const value = await workspaceJson(response);
+  if (!response.ok || value.contract !== "labfy.tool_provisioning_list.v1" ||
+      !Array.isArray(value.requests))
+    throw new Error(value.message ?? "Toolbox indisponible");
+  document.querySelector(".agent-toolbox").hidden = false;
+  const list = byId("agent-toolbox-list");
+  list.replaceChildren();
+  for (const request of value.requests) {
+    const card = document.createElement("li");
+    card.className = "agent-toolbox-card";
+    const title = document.createElement("h4");
+    title.textContent = `${request.package?.package ?? "Outil"} · ${request.state}`;
+    const details = document.createElement("p");
+    details.textContent = `${request.package?.provider ?? "DEBIAN_APT"} · ` +
+      `${request.package?.version ?? "version à résoudre"} · ` +
+      `${request.package?.architecture ?? "architecture inconnue"}`;
+    const status = document.createElement("p");
+    status.setAttribute("role", "status");
+    card.append(title, details, status);
+    const actions = request.state === "WAITING_PROVISION_APPROVAL"
+      ? [["Autoriser l’installation", "approve-provision"],
+        ["Refuser l’installation", "reject-provision"]]
+      : request.state === "WAITING_INTEGRATION_APPROVAL"
+        ? [["Activer l’intégration", "approve-integration"],
+          ["Refuser l’intégration", "reject-integration"]] : [];
+    for (const [label, action] of actions)
+      card.append(reviewButton(label, async () => {
+        status.textContent = "Décision en cours…";
+        await decideToolbox(request.request_id, action);
+      }));
+    list.append(card);
+  }
+  if (!value.requests.length) {
+    const empty = document.createElement("li");
+    empty.textContent = "Aucun outil proposé.";
+    list.append(empty);
+  }
+  byId("agent-toolbox-state").textContent =
+    `${value.requests.length} demande(s) · catalogue révision ${value.catalog_revision ?? 0}`;
+}
+
+async function decideCodeChange(changeId, action) {
+  await postCommand(`/api/v1/code-changes/${encodeURIComponent(changeId)}/${action}`, {
+    decision_id: newUuid(), idempotency_key: newUuid(),
+    actor: "human", human_confirmed: true,
+    reason: action.startsWith("reject") ? "Refus explicite de l’opérateur." : "",
+  });
+  await refreshCodeChanges();
+}
+
+async function showCodeChangeDiff(changeId, card) {
+  const response = await workspaceFetch(
+    `/api/v1/code-changes/${encodeURIComponent(changeId)}/diff`, { cache: "no-store" });
+  const value = await workspaceJson(response);
+  if (!response.ok || value.contract !== "labfy.code_change_diff.v1")
+    throw new Error(value.message ?? "Diff indisponible");
+  let pre = card.querySelector("pre");
+  if (!pre) { pre = document.createElement("pre"); card.append(pre); }
+  // INVARIANT: un diff préparé par Qwen reste du texte non fiable, jamais HTML.
+  pre.textContent = `${value.stat ?? ""}\n${value.patch ?? ""}`;
+}
+
+async function refreshCodeChanges() {
+  const response = await workspaceFetch("/api/v1/code-changes", { cache: "no-store" });
+  const value = await workspaceJson(response);
+  if (!response.ok || value.contract !== "labfy.code_change_list.v1" ||
+      !Array.isArray(value.changes))
+    throw new Error(value.message ?? "Évolutions indisponibles");
+  document.querySelector(".agent-code-changes").hidden = false;
+  const list = byId("agent-code-changes-list");
+  list.replaceChildren();
+  for (const change of value.changes) {
+    const card = document.createElement("li");
+    card.className = "agent-code-change-card";
+    const title = document.createElement("h4");
+    title.textContent = `${change.purpose ?? "Évolution proposée"} · ${change.state}`;
+    const reason = document.createElement("p");
+    reason.textContent = `Pourquoi un manifest ne suffit pas : ` +
+      `${change.why_declarative_insufficient ?? "motif absent"}`;
+    const plan = document.createElement("p");
+    plan.textContent = `Zones : ${(change.affected_areas ?? []).join(", ")} · ` +
+      `Fichiers : ${(change.expected_files ?? []).join(", ")} · ` +
+      `Tests : ${(change.required_tests ?? []).join(", ")} · ` +
+      `Risque : ${change.risk ?? "à examiner"}`;
+    const status = document.createElement("p");
+    status.setAttribute("role", "status");
+    card.append(title, reason, plan, status);
+    if (change.state === "WAITING_DEV_APPROVAL") {
+      card.append(reviewButton("Préparer dans un worktree", () =>
+        decideCodeChange(change.change_id, "approve-prepare")));
+      card.append(reviewButton("Refuser la préparation", () =>
+        decideCodeChange(change.change_id, "reject-prepare")));
+    }
+    if (["READY_FOR_REVIEW", "WAITING_APPLY_APPROVAL"].includes(change.state)) {
+      card.append(reviewButton("Voir le diff et les tests", () =>
+        showCodeChangeDiff(change.change_id, card)));
+      if (change.preview?.url) {
+        const url = new URL(change.preview.url);
+        if (url.protocol === "http:" && ["127.0.0.1", "::1"].includes(url.hostname)) {
+          const link = document.createElement("a");
+          link.href = url.href;
+          link.textContent = "Prévisualisation SPECIMEN";
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          card.append(link);
+        }
+      }
+      if (change.state === "WAITING_APPLY_APPROVAL") {
+        card.append(reviewButton("Appliquer localement", () =>
+          decideCodeChange(change.change_id, "approve-apply")));
+        card.append(reviewButton("Refuser l’application", () =>
+          decideCodeChange(change.change_id, "reject-apply")));
+      }
+    }
+    list.append(card);
+  }
+  if (!value.changes.length) {
+    const empty = document.createElement("li");
+    empty.textContent = "Aucune évolution proposée.";
+    list.append(empty);
+  }
+  byId("agent-code-changes-state").textContent = `${value.changes.length} proposition(s)`;
+}
+
+async function refreshToolingPanels() {
+  const checks = [
+    [refreshToolbox, "agent-toolbox-state"],
+    [refreshCodeChanges, "agent-code-changes-state"],
+  ];
+  await Promise.all(checks.map(async ([refresh, statusId]) => {
+    try { await refresh(); }
+    catch (error) {
+      if (error.name !== "AbortError") byId(statusId).textContent = error.message;
+    }
+  }));
+}
+
 async function loadAgentRuntime() {
   const response = await workspaceFetch("/api/v1/agent-runtime/status", {
     cache: "no-store",
@@ -755,6 +939,10 @@ async function refreshAgentEvents() {
         payload.message = turn.diagnostic;
       }
       renderAgentEvent({ ...event, payload });
+    }
+    if (value.events.some((event) => event.kind === "agent.runtime.authorization_required" ||
+        event.kind?.includes("tool_provision") || event.kind?.includes("tool_integration"))) {
+      await Promise.all([refreshToolbox(), refreshCodeChanges()]);
     }
     if (turn?.terminal && value.events.some((event) =>
       event.turn_id === activeAgentTurnId && [
@@ -1102,9 +1290,10 @@ async function refreshOperationalGraph() {
     const response = await workspaceFetch("/api/v1/snapshot", { cache: "no-store" });
     const value = await workspaceJson(response);
     if (!response.ok) throw new Error(value.message ?? "export indisponible");
-    const fingerprint = snapshotFingerprint(value);
+    const combined = await withDynamicCapabilities(value);
+    const fingerprint = snapshotFingerprint(combined);
     if (fingerprint !== acceptedSnapshotFingerprint) {
-      const replacement = prepareSnapshot(value);
+      const replacement = prepareSnapshot(combined);
       const previousPositions = new Map(
         snapshot.nodes.map((node) => [node.id, { x: node.x, y: node.y }]),
       );
@@ -1753,7 +1942,8 @@ function renderActions(container, node) {
     button.textContent = capability.intent;
     button.disabled = !capability.available;
     button.dataset.capabilityId = capability.id;
-    button.addEventListener("click", () => runCapability(capability));
+    button.addEventListener("click", () => void runCapability(capability)
+      .catch((error) => { byId("graph-state").textContent = error.message; }));
     const reason = document.createElement("span");
     reason.className = "reason";
     reason.textContent = `${capability.network_contact} · ${capability.reason}`;
@@ -1891,6 +2081,17 @@ async function generateReport() {
 
 async function runCapability(capability) {
   if (!selectedNodeId || !capability.available) return;
+  if (operationalMode && capability.dynamic === true) {
+    const node = selectedNode();
+    const result = await postCommand("/api/v1/capabilities/execute", {
+      capability_id: capability.id, object_id: node.object_id,
+      idempotency_key: newUuid(),
+    });
+    appendAgentCard("TOOL_RESULT", result.summary ??
+      `Capability ${capability.id} exécutée ; résultat référencé dans la toolbox.`);
+    await refreshToolbox();
+    return;
+  }
   if (capability.id === "focus-neighborhood") {
     navigationHistory.push(presentationState());
     focusNodeId = selectedNodeId;
@@ -2521,8 +2722,9 @@ async function activateWorkspace(opened) {
     const response = await workspaceFetch("/api/v1/snapshot", { cache: "no-store" });
     const value = await workspaceJson(response);
     if (!response.ok) throw new Error(value.message ?? "Projection indisponible");
-    snapshot = prepareSnapshot(value);
-    acceptedSnapshotFingerprint = snapshotFingerprint(value);
+    const combined = await withDynamicCapabilities(value);
+    snapshot = prepareSnapshot(combined);
+    acceptedSnapshotFingerprint = snapshotFingerprint(combined);
     coreMode = snapshot.origin === "core";
     // CONTRACT: la mesure suit la publication de la coque visible ; elle ne
     // repose pas sur la largeur héritée lorsque le shell était hidden.
@@ -2538,6 +2740,7 @@ async function activateWorkspace(opened) {
     await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner(),
       refreshResearch(), loadAgentCatalog(), refreshAgentMission(),
       refreshAgentProposals()]);
+    await refreshToolingPanels();
     for (const [callback, delay] of [[refreshJobs, 500],
       [refreshOperationalGraph, 700], [refreshCorrelations, 900],
       [refreshPlanner, 1100]])
@@ -2566,8 +2769,9 @@ async function activateLegacyWorkspace(session) {
   try {
     const response = await workspaceFetch("/api/v1/snapshot", { cache: "no-store" });
     const value = await workspaceJson(response);
-    snapshot = prepareSnapshot(value);
-    acceptedSnapshotFingerprint = snapshotFingerprint(value);
+    const combined = await withDynamicCapabilities(value);
+    snapshot = prepareSnapshot(combined);
+    acceptedSnapshotFingerprint = snapshotFingerprint(combined);
     coreMode = snapshot.origin === "core";
     // CONTRACT: le snapshot cœur doit être ajusté après le layout Agent |
     // Graphe | Activité, sinon ses coordonnées SVG débordent sous Activité.
@@ -2592,6 +2796,7 @@ async function activateLegacyWorkspace(session) {
       await Promise.all([refreshJobs(), refreshCorrelations(), refreshPlanner(),
         refreshResearch(), loadAgentCatalog(), refreshAgentMission(),
         refreshAgentProposals()]);
+      await refreshToolingPanels();
       for (const [callback, delay] of [[refreshJobs, 500],
         [refreshOperationalGraph, 700], [refreshCorrelations, 900],
         [refreshPlanner, 1100]])
@@ -2669,6 +2874,14 @@ function configureApplication() {
   byId("agent-proposals-refresh").addEventListener("click", () =>
     void refreshAgentProposals().catch((error) => {
       byId("agent-mission-state").textContent = error.message;
+    }));
+  byId("agent-toolbox-refresh").addEventListener("click", () =>
+    void refreshToolbox().catch((error) => {
+      byId("agent-toolbox-state").textContent = error.message;
+    }));
+  byId("agent-code-changes-refresh").addEventListener("click", () =>
+    void refreshCodeChanges().catch((error) => {
+      byId("agent-code-changes-state").textContent = error.message;
     }));
   byId("agent-prompt").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {

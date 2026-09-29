@@ -61,5 +61,7 @@ candidate et `web.fetch`. Le contact `PASSIVE_PUBLIC` passe par l'egress
 rootless `PRIVACY_TOR` vérifié ; un contact est comptabilisé dans la mission,
 sans repli direct. La proposition ne crée aucun grant. Les sondes actives
 restent soumises à la Policy et n'ont pas été exercées live ; l'intrusif est
-`LAB-ONLY TARGET`. Tool Auto-Provisioning, Resource Governor et Persistent
+`LAB-ONLY TARGET`. Le [provisionnement contrôlé](TOOL_PROVISIONING.md) et la
+[self integration](QWEN_SELF_INTEGRATION.md) sont `CURRENT local` sur
+`SPECIMEN` avec portes humaines distinctes. Resource Governor et Persistent
 Agent Memory restent `TARGET`.
