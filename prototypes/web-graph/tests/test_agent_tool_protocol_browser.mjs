@@ -40,7 +40,21 @@ try {
   const page=await browser.newPage(); await page.setViewport({width:1280,height:900}); await openAutomaticSession(page,origin);
   await page.waitForFunction(() => document.querySelector("#agent-status")?.textContent.includes("Agent de démonstration déterministe"));
   const hostile='<img src=x onerror="window.__agentInjected=true"> recherche SPECIMEN';
-  await page.type("#agent-prompt",hostile); await page.click("#agent-send");
+  await page.type("#agent-prompt",hostile);
+  await page.click("#agent-send");
+  await page.waitForSelector(".agent-card.error");
+  assert.equal(await page.evaluate(() => window.__agentInjected),undefined);
+  assert.equal(await page.$eval("#agent-prompt", (input) => input.value), hostile);
+  assert.equal(await page.$eval(".agent-conversation", (node) => node.querySelector("img, script")), null);
+  assert.match(await page.$eval(".agent-card.error", (node) => node.textContent), /Sélection de recherche invalide/);
+  await page.$eval("#agent-prompt", (input) => { input.value = ""; });
+  const objective = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/snapshot", { cache: "no-store" });
+    const value = await response.json();
+    return value.nodes.find((node) => typeof node.label === "string" && node.label)?.label;
+  });
+  assert.equal(typeof objective, "string");
+  await page.type("#agent-prompt",objective); await page.click("#agent-send");
   await page.waitForFunction(() => document.querySelector(".agent-conversation")?.textContent.includes("PLAN"));
   await page.waitForFunction(() => document.querySelector(".agent-conversation")?.textContent.includes("investigation.search · COMPLETED"));
   await page.waitForFunction(() => document.querySelector(".agent-conversation")?.textContent.includes("AUTHORIZATION_REQUIRED"));

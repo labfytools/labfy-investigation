@@ -202,8 +202,8 @@ class LibraryTest(SyntheticEnvironment):
         moved = self.root / "moved-workspace"
         workspace.rename(moved)
         workspace.symlink_to(moved, target_is_directory=True)
-        with self.assertRaisesRegex(LibraryError, "invalide"):
-            self.library.snapshot()
+        snapshot = self.library.snapshot()
+        self.assertEqual(snapshot["entries"][0]["state"], "INVALID")
 
     def test_create_resumes_same_workspace_after_bridge_interruption(self):
         run = subprocess.run

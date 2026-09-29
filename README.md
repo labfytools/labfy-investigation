@@ -30,7 +30,9 @@ enquête réelle pendant les validations de développement.
 Le déploiement personnel local de `http://invest.labfy` repose sur une unité
 systemd utilisateur et un proxy nginx limités à `127.0.0.1`. Sur cette machine,
 le service démarre sans inspecter la bibliothèque configurée ; l'utilisateur
-charge sa liste, puis ouvre une enquête par deux actions explicites. Labfy
+charge sa liste, peut [découvrir et enregistrer un dossier existant](docs/architecture/EXISTING_INVESTIGATION_LIBRARY.md)
+sous `LABFY_LIBRARY` sans copie, puis ouvre l'enquête. « Fermer l’enquête » vide
+le contexte actif avant une autre ouverture. Labfy
 démarre le Qwen local configuré dans XDG pour le prompt Agent existant. Les étapes
 d’installation et de retrait sont dans le [guide du poste Web](docs/ui/WEB_WORKBENCH.md).
 

@@ -10,9 +10,13 @@
 À l'ouverture, le lanceur `tools/labfy` démarre ou rejoint l’instance loopback
 possédée, ouvre le navigateur et établit une session HttpOnly locale sans code
 manuel. La bibliothèque affiche les enquêtes locales enregistrées et
-permet d'en créer une avec un titre explicite. Une enquête ouverte reste la
+permet d'en créer une avec un titre explicite. Elle peut aussi découvrir les
+dossiers existants sous `LABFY_LIBRARY` après « Rechercher les dossiers
+existants », puis les enregistrer sans copie. Une enquête ouverte reste la
 seule enquête active de cette instance ; le poste n'en restaure pas une autre
-automatiquement. Le titre et la génération de la bibliothèque identifient le
+automatiquement. « Fermer l’enquête » permet ensuite d'en ouvrir une autre ;
+« Accueil » ne ferme pas l'enquête. Le titre et la génération de la bibliothèque
+identifient le
 contexte affiché, afin qu'une réponse tardive d'une enquête précédente ne le
 repeuple pas.
 
@@ -138,7 +142,11 @@ absolu explicitement choisi) et `LABFY_WEB_PORT=8091`, avec mode `0600`.
 `agent.json` suit le contrat de configuration de `LocalModelSupervisor`.
 À l'arrivée, la page n'inspecte pas la bibliothèque et n'ouvre aucune enquête.
 L'utilisateur choisit « Charger les enquêtes », puis ouvre explicitement
-l'enquête souhaitée. Le lancement du service seul ne lit pas leurs données.
+l'enquête souhaitée ou lance la discovery des enfants directs et enregistre un
+dossier détecté. La fiche présente nom, titre, état et raison sans chemin
+absolu ; une adoption de métadonnées demande une confirmation explicite.
+Le lancement du service seul ne lit pas leurs données. Sans enquête ouverte,
+le prompt indique « Ouvrez une enquête pour utiliser Qwen. ».
 
 Le bloc nginx doit être placé dans `http {}` de `/etc/nginx/nginx.conf`, puis
 `127.0.0.1 invest.labfy` doit être ajouté une fois à `/etc/hosts`.

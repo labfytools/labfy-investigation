@@ -23,6 +23,13 @@
 > du prompt Agent avec Qwen réel (`investigation.search`, final `COMPLETED`).
 > Aucune enquête réelle n'a été ouverte pendant cette validation locale.
 
+> Ouverture d'enquêtes existantes : `CURRENT local` sur deux dossiers
+> `SPECIMEN` après validation A → fermeture → B avec Qwen réel. Le registre
+> v2 conserve les entrées managed et existing ; la discovery reste explicite
+> et confinée à `LABFY_LIBRARY`. Le sélecteur de chemin arbitraire, la
+> migration SQLite automatique et plusieurs enquêtes actives restent `TARGET`
+> ou hors périmètre. Voir [bibliothèque existante](architecture/EXISTING_INVESTIGATION_LIBRARY.md).
+
 ## 1. Ordre et portes
 
 Labfy évolue sans réécriture générale. Les contrats du cœur précèdent les

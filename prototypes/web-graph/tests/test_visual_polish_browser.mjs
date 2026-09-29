@@ -75,19 +75,23 @@ try {
   await assertNoHorizontalOverflow(page);
   await screenshot(page, "1440-network");
 
+  const objective = await page.evaluate(async () => {
+    const response = await fetch("/api/v1/snapshot", { cache: "no-store" });
+    const value = await response.json();
+    return value.nodes.find((node) => typeof node.label === "string" && node.label)?.label;
+  });
+  assert.equal(typeof objective, "string");
   await page.focus("#agent-prompt");
-  await page.type("#agent-prompt", "Prépare une piste SPECIMEN sans lancer d’action.");
+  await page.type("#agent-prompt", objective);
   await page.keyboard.down("Control");
   await page.keyboard.press("Enter");
   await page.keyboard.up("Control");
   assert.equal(await page.$eval("#agent-prompt", (element) => element.value),
-    "Prépare une piste SPECIMEN sans lancer d’action.");
-  await page.waitForFunction(() => document.querySelector(".agent-conversation")?.textContent
-    .includes("Prépare une piste SPECIMEN"));
-  assert.match(
-    await page.$eval(".agent-conversation", (element) => element.textContent),
-    /Prépare une piste SPECIMEN/,
-  );
+    objective);
+  await page.waitForFunction((expected) =>
+    document.querySelector(".agent-conversation")?.textContent.includes(expected), {}, objective);
+  assert.ok((await page.$eval(".agent-conversation", (element) => element.textContent))
+    .includes(objective));
   await page.type("#agent-prompt", "Brouillon SPECIMEN à conserver pendant le défilement.");
   await page.$eval(".agent-scroll", (element) => { element.scrollTop = element.scrollHeight; });
   assert.deepEqual(
@@ -95,13 +99,13 @@ try {
       value: element.value,
       visible: element.getBoundingClientRect().bottom > 0,
     })),
-    { value: "Prépare une piste SPECIMEN sans lancer d’action.Brouillon SPECIMEN à conserver pendant le défilement.", visible: true },
+    { value: `${objective}Brouillon SPECIMEN à conserver pendant le défilement.`, visible: true },
   );
   await page.click('[data-pane="agent-panel"]');
   await page.click('[data-pane="agent-panel"]');
   assert.equal(
     await page.$eval("#agent-prompt", (element) => element.value),
-    "Prépare une piste SPECIMEN sans lancer d’action.Brouillon SPECIMEN à conserver pendant le défilement.",
+    `${objective}Brouillon SPECIMEN à conserver pendant le défilement.`,
   );
   await screenshot(page, "1440-agent");
 

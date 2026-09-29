@@ -148,14 +148,35 @@ class WorkspaceServerTest(unittest.TestCase):
         result = json.loads(body)
         self.assertEqual(result["state"], "COMPLETED")
         self.assertNotEqual(result["call_id"], result["result_id"])
-        self.assertTrue(result["object_refs"])
+        self.assertEqual(result["output"]["matches"], [])
+        self.assertEqual(result["object_refs"], [])
+
+        graph = json.loads((self.workspace / "core-snapshot.json").read_text())
+        node = next(item for item in graph["nodes"] if item.get("label"))
+        positive = {**request,
+                    "turn_id": "83000000-0000-4000-8000-000000000032",
+                    "input": {"query": node["label"]},
+                    "idempotency_key": "83000000-0000-4000-8000-000000000033"}
+        time.sleep(0.04)
+        status, _, body = self.mutate("/api/v1/agent-tools/calls", positive)
+        self.assertEqual(status, 201, body)
+        positive_call = json.loads(body)
+        status, _, body = self.request_raw(
+            "GET", f'/api/v1/agent-tools/results/{positive_call["result_id"]}',
+            cookie=self.cookie)
+        self.assertEqual(status, 200, body)
+        positive_result = json.loads(body)
+        self.assertEqual(positive_result["state"], "COMPLETED")
+        self.assertIn({"object_id": node["id"]}, positive_result["object_refs"])
+        self.assertTrue(any(match.get("object_id") == node["id"]
+                            for match in positive_result["output"]["matches"]))
         status, _, body = self.request_raw(
             "GET", "/api/v1/agent-tools/events?cursor=0", cookie=self.cookie)
         self.assertEqual(status, 200, body)
         self.assertTrue(json.loads(body)["events"])
         time.sleep(0.04)
         status, _, body = self.mutate("/api/v1/agent-tools/turns", {
-            "objective": "Analyser la piste SPECIMEN sans auto-autorisation"})
+            "objective": node["label"]})
         self.assertEqual(status, 201, body)
         turn = json.loads(body)
         self.assertEqual(turn["state"], "AUTHORIZATION_REQUIRED")

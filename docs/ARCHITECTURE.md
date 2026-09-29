@@ -8,6 +8,11 @@ Le contrôle navigateur local sur espace exclusivement synthétique est décrit
 dans [WEB_WORKSPACE_CONTROL.md](architecture/WEB_WORKSPACE_CONTROL.md). Cette
 surface mutationnelle J6 est distincte des démonstrations read-only J2–J5.
 
+La [bibliothèque d'enquêtes existantes](architecture/EXISTING_INVESTIGATION_LIBRARY.md)
+est `CURRENT local` sur `SPECIMEN` : discovery explicite limitée aux enfants
+directs, registre v2 rétrocompatible, fermeture et changement d'enquête avec
+contexte Agent isolé. Elle n'ajoute aucun accès filesystem ou SQLite au modèle.
+
 La [recherche OSINT assistée V1](architecture/OSINT_ASSISTED_RESEARCH.md) est
 `CURRENT` dans le worktree uniquement pour son parcours de laboratoire : le
 JobStore V4 est additif à V3, les grants sont explicites et aucun fournisseur

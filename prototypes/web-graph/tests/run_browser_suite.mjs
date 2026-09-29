@@ -32,6 +32,9 @@ export const scenarios = Object.freeze([
   // CONTRACT: le service persistant n'inspecte la bibliothèque qu'après le
   // clic explicite de l'utilisateur, puis ouvre un workspace SPECIMEN choisi.
   "test_lazy_library_browser.mjs",
+  // CONTRACT: two direct-child SPECIMEN workspaces prove explicit discovery,
+  // registration without relocation, close/reset and A→B UI isolation.
+  "test_existing_investigation_library_browser.mjs",
   // CONTRACT: ce parcours Firefox exerce le vrai formulaire et une expiration
   // de harness isolée ; il démontre l'arrêt du polling et la reconnexion sans
   // rejouer une mutation dont l'admission n'est pas connue.

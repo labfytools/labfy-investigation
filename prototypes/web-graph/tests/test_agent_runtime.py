@@ -313,6 +313,39 @@ class AgentRuntimeTest(unittest.TestCase):
         final = runtime.wait_for_state("scope-a", started["turn_id"], "CANCELLED")
         self.assertIsNone(final["final"])
 
+    def test_cancel_scope_waits_for_owned_running_inference(self):
+        entered = threading.Event()
+        release = threading.Event()
+        cancelled = threading.Event()
+
+        class BlockingModel:
+            def complete(self, _messages):
+                entered.set()
+                release.wait(2)
+                return action("tool_call", tool_id="investigation.search",
+                              arguments={"query": "SPECIMEN"})
+
+        requests = []
+        runtime = AgentRuntime(BlockingModel(), requests.append,
+                               {"investigation.search"})
+        self.addCleanup(runtime.close)
+        started = self.start(runtime, key="cancel-scope")
+        self.assertTrue(entered.wait(1))
+
+        def close_scope():
+            runtime.cancel_scope("scope-a", timeout=1.5)
+            cancelled.set()
+
+        thread = threading.Thread(target=close_scope)
+        thread.start()
+        self.assertFalse(cancelled.wait(0.05))
+        release.set()
+        thread.join(2)
+        self.assertTrue(cancelled.is_set())
+        final = runtime.status("scope-a", started["turn_id"])
+        self.assertEqual(final["state"], "CANCELLED")
+        self.assertEqual(requests, [])
+
     def test_events_are_bounded_and_scope_filtered(self):
         runtime = self.make_runtime([action("final", text="ok")], max_events=2)
         started = self.start(runtime)

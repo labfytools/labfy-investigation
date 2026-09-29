@@ -1,7 +1,7 @@
 # Poste de travail Web contrôlé — J6 local
 
 > État : `CURRENT` pour le poste Web local contrôlé et sa bibliothèque
-> explicitement choisie. Runtime métier : V20 inchangé. JobStore : V3 inchangé.
+> explicitement choisie. Runtime métier : V20 inchangé. JobStore : V4 inchangé.
 > V21 reste indépendante.
 
 ## Parcours
@@ -17,8 +17,8 @@ L'instance écoute sur `127.0.0.1:8081` dans cet exemple. La navigation racine
 établit automatiquement une session locale HttpOnly et ouvre directement la
 bibliothèque, sans formulaire ni code de session. La bibliothèque permet de
 créer une enquête locale par le bridge C ou d'ouvrir une enquête enregistrée.
-Une seule enquête peut être active par instance ; une
-autre ouverture exige le redémarrage du poste local. L'utilisateur sélectionne
+Une seule enquête peut être active par instance ; une autre ouverture exige sa
+fermeture explicite, puis l'ouverture suivante. L'utilisateur sélectionne
 ensuite l’EML ou l’image dans le graphe et choisit « Analyser les en-têtes » ou
 « Examiner les métadonnées ». L’intention est persistée avant la réponse HTTP
 `202`. Le worker C exécute le service J3/J4 correspondant, puis C republie
@@ -46,19 +46,24 @@ le démarrage conserve seulement le chemin configuré : il ne crée ni ne lit la
 bibliothèque et n'ouvre aucune enquête. La première page établit la session
 automatique sans appeler l'API de liste. L'action visible « Charger les
 enquêtes » déclenche seule l'initialisation et la lecture du registre ;
-l'ouverture d'une enquête exige ensuite un clic distinct. Le workspace
+« Rechercher les dossiers existants » lance ensuite la discovery explicite
+des enfants directs. L'enregistrement et l'ouverture exigent chacun un clic
+distinct. Le workspace
 inactif du serveur réside dans son espace XDG privé, hors de la bibliothèque.
 Le parcours `make web` sans cette option conserve son chargement initial.
 
 ## Bibliothèque, état XDG et limites
 
 La bibliothèque est privée (`0700`), refuse les liens symboliques et conserve
-un registre atomique borné à 256 enquêtes. Chaque enquête est un enfant direct
-identifié par UUID ; le bridge C existant est le seul créateur de son runtime
-V20 et de son JobStore V3. La création est idempotente pour une même clé et le
-même titre ; réemployer la clé avec un autre titre est refusé. L'ouverture exige
+un registre atomique borné à 256 enquêtes. Les entrées `MANAGED` vivent sous
+`workspaces/<uuid>` ; les entrées `EXISTING` sont des enfants directs référencés
+sans chemin absolu exposé. Le bridge C existant reste le seul créateur du runtime
+V20 et du JobStore lors d'une création managed. La création est idempotente
+pour une même clé et le même titre ; réemployer la clé avec un autre titre est
+refusé. L'ouverture exige
 la génération courante du registre afin de ne pas utiliser une projection
-périmée.
+périmée. La discovery, l'adoption metadata only et l'isolation après fermeture
+sont détaillées dans [le contrat de bibliothèque](EXISTING_INVESTIGATION_LIBRARY.md).
 
 L'instance place ses verrous, identité et code d'amorçage dans
 `$XDG_RUNTIME_DIR/labfy-investigation-web/`, ou dans un repli privé par UID

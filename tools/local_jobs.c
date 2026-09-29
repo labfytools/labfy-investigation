@@ -148,6 +148,48 @@ static char *workspace_path(const char *root, const char *leaf) {
   return g_build_filename(root, leaf, NULL);
 }
 
+static gboolean validate_workspace_json(const char *root, GError **error) {
+  char *database_path = workspace_path(root, "Enquete.sqlite");
+  /* WHY: discovery is privacy-sensitive and read-only. This API deliberately
+   * bypasses manifest/export code so validation cannot migrate the database or
+   * publish derived snapshots as a side effect. */
+  Database *database = database_open_read_only(database_path, error);
+  InvestigationRecord *record = database != NULL
+      ? investigation_dao_load(database) : NULL;
+  const char *identifier = record != NULL
+      ? investigation_record_get_id(record) : NULL;
+  const char *title = record != NULL
+      ? investigation_record_get_name(record) : NULL;
+  gboolean ok = identifier != NULL && g_uuid_string_is_valid(identifier) &&
+                title != NULL && title[0] != '\0';
+  char *jobs_path = workspace_path(root, ".labfy/runtime/jobs.sqlite");
+  LocalJobStore *store = ok
+      ? local_job_store_open(jobs_path, identifier, TRUE, error) : NULL;
+  ok = ok && store != NULL;
+  if (!ok && database != NULL && error != NULL && *error == NULL)
+    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                        "La base ne fournit pas une enquête valide.");
+  if (ok) {
+    JsonBuilder *builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "contract");
+    json_builder_add_string_value(builder, "labfy.local_workspace.validation.v1");
+    json_builder_set_member_name(builder, "workspace_id");
+    json_builder_add_string_value(builder, identifier);
+    json_builder_set_member_name(builder, "title");
+    json_builder_add_string_value(builder, title);
+    json_builder_end_object(builder);
+    ok = print_json_builder(builder, error);
+    g_object_unref(builder);
+  }
+  investigation_record_free(record);
+  local_job_store_close(store);
+  database_close(database);
+  g_free(jobs_path);
+  g_free(database_path);
+  return ok;
+}
+
 static char *now_iso(void) {
   GDateTime *now = g_date_time_new_now_utc();
   char *value = g_date_time_format(now, "%Y-%m-%dT%H:%M:%SZ");
@@ -2215,6 +2257,8 @@ int main(int argc, char **argv) {
   gboolean ok = FALSE;
   if (strcmp(argv[1], "init-specimen") == 0)
     ok = init_specimen(workspace, &error);
+  else if (strcmp(argv[1], "validate-workspace-json") == 0)
+    ok = validate_workspace_json(workspace, &error);
   else if (strcmp(argv[1], "create-workspace") == 0) {
     const char *title = NULL;
     for (int i = 4; i + 1 < argc; i += 2)

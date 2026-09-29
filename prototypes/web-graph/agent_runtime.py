@@ -232,6 +232,36 @@ class AgentRuntime:
                 self._set_state(turn, "CANCELLED", "Annulation demandée")
             return self._snapshot(turn)
 
+    def cancel_scope(self, scope, timeout=2.0):
+        """Cancel every non-terminal turn in one workspace scope, then wait bounded."""
+        if (not isinstance(scope, str) or not scope or
+                not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or
+                timeout < 0):
+            raise AgentRuntimeError("Annulation de scope invalide")
+        deadline = time.monotonic() + timeout
+        with self._changed:
+            scoped = [turn for (turn_scope, _turn_id), turn in self._turns.items()
+                      if turn_scope == scope]
+            for turn in scoped:
+                if turn["state"] in self.TERMINAL_STATES:
+                    continue
+                turn["cancel_requested"] = True
+                if turn["state"] == "QUEUED" or turn["state"] in self.WAITING_STATES:
+                    self._set_state(turn, "CANCELLED", "Workspace fermé")
+
+            # WHY: a model request or gateway call already owned by this runtime
+            # cannot be interrupted safely. Closing waits until its worker observes
+            # cancel_requested, which prevents a later tool call or cross-workspace use.
+            while any(turn["state"] not in self.TERMINAL_STATES for turn in scoped):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise AgentRuntimeError(
+                        "Annulation Agent encore en cours",
+                        code="agent_runtime_cancel_timeout", status=409,
+                    )
+                self._changed.wait(remaining)
+            return [self._snapshot(turn) for turn in scoped]
+
     def status(self, scope, turn_id):
         with self._lock:
             return self._snapshot(self._get_turn(scope, turn_id))

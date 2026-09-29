@@ -24,9 +24,15 @@
         <p id="workspace-create-status" role="alert"></p>
       </section>
       <section id="library-list-section" aria-labelledby="workspace-list-title">
-        <h2 id="workspace-list-title">Enquêtes disponibles</h2>
+        <h2 id="workspace-list-title">Enquêtes enregistrées</h2>
         <p id="library-empty" class="empty-state" hidden>Aucune enquête. Créez votre premier espace local pour commencer.</p>
         <ul id="workspace-list" class="workspace-list" aria-live="polite"></ul>
+      </section>
+      <section id="existing-discovery" class="library-discovery" aria-labelledby="existing-title" hidden>
+        <div class="library-section-heading"><h2 id="existing-title">Dossiers existants détectés</h2>
+          <button id="library-discover" type="button">Rechercher les dossiers existants</button></div>
+        <p id="library-discovery-status" role="status">Aucune recherche effectuée.</p>
+        <ul id="existing-list" class="workspace-list" aria-live="polite"></ul>
       </section>
     </main>
     <div id="workbench-shell" hidden>
@@ -70,6 +76,8 @@
       </div>
       <div class="graph-tools">
         <button id="home-button">Accueil</button
+        >
+        <button id="close-workspace">Fermer l’enquête</button
         >
         <button id="open-import">Ajouter des preuves</button
         >

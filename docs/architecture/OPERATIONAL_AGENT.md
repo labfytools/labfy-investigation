@@ -14,6 +14,13 @@ compteurs, types, sélection et activité récente bornée. Il ne reçoit ni SQL
 ni chemins, ni corpus de preuves. Les références sont réévaluées dans le
 workspace actif.
 
+Le [parcours d'enquête existante](EXISTING_INVESTIGATION_LIBRARY.md) ferme
+explicitement A avant l'ouverture de B. Les turns non terminaux de A sont
+annulés avant le changement, et un nouveau turn reçoit un
+`InvestigationContext` reconstruit depuis B seulement. Sans workspace actif,
+le backend refuse de démarrer Qwen ; les continuations, références et demandes
+de tooling de A ne sont pas admises dans B.
+
 Les corrélations sont des candidats déterministes d'égalité normalisée (email,
 domaine, téléphone, username, URL, IP, IBAN/BIC, hash, identifiant structuré,
 provenance ou observation). Elles gardent les sources et `confidence_kind`; elles

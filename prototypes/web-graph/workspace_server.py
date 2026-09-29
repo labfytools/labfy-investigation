@@ -86,6 +86,7 @@ class WorkspaceServer(ThreadingHTTPServer):
             raise ValueError("Origine locale publique invalide")
         super().__init__(address, handler)
         self.workspace = workspace.resolve()
+        self.inactive_workspace = self.workspace
         self.bridge = bridge.resolve()
         self.authority = f"127.0.0.1:{self.server_port}"
         self.origin = f"http://{self.authority}"
@@ -120,6 +121,7 @@ class WorkspaceServer(ThreadingHTTPServer):
         self.worker_supervisor = None
         self.worker_supervisor_stop = threading.Event()
         self.lock = threading.Lock()
+        self.workspace_lifecycle_lock = threading.RLock()
         self.command_rate_lock = threading.Lock()
         self.last_command = 0.0
         self.report_tasks = {}
@@ -134,6 +136,7 @@ class WorkspaceServer(ThreadingHTTPServer):
         self.agent_missions = {}
         self.agent_proposals = {}
         self.agent_operation_replays = {}
+        self.library_close_replays = {}
         # CONTRACT: les magasins rootless sont ouverts uniquement sur demande.
         # Le démarrage lazy du service ne lit aucune enquête de la library.
         self._tool_provisioning = tool_provisioning
@@ -435,13 +438,27 @@ class WorkspaceServer(ThreadingHTTPServer):
             context["tool_docs"] = docs
         result = self._ensure_developer_agent().propose(context, idempotency_key=key)
         if result.get("change_id"):
-            self.code_change_turns[result["change_id"]] = call_context["turn_id"]
+            self.code_change_turns[result["change_id"]] = {
+                "workspace_id": workspace_id,
+                "turn_id": call_context["turn_id"],
+            }
         return ({**result, "runtime_state": "CODE_CHANGE_APPROVAL_REQUIRED"}
                 if result.get("state") == "WAITING_DEV_APPROVAL" else result)
 
     def _agent_code_change_get(self, arguments, _key, _call_context):
+        binding = self.code_change_turns.get(arguments["change_id"])
+        if binding is None or binding["workspace_id"] != self.agent_workspace_id():
+            raise PermissionError("Changement de code d'un autre workspace")
         return self._code_change_model_summary(
             self.code_changes.get(arguments["change_id"]))
+
+    def code_change_turn(self, change_id):
+        binding = self.code_change_turns.get(change_id)
+        if binding is None and self.library is None:
+            return ""
+        if binding is None or binding["workspace_id"] != self.agent_workspace_id():
+            raise PermissionError("Changement de code d'un autre workspace")
+        return binding["turn_id"]
 
     @staticmethod
     def _code_change_model_summary(record):
@@ -499,10 +516,14 @@ class WorkspaceServer(ThreadingHTTPServer):
 
     def agent_workspace_id(self):
         """Return the opaque identity of the currently opened workspace."""
+        if self.library is not None:
+            if self.active_workspace_id is None:
+                raise AgentMissionError("Aucun workspace actif")
+            return self.active_workspace_id
         context = self.context()
         if context is None:
             raise AgentMissionError("Aucun workspace actif")
-        return self.active_workspace_id or context["investigation_id"]
+        return context["investigation_id"]
 
     def _agent_ref_owned(self, workspace_id, ref):
         if workspace_id != self.agent_workspace_id():
@@ -991,9 +1012,11 @@ class WorkspaceServer(ThreadingHTTPServer):
 
     def _agent_investigation_context(self, _scope):
         """Return only the bounded projection allowed into a model turn."""
+        workspace_id = self.agent_workspace_id()
         graph = self._agent_graph()
-        context = self.context() or {}
-        workspace_id = self.active_workspace_id or context.get("investigation_id", "EMPTY")
+        context = self.context()
+        if context is None:
+            raise AgentMissionError("Aucun workspace actif")
         nodes = graph.get("nodes", [])
         known = {item.get("id") for item in nodes if isinstance(item, dict)}
 
@@ -1065,6 +1088,7 @@ class WorkspaceServer(ThreadingHTTPServer):
             if record["state"] not in acceptable:
                 raise AgentRuntimeError("Décision toolbox encore en attente", status=409)
         elif pending_tool == "code.change.propose":
+            self.code_change_turn(change_id)
             record = self.code_changes.get(change_id)
             if record["state"] not in {"WAITING_APPLY_APPROVAL", "DEV_REJECTED",
                                        "APPLIED_LOCAL", "APPLY_REJECTED", "FAILED"}:
@@ -1112,6 +1136,22 @@ class WorkspaceServer(ThreadingHTTPServer):
         self.library_generation = value["generation"]
         return value
 
+    def discover_existing_library_workspaces(self):
+        if self.library is None:
+            raise ValueError("Mode bibliothèque inactif")
+        value = self.library.discover_existing()
+        self.library_generation = value["generation"]
+        return value
+
+    def register_existing_library_workspace(self, candidate_id, expected_generation,
+                                            idempotency_key, human_confirmed):
+        if self.library is None:
+            raise ValueError("Mode bibliothèque inactif")
+        value = self.library.register_existing(
+            candidate_id, expected_generation, idempotency_key, human_confirmed)
+        self.library_generation = value["generation"]
+        return value
+
     def create_library_workspace(self, title, idempotency_key):
         if self.library is None:
             raise ValueError("Mode bibliothèque inactif")
@@ -1122,43 +1162,90 @@ class WorkspaceServer(ThreadingHTTPServer):
     def open_library_workspace(self, workspace_id, expected_generation):
         if self.library is None:
             raise ValueError("Mode bibliothèque inactif")
-        with self.lock:
+        with self.workspace_lifecycle_lock:
             if (self.active_workspace_id is not None and
                     self.active_workspace_id != workspace_id):
                 raise ValueError("Une autre enquête est déjà active")
             workspace, entry, generation = self.library.open(
                 workspace_id, expected_generation)
             if self.active_workspace_id is None:
-                previous = self.workspace
+                # INVARIANT: validation and export target the candidate directly;
+                # no concurrent request can observe a half-open self.workspace.
+                self.bridge_call(["export"], workspace=workspace)
+                self.context(workspace=workspace)
                 self.workspace = workspace
-                try:
-                    # CONTRACT: l'ouverture valide aussi le pipeline C existant ;
-                    # le serveur Web ne reconstruit aucune projection lui-même.
-                    self.bridge_call(["export"])
-                    self.context()
-                except Exception:
-                    self.workspace = previous
-                    raise
                 self.active_workspace_id = workspace_id
             self.library_generation = generation
         return {"contract": "labfy.web_library.open.v1",
                 "workspace_id": workspace_id, "title": entry["title"],
                 "state": "READY", "generation": generation}
 
+    def close_library_workspace(self, workspace_id, expected_generation,
+                                idempotency_key, human_confirmed):
+        if self.library is None:
+            raise ValueError("Mode bibliothèque inactif")
+        try:
+            key = str(uuid.UUID(idempotency_key))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise TypeError("Clé d'idempotence de fermeture invalide") from error
+        intent = {"workspace_id": workspace_id,
+                  "expected_generation": expected_generation,
+                  "human_confirmed": human_confirmed}
+        digest = self._agent_operation_digest(intent)
+        with self.workspace_lifecycle_lock:
+            replay = self.library_close_replays.get(key)
+            if replay is not None:
+                if replay[0] != digest:
+                    raise ValueError("Clé d'idempotence déjà utilisée pour une autre fermeture")
+                return {**replay[1], "replayed": True}
+            if human_confirmed is not True:
+                raise PermissionError("Confirmation humaine requise")
+            if self.active_workspace_id is None:
+                raise ValueError("Aucune enquête active")
+            if workspace_id != self.active_workspace_id:
+                raise PermissionError("Workspace différent du workspace actif")
+            if expected_generation != self.library_generation:
+                raise ValueError("Projection de bibliothèque périmée")
+            scope = self.agent_scope()
+            if self.agent_runtime is not None:
+                self.agent_runtime.cancel_scope(scope, timeout=5.0)
+            with self.agent_operation_lock:
+                mission = self.agent_missions.get(workspace_id)
+                if mission is not None and mission["state"] == "ACTIVE":
+                    mission["state"] = "CANCELLED"
+            # INVARIANT: only after every owned turn is terminal may the active
+            # workspace identity and filesystem root become inactive together.
+            self.active_workspace_id = None
+            self.workspace = self.inactive_workspace
+            response = {
+                "contract": "labfy.web_library.close.v1",
+                "workspace_id": workspace_id,
+                "state": "CLOSED",
+                "active_workspace_id": None,
+                "generation": self.library_generation,
+                "replayed": False,
+            }
+            self.library_close_replays[key] = (digest, response)
+            return response
+
     def upload_mutex(self, upload_id):
         """Return the process-local owner lock for one persisted upload."""
         with self.upload_lock:
             return self.upload_mutexes.setdefault(upload_id, threading.Lock())
 
-    @property
-    def context_path(self):
-        generic = self.workspace / ".labfy" / "runtime" / "workspace.json"
-        specimen = self.workspace / ".labfy" / "runtime" / "specimen.json"
+    def _context_path(self, workspace):
+        generic = workspace / ".labfy" / "runtime" / "workspace.json"
+        specimen = workspace / ".labfy" / "runtime" / "specimen.json"
         return generic if generic.is_file() else specimen
 
-    def context(self):
-        context_path = self.context_path
-        database = self.workspace / "Enquete.sqlite"
+    @property
+    def context_path(self):
+        return self._context_path(self.workspace)
+
+    def context(self, workspace=None):
+        workspace = self.workspace if workspace is None else Path(workspace).resolve()
+        context_path = self._context_path(workspace)
+        database = workspace / "Enquete.sqlite"
         if not context_path.is_file():
             if database.exists():
                 raise ValueError("Espace incomplet : base présente sans manifeste")
@@ -1173,9 +1260,7 @@ class WorkspaceServer(ThreadingHTTPServer):
         return value
 
     def agent_scope(self):
-        context = self.context()
-        identity = context.get("investigation_id") if context else "EMPTY"
-        return f"{self.config_id}:{self.active_workspace_id or identity}"
+        return f"{self.config_id}:{self.agent_workspace_id()}"
 
     def _agent_read_export(self, name, contracts):
         path = self.workspace / name
@@ -1219,17 +1304,24 @@ class WorkspaceServer(ThreadingHTTPServer):
             node for node in nodes
             if query in json.dumps(node, ensure_ascii=False).casefold()
         ]
-        if not matched:
-            matched = nodes[:1]
+        context = self.context()
+        investigation_matches = []
+        if context is not None and query in context.get("title", "").casefold():
+            investigation_matches.append({
+                "object_kind": "investigation",
+                "workspace_id": self.agent_workspace_id(),
+                "label": context["title"],
+            })
         return {
-            "matches": [
+            "matches": investigation_matches + [
                 {
                     "object_id": node["id"],
                     "label": node.get("label", node["id"]),
                 }
-                for node in matched[:8]
+                for node in matched[:8 - len(investigation_matches)]
             ],
-            "object_refs": [self._agent_ref(node) for node in matched[:8]],
+            "object_refs": [self._agent_ref(node)
+                            for node in matched[:8 - len(investigation_matches)]],
         }
 
     def _agent_get_node(self, arguments, _key):
@@ -1337,9 +1429,10 @@ class WorkspaceServer(ThreadingHTTPServer):
         self.bridge_call(["export"], timeout=15)
         return json.loads(output)
 
-    def bridge_call(self, arguments, timeout=8):
+    def bridge_call(self, arguments, timeout=8, workspace=None):
+        workspace = self.workspace if workspace is None else Path(workspace).resolve()
         command = [str(self.bridge), arguments[0], "--workspace",
-                   str(self.workspace), *arguments[1:]]
+                   str(workspace), *arguments[1:]]
         environment = os.environ.copy()
         if self.research_fixture_authority is not None:
             environment["LABFY_RESEARCH_FIXTURE_AUTHORITY"] = \
@@ -1609,6 +1702,37 @@ class Handler(BaseHTTPRequestHandler):
                 not isinstance(value["expected_generation"], int) or
                 isinstance(value["expected_generation"], bool)):
             raise TypeError("Demande d'ouverture de bibliothèque invalide")
+        return value
+
+    def _library_register_body(self):
+        value = self._json_body()
+        if (not isinstance(value, dict) or set(value) != {
+                "candidate_id", "expected_generation", "idempotency_key",
+                "human_confirmed"} or
+                not isinstance(value["candidate_id"], str) or
+                not 0 < len(value["candidate_id"]) <= 256 or
+                not isinstance(value["expected_generation"], int) or
+                isinstance(value["expected_generation"], bool) or
+                not isinstance(value["idempotency_key"], str) or
+                value["human_confirmed"] is not True):
+            raise TypeError("Demande d'enregistrement invalide")
+        try:
+            uuid.UUID(value["idempotency_key"])
+        except ValueError as error:
+            raise TypeError("Clé d'idempotence invalide") from error
+        return value
+
+    def _library_close_body(self):
+        value = self._json_body()
+        if (not isinstance(value, dict) or set(value) != {
+                "workspace_id", "expected_generation", "idempotency_key",
+                "human_confirmed"} or
+                not isinstance(value["workspace_id"], str) or
+                not isinstance(value["expected_generation"], int) or
+                isinstance(value["expected_generation"], bool) or
+                not isinstance(value["idempotency_key"], str) or
+                not isinstance(value["human_confirmed"], bool)):
+            raise TypeError("Demande de fermeture invalide")
         return value
 
     def _agent_operation_body(self, operation):
@@ -1912,8 +2036,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
                 return
             try:
+                workspace_id = self.server.agent_workspace_id()
+                changes = self.server.code_changes.list_changes()
+                if self.server.library is not None:
+                    changes = [item for item in changes
+                               if self.server.code_change_turns.get(
+                                   item.get("change_id"), {}).get("workspace_id") ==
+                               workspace_id]
                 self._json(HTTPStatus.OK, {"contract": "labfy.code_change_list.v1",
-                    "changes": self.server.code_changes.list_changes()})
+                    "changes": changes})
             except (CodeChangeError, OSError, ValueError) as error:
                 self._error(HTTPStatus.CONFLICT, "code_changes_unavailable", str(error))
         elif path.startswith("/api/v1/code-changes/") and path.endswith("/diff"):
@@ -1925,6 +2056,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._error(HTTPStatus.NOT_FOUND, "route_unknown", "Route inconnue")
                 return
             try:
+                self.server.code_change_turn(parts[4])
                 difference = self.server.code_changes.get_diff(parts[4])
                 self._json(HTTPStatus.OK, {"contract": "labfy.code_change_diff.v1",
                     **difference})
@@ -2100,6 +2232,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise TypeError("Route de décision de code invalide")
                 value = self._human_decision_body()
                 service = self.server.code_changes
+                turn_id = self.server.code_change_turn(parts[4])
                 common = {"actor": "human", "decision_id": value["decision_id"],
                           "idempotency_key": value["idempotency_key"]}
                 if parts[5] == "approve-prepare":
@@ -2107,27 +2240,23 @@ class Handler(BaseHTTPRequestHandler):
                     response = service.approve_prepare(parts[4], **common)
                     def finish_development():
                         agent.continue_development(parts[4])
-                        self.server._resume_after_tooling(
-                            self.server.code_change_turns.get(parts[4], ""))
+                        self.server._resume_after_tooling(turn_id)
                     self.server._start_tooling_task("labfy-developer-agent",
                         finish_development)
                 elif parts[5] == "reject-prepare":
                     response = service.reject_prepare(parts[4], reason=value["reason"], **common)
-                    self.server._resume_after_tooling(
-                        self.server.code_change_turns.get(parts[4], ""))
+                    self.server._resume_after_tooling(turn_id)
                 elif parts[5] == "approve-apply":
                     def finish_apply():
                         service.approve_apply(parts[4], **common)
-                        self.server._resume_after_tooling(
-                            self.server.code_change_turns.get(parts[4], ""))
+                        self.server._resume_after_tooling(turn_id)
                     self.server._start_tooling_task("labfy-code-apply",
                         finish_apply)
                     response = {"contract": "labfy.code_change_apply_task.v1",
                                 "change_id": parts[4], "state": "ACCEPTED"}
                 elif parts[5] == "reject-apply":
                     response = service.reject_apply(parts[4], reason=value["reason"], **common)
-                    self.server._resume_after_tooling(
-                        self.server.code_change_turns.get(parts[4], ""))
+                    self.server._resume_after_tooling(turn_id)
                 else:
                     raise TypeError("Action de code inconnue")
                 self._json(HTTPStatus.ACCEPTED, response)
@@ -2189,6 +2318,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, response)
                 return
             if path == "/api/v1/agent-runtime/turns":
+                self.server.agent_workspace_id()
                 if self.server.agent_runtime is None:
                     raise AgentRuntimeError("Modèle local indisponible", status=503)
                 response = self.server.agent_runtime.start_turn(
@@ -2201,6 +2331,7 @@ class Handler(BaseHTTPRequestHandler):
                 parts = path.split("/")
                 if len(parts) != 7:
                     raise ValueError("Route de reprise runtime invalide")
+                self.server.agent_workspace_id()
                 self._body(set())
                 self._json(HTTPStatus.ACCEPTED,
                            self.server.resume_agent_runtime(parts[5]))
@@ -2210,6 +2341,7 @@ class Handler(BaseHTTPRequestHandler):
                 parts = path.split("/")
                 if len(parts) != 7:
                     raise ValueError("Route d’annulation runtime invalide")
+                self.server.agent_workspace_id()
                 if self.server.agent_runtime is None:
                     raise AgentRuntimeError("Modèle local indisponible", status=503)
                 self._body(set())
@@ -2237,10 +2369,29 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK if response["replayed"] else HTTPStatus.CREATED,
                            response)
                 return
+            if path == "/api/v1/library/discover-existing":
+                self._body(set())
+                self._json(HTTPStatus.OK,
+                           self.server.discover_existing_library_workspaces())
+                return
+            if path == "/api/v1/library/register-existing":
+                value = self._library_register_body()
+                response = self.server.register_existing_library_workspace(
+                    value["candidate_id"], value["expected_generation"],
+                    value["idempotency_key"], value["human_confirmed"])
+                self._json(HTTPStatus.OK if response["replayed"]
+                           else HTTPStatus.CREATED, response)
+                return
             if path == "/api/v1/library/open":
                 value = self._library_open_body()
                 self._json(HTTPStatus.OK, self.server.open_library_workspace(
                     value["workspace_id"], value["expected_generation"]))
+                return
+            if path == "/api/v1/library/close":
+                value = self._library_close_body()
+                self._json(HTTPStatus.OK, self.server.close_library_workspace(
+                    value["workspace_id"], value["expected_generation"],
+                    value["idempotency_key"], value["human_confirmed"]))
                 return
             if path == "/api/v1/workspace":
                 if self.server.library is not None:

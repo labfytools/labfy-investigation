@@ -113,6 +113,21 @@ textarea:focus-visible,
   border: 1px solid var(--border);
   border-radius: 0.75rem;
 }
+.library-discovery {
+  margin-top: 2rem;
+}
+.library-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.library-section-heading h2 {
+  margin-bottom: 0.5rem;
+}
+#library-discovery-status {
+  color: var(--muted);
+}
 .library-create h2,
 .library-create p {
   margin-top: 0;
@@ -150,6 +165,10 @@ textarea:focus-visible,
 }
 .workspace-card button {
   width: 100%;
+}
+.workspace-card .candidate-state {
+  color: var(--text);
+  font-weight: 700;
 }
 .topbar {
   height: var(--top);

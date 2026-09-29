@@ -311,7 +311,10 @@ try {
   await stopServer(server);
   server = startServer(library, runtime, state, assignedPort);
   const restartedForB = await assertServerReady(server, session.origin);
-  await resumeAutomaticSessionAfterOwnedRestart(page, restartedForB, "B");
+  // WHY: a unique root URL prevents Firefox from restoring the document of the
+  // previous owned instance before GET / has established the new HttpOnly cookie.
+  await resumeAutomaticSessionAfterOwnedRestart(
+    page, `${restartedForB}/?owned_restart=B`, "B");
   assert.equal(await page.$eval("#workspace-list", (item) => item.children.length), 1);
   assert.equal(await page.$eval(".workspace-card h3", (item) => item.textContent), workspaceATitle);
   assert.match(await page.$eval(".workspace-card p", (item) => item.textContent), /Prête à ouvrir/);
@@ -347,7 +350,8 @@ try {
   await stopServer(server);
   server = startServer(library, runtime, state, assignedPort);
   const restartedForA = await assertServerReady(server, session.origin);
-  await resumeAutomaticSessionAfterOwnedRestart(page, restartedForA, "C");
+  await resumeAutomaticSessionAfterOwnedRestart(
+    page, `${restartedForA}/?owned_restart=C`, "C");
   assert.equal(await page.$eval("#workspace-list", (item) => item.children.length), 2);
   await openWorkspace(page, workspaceAId);
   assert.equal(await page.$eval("#investigation-title", (item) => item.textContent),

@@ -150,6 +150,7 @@ let evidenceOpenSequence = 0;
 let openedEvidenceId = null;
 let libraryGeneration = null;
 let pendingCreateIntent = null;
+const pendingRegisterIntents = new Map();
 let workspaceContext = null;
 let workspaceAbortController = null;
 let workspaceReadTail = Promise.resolve();
@@ -168,6 +169,7 @@ function invalidateWorkspaceContext() {
   workspaceAbortController?.abort();
   workspaceAbortController = null;
   workspaceContext = null;
+  workspaceReadTail = Promise.resolve();
   eventSource?.close();
   eventSource = null;
   for (const timer of refreshTimers) clearInterval(timer);
@@ -191,6 +193,24 @@ function invalidateWorkspaceContext() {
   byId("agent-proposal-list")?.replaceChildren();
   byId("agent-toolbox-list")?.replaceChildren();
   byId("agent-code-changes-list")?.replaceChildren();
+  agentCalling = false;
+  byId("agent-send").disabled = true;
+  byId("agent-resume").disabled = true;
+  byId("agent-cancel").disabled = true;
+  byId("agent-status").textContent = "Ouvrez une enquête pour utiliser Qwen.";
+  byId("agent-runtime-detail").textContent = "Aucun contexte d’enquête actif";
+  byId("agent-mission-state").textContent = "Aucune mission active.";
+  byId("agent-mission-goal").textContent = "—";
+  byId("agent-mission-scope").textContent = "—";
+  byId("agent-mission-risk").textContent = "—";
+  byId("agent-mission-profile").textContent = "—";
+  byId("agent-mission-contacts").textContent = "—";
+  byId("agent-mission-tools").textContent = "—";
+  byId("agent-mission-elapsed").textContent = "—";
+  byId("agent-mission-start").disabled = true;
+  byId("agent-mission-cancel").disabled = true;
+  byId("agent-toolbox-state").textContent = "Aucun workspace actif.";
+  byId("agent-code-changes-state").textContent = "Aucun workspace actif.";
 }
 
 function beginWorkspaceContext(workspaceId, generation) {
@@ -2640,7 +2660,7 @@ function renderLibrary(value) {
     const active = value.active_workspace_id === entry.workspace_id;
     const anotherActive = value.active_workspace_id !== null && !active;
     state.textContent = active ? "Ouverte dans cette session" : anotherActive
-      ? "Disponible après redémarrage du poste local"
+      ? "Fermez d’abord l’enquête courante"
       : entry.state === "READY" ? "Prête à ouvrir" : `État : ${entry.state}`;
     const open = document.createElement("button");
     open.type = "button";
@@ -2656,12 +2676,90 @@ function renderLibrary(value) {
     `${value.entries.length} enquête(s) · génération ${value.generation}`;
 }
 
+function renderExistingCandidates(value) {
+  if (value.contract !== "labfy.web_library.discovery.v1" ||
+      !Array.isArray(value.candidates) || !Number.isInteger(value.generation))
+    throw new Error("Contrat de découverte inattendu");
+  libraryGeneration = value.generation;
+  pendingRegisterIntents.clear();
+  const list = byId("existing-list");
+  list.replaceChildren();
+  for (const candidate of value.candidates) {
+    const item = document.createElement("li");
+    item.className = "workspace-card existing-candidate";
+    const heading = document.createElement("h3");
+    heading.textContent = candidate.display_name;
+    const title = document.createElement("p");
+    title.textContent = candidate.title ? `Titre détecté : ${candidate.title}` :
+      "Titre détecté : indisponible";
+    const state = document.createElement("p");
+    state.className = "candidate-state";
+    state.textContent = candidate.state;
+    const reason = document.createElement("p");
+    reason.textContent = candidate.reason;
+    item.append(heading, title, state, reason);
+    if (["READY_TO_REGISTER", "NEEDS_METADATA_MIGRATION"].includes(candidate.state)) {
+      const register = document.createElement("button");
+      register.type = "button";
+      register.textContent = candidate.state === "NEEDS_METADATA_MIGRATION"
+        ? "Préparer les métadonnées" : "Enregistrer";
+      register.dataset.candidateId = candidate.candidate_id;
+      register.addEventListener("click", () => void registerExisting(candidate, register));
+      item.append(register);
+    }
+    list.append(item);
+  }
+  byId("library-discovery-status").textContent = value.candidates.length === 0
+    ? "Aucun dossier existant détecté dans la bibliothèque configurée."
+    : `${value.candidates.length} dossier(s) examiné(s).`;
+}
+
+async function discoverExisting() {
+  const value = await libraryRequest("/api/v1/library/discover-existing", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Labfy-CSRF": csrfToken },
+    body: "{}",
+  });
+  renderExistingCandidates(value);
+}
+
+async function registerExisting(candidate, button) {
+  if (candidate.state === "NEEDS_METADATA_MIGRATION" && !window.confirm(
+    "Préparer les métadonnées Labfy ?\n\n" +
+    "La base est compatible. Le manifeste sera créé atomiquement et la base restera inchangée.",
+  )) return;
+  button.disabled = true;
+  let intent = pendingRegisterIntents.get(candidate.candidate_id);
+  if (!intent) {
+    intent = newUuid();
+    pendingRegisterIntents.set(candidate.candidate_id, intent);
+  }
+  try {
+    const registered = await libraryRequest("/api/v1/library/register-existing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Labfy-CSRF": csrfToken },
+      body: JSON.stringify({ candidate_id: candidate.candidate_id,
+        expected_generation: libraryGeneration, idempotency_key: intent,
+        human_confirmed: true }),
+    });
+    if (registered.contract !== "labfy.web_library.workspace.v1")
+      throw new Error("Contrat d’enregistrement inattendu");
+    libraryGeneration = registered.generation;
+    await refreshLibrary();
+    await discoverExisting();
+  } catch (error) {
+    byId("library-discovery-status").textContent = error.message;
+    button.disabled = false;
+  }
+}
+
 async function refreshLibrary() {
   const value = await libraryRequest("/api/v1/library", { cache: "no-store" });
   renderLibrary(value);
   byId("library-load").hidden = true;
   byId("workspace-create").hidden = false;
   byId("library-list-section").hidden = false;
+  byId("existing-discovery").hidden = false;
   return value;
 }
 
@@ -2674,6 +2772,7 @@ async function showLibrary({ focus = false, load = true } = {}) {
   byId("library-home").hidden = false;
   byId("workspace-create").hidden = !load;
   byId("library-list-section").hidden = !load;
+  byId("existing-discovery").hidden = !load;
   byId("library-load").hidden = load;
   byId("library-title").textContent = "Bibliothèque d’enquêtes";
   byId("library-connection").textContent = load
@@ -2713,6 +2812,8 @@ async function activateWorkspace(opened) {
   byId("library-home").hidden = true;
   byId("workbench-shell").hidden = false;
   byId("home-button").hidden = false;
+  byId("close-workspace").hidden = false;
+  byId("close-workspace").disabled = false;
   byId("investigation-title").textContent = opened.title;
   byId("mode-badge").textContent = "Espace local · contrôles locaux";
   byId("open-import").disabled = false;
@@ -2763,6 +2864,7 @@ async function activateLegacyWorkspace(session) {
   byId("library-home").hidden = true;
   byId("workbench-shell").hidden = false;
   byId("home-button").hidden = true;
+  byId("close-workspace").hidden = true;
   byId("investigation-title").textContent = session?.title ?? "Enquête locale";
   byId("open-import").disabled = !operationalMode || !workspaceReady;
   reportDraftKey = `labfy-report-draft:${workspaceId}:${generation}`;
@@ -2844,6 +2946,31 @@ async function openWorkspace(workspaceId, button) {
   }
 }
 
+async function closeWorkspace(button) {
+  if (!workspaceContext) return;
+  button.disabled = true;
+  byId("connection").textContent = "Fermeture…";
+  try {
+    const closed = await libraryRequest("/api/v1/library/close", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Labfy-CSRF": csrfToken },
+      body: JSON.stringify({ workspace_id: workspaceContext.workspaceId,
+        expected_generation: libraryGeneration, idempotency_key: newUuid(),
+        human_confirmed: true }),
+    });
+    if (closed.contract !== "labfy.web_library.close.v1" ||
+        closed.active_workspace_id !== null)
+      throw new Error("Contrat de fermeture inattendu");
+    libraryGeneration = closed.generation;
+    invalidateWorkspaceContext();
+    resetWorkspacePresentation();
+    await showLibrary({ focus: true, load: true });
+  } catch (error) {
+    byId("connection").textContent = error.message;
+    button.disabled = false;
+  }
+}
+
 function configureApplication() {
   configureControls();
   configureResizableLayout();
@@ -2890,6 +3017,8 @@ function configureApplication() {
     }
   });
   byId("home-button").addEventListener("click", () => void showLibrary({ focus: true }));
+  byId("close-workspace").addEventListener("click", (event) =>
+    void closeWorkspace(event.currentTarget));
   byId("library-load").addEventListener("click", async (event) => {
     const button = event.currentTarget;
     button.disabled = true;
@@ -2898,6 +3027,18 @@ function configureApplication() {
       await refreshLibrary();
     } catch (error) {
       byId("library-connection").textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  byId("library-discover").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    byId("library-discovery-status").textContent = "Recherche…";
+    try {
+      await discoverExisting();
+    } catch (error) {
+      byId("library-discovery-status").textContent = error.message;
     } finally {
       button.disabled = false;
     }
